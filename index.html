@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Cahier numérique de SVT</title>
+<style>
+:root{--bg:#f3f7f5;--card:#fff;--text:#203037;--muted:#6b7b7d;--a:#397466;--a2:#e4f1ec;--b:#d8e3df}
+*{box-sizing:border-box}
+body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:radial-gradient(circle at 10% 5%,#dceee7aa,transparent 28%),radial-gradient(circle at 95% 15%,#e2ebf6aa,transparent 25%),var(--bg);color:var(--text);min-height:100vh}
+header{position:sticky;top:0;z-index:5;background:#ffffffed;backdrop-filter:blur(10px);border-bottom:1px solid var(--b)}
+.head{max-width:1100px;margin:auto;padding:14px 20px;display:flex;align-items:center;gap:12px}
+.brand{display:flex;gap:11px;align-items:center}.logo{width:45px;height:45px;border-radius:14px;background:var(--a2);display:grid;place-items:center;font-size:23px}
+.brand h1{font-size:18px;margin:0}.brand p{font-size:12px;color:var(--muted);margin:3px 0}
+main{max-width:1000px;margin:auto;padding:26px 20px 50px}
+.hero,.session,.empty{background:#ffffffed;border:1px solid var(--b);border-radius:20px;padding:20px;box-shadow:0 6px 20px #23413b0b}
+.hero{border-radius:22px;margin-bottom:18px}.hero h2{font-size:29px;margin:7px 0}
+.eyebrow{font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:var(--a);font-weight:800}
+.muted{color:var(--muted);line-height:1.55}
+.session{margin:14px 0}.session h3{margin:7px 0 15px}
+.problem{background:#edf6f2;border-left:4px solid var(--a);border-radius:10px;padding:15px;margin-top:14px;line-height:1.55}
+.section-title{margin:28px 0 12px}
+.small{font-size:12px;color:var(--muted);font-weight:750;letter-spacing:.04em}
+.btn{display:inline-flex;align-items:center;gap:7px;margin-top:9px;padding:10px 13px;border-radius:10px;border:1px solid var(--b);background:#fff;color:var(--text);font-weight:700;text-decoration:none}
+.btn:hover{border-color:#9dbdb5}
+.pdf-card{background:#f4faf7;border:1px solid #cfe4dc;border-radius:12px;padding:12px;margin-top:10px}
+.pdf-title{font-size:12px;color:#42645c;font-weight:800}
+footer{text-align:center;color:var(--muted);font-size:12px;padding:0 20px 35px}
+.error{background:#fff0ef;border-color:#efc0ba}
+@media(max-width:600px){main{padding:18px 12px 40px}.hero{padding:17px}.hero h2{font-size:24px}}
+</style>
+</head>
+<body>
+<header><div class="head">
+  <div class="brand"><div class="logo">🧪</div><div><h1>Cahier numérique de SVT</h1><p>John Legent · Professeur de SVT</p><p id="label">Chargement…</p></div></div>
+</div></header>
+<main id="content"></main>
+<footer>Cahier numérique de SVT · John Legent · accès réservé à la classe.</footer>
+
+<script src="config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+const sb=supabase.createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY,{auth:{persistSession:true,autoRefreshToken:true}});
+const params=new URLSearchParams(location.search);
+const code=(params.get("code")||"").trim().toLowerCase();
+
+/*
+  Codes utilisés dans les QR codes.
+  Ils sont volontairement opaques : les élèves ne voient pas le nom
+  de la classe dans l'adresse.
+*/
+const CLASS_CODES={
+  "svt6e1-7kq4":"6e1",
+  "svt6e2-m8p2":"6e2",
+  "svt6e3-r5x9":"6e3",
+  "svt6e4-n3v7":"6e4",
+  "svt6e5-t6h2":"6e5",
+  "svt5e1-q9w4":"5e1",
+  "svt5e3-k2m8":"5e3",
+  "svt5e5-p7r3":"5e5",
+  "svt3e2-x4n6":"3e2",
+  "svt3e3-b8q5":"3e3"
+};
+
+const classe=CLASS_CODES[code]||"";
+const content=document.getElementById("content");
+const label=document.getElementById("label");
+
+const esc=x=>String(x??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#039;"}[m]));
+const text=x=>x==null?"":String(x);
+
+function empty(){return {chapitres:[]}}
+
+function normalizeSession(s){
+  const x=s&&typeof s==="object"?s:{};
+  return {
+    titre:text(x.titre||x.title||"Séance"),
+    activite:text(x.activite||x.activity),
+    correction:text(x.correction),
+    bilan:text(x.bilan),
+    pdfActivite:text(x.pdfActivite||x.pdf_activite||x.activityPdf||x.pdf||x.document),
+    pdfCorrection:text(x.pdfCorrection||x.pdf_correction||x.correctionPdf)
+  };
+}
+
+function normalizeChapter(ch){
+  const x=ch&&typeof ch==="object"?ch:{};
+  const raw=Array.isArray(x.seances)?x.seances:(Array.isArray(x.sessions)?x.sessions:[]);
+  return {
+    titre:text(x.titre||x.title||"Chapitre"),
+    problematique:text(x.problematique||x.probleme||x.problem),
+    seances:raw.map(normalizeSession),
+    schema:text(x.schema||x.schemaBilan||x.schema_bilan),
+    schemaPdf:text(x.schemaPdf||x.schema_pdf),
+    memo:text(x.memo||x.memorisation||x.ficheMemo),
+    memoPdf:text(x.memoPdf||x.memo_pdf)
+  };
+}
+
+async function loadClass(){
+  const {data,error}=await sb.from("Cahier").select("classe,contenu").eq("classe",classe).maybeSingle();
+  if(error)throw new Error(error.message);
+  if(!data)return empty();
+  let x=data.contenu;
+  if(!x)x=empty();
+  if(Array.isArray(x))x={chapitres:x};
+  if(!Array.isArray(x.chapitres))x.chapitres=[];
+  x.chapitres=x.chapitres.map(normalizeChapter);
+  return x;
+}
+
+function pdfButton(url,label){
+  if(!url)return "";
+  return `<div class="pdf-card"><div class="pdf-title">📄 ${esc(label)}</div><a class="btn" href="${esc(url)}" target="_blank" rel="noopener">Ouvrir le PDF</a></div>`;
+}
+
+function start(){
+  if(!classe){
+    label.textContent="Accès par QR code";
+    content.innerHTML=`<section class="hero error">
+      <span class="eyebrow">Cahier numérique</span>
+      <h2>🔒 Accès non disponible</h2>
+      <p class="muted">Utilise le QR code ou le lien transmis par ton professeur pour accéder au cahier de ta classe.</p>
+    </section>`;
+    return;
+  }
+  label.textContent=`Classe ${classe}`;
+  home();
+}
+
+async function home(){
+  try{
+    const x=await loadClass();
+    content.innerHTML=`<section class="hero">
+      <span class="eyebrow">Cahier de SVT</span>
+      <h2>📚 ${esc(classe)}</h2>
+      <p class="muted">Bienvenue dans le cahier numérique de ta classe. Les chapitres, activités, corrections et documents sont regroupés ici.</p>
+    </section>
+    <h2 class="section-title">Nos chapitres</h2>
+    <div>${x.chapitres.map((ch,i)=>`
+      <article class="session" style="cursor:pointer" onclick="chapter(${i})">
+        <div class="small">CHAPITRE ${i+1}</div>
+        <h3>${esc(ch.titre)}</h3>
+        <p class="muted">${esc(ch.problematique||"")}</p>
+      </article>`).join("")||`
+      <section class="empty"><h3>Aucun chapitre pour le moment.</h3><p class="muted">Le contenu apparaîtra ici lorsqu'il sera publié.</p></section>`}
+    </div>`;
+  }catch(e){errorPage(e.message)}
+}
+
+async function chapter(i){
+  try{
+    const x=await loadClass();
+    const ch=x.chapitres[i];
+    if(!ch){await home();return;}
+
+    content.innerHTML=`<button class="btn" onclick="home()">← ${esc(classe)}</button>
+    <section class="hero" style="margin-top:14px">
+      <span class="eyebrow">Chapitre ${i+1}</span>
+      <h2>${esc(ch.titre)}</h2>
+      ${ch.problematique?`<div class="problem"><strong>🎯 Problématique</strong><br>${esc(ch.problematique)}</div>`:""}
+    </section>
+
+    <h2 class="section-title">📖 Séances</h2>
+    ${(ch.seances||[]).map((s,n)=>`
+      <article class="session">
+        <div class="small">SÉANCE ${n+1}</div>
+        <h3>${esc(s.titre)}</h3>
+        ${s.activite?`<p><strong>Activité</strong><br>${esc(s.activite)}</p>`:""}
+        ${pdfButton(s.pdfActivite,"PDF de l'activité")}
+        ${s.correction?`<p><strong>Correction</strong><br>${esc(s.correction)}</p>`:""}
+        ${pdfButton(s.pdfCorrection,"PDF de la correction")}
+        ${s.bilan?`<p><strong>Bilan</strong><br>${esc(s.bilan)}</p>`:""}
+      </article>`).join("")||`<p class="muted">Aucune séance pour le moment.</p>`}
+
+    <section class="hero">
+      <span class="eyebrow">Fin du chapitre</span>
+      <h2>🧠 Schéma-bilan</h2>
+      ${pdfButton(ch.schemaPdf,"Voir le schéma-bilan")}
+      ${!ch.schemaPdf&&ch.schema?`<p class="muted">${esc(ch.schema)}</p>`:""}
+    </section>
+
+    <section class="hero">
+      <span class="eyebrow">À mémoriser</span>
+      <h2>📝 Fiche de mémorisation</h2>
+      ${pdfButton(ch.memoPdf,"Ouvrir la fiche de mémorisation")}
+      ${!ch.memoPdf&&ch.memo?`<p class="muted">${esc(ch.memo)}</p>`:""}
+    </section>`;
+  }catch(e){errorPage(e.message)}
+}
+
+function errorPage(msg){
+  content.innerHTML=`<section class="hero error">
+    <h2>⚠️ Impossible de charger le cahier</h2>
+    <p class="muted">${esc(msg)}</p>
+    <button class="btn" onclick="start()">Réessayer</button>
+  </section>`;
+}
+
+start();
+</script>
+</body>
+</html>
