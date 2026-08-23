@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Cahier numérique de SVT</title>
+<style>
+:root{--bg:#f3f7f5;--card:#fff;--text:#203037;--muted:#6b7b7d;--a:#397466;--a2:#e4f1ec;--b:#d8e3df;--prof:#fff7e7}
+*{box-sizing:border-box}body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:radial-gradient(circle at 10% 5%,#dceee7aa,transparent 28%),radial-gradient(circle at 95% 15%,#e2ebf6aa,transparent 25%),var(--bg);color:var(--text)}
+header{position:sticky;top:0;z-index:5;background:#ffffffed;backdrop-filter:blur(10px);border-bottom:1px solid var(--b)}
+.head{max-width:1100px;margin:auto;padding:14px 20px;display:flex;align-items:center;justify-content:space-between}
+.brand{display:flex;gap:11px;align-items:center}.logo{width:45px;height:45px;border-radius:14px;background:var(--a2);display:grid;place-items:center;font-size:23px}
+.brand h1{font-size:18px;margin:0}.brand p{font-size:12px;color:var(--muted);margin:3px 0}
+main{max-width:1100px;margin:auto;padding:26px 20px 50px}
+button,.btn{font:inherit;border:1px solid var(--b);background:#fff;color:var(--text);border-radius:10px;padding:9px 12px;cursor:pointer;font-weight:650;text-decoration:none}
+.hero,.card,.session,.editbox{background:#ffffffed;border:1px solid var(--b);border-radius:18px;padding:20px;box-shadow:0 6px 20px #23413b0b}
+.hero{border-radius:22px;margin-bottom:18px}.hero h2{font-size:29px;margin:7px 0}
+.eyebrow{font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:var(--a);font-weight:800}.muted{color:var(--muted);line-height:1.55}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:13px}.card{cursor:pointer}.card:hover{border-color:#9dbdb5}
+.tag{display:inline-block;padding:5px 9px;border-radius:999px;background:var(--a2);color:var(--a);font-size:11px;font-weight:800}
+.problem{background:#edf6f2;border-left:4px solid var(--a);border-radius:10px;padding:15px;margin-top:14px}
+.session{margin:12px 0}.session h3{margin-bottom:7px}.back{margin-bottom:14px}.row{display:flex;gap:8px;flex-wrap:wrap}
+.editbox{margin:12px 0;border-style:dashed}.editbox label{display:block;font-size:12px;font-weight:800;margin:8px 0 6px}
+.editbox input,.editbox textarea{width:100%;border:1px solid var(--b);border-radius:9px;padding:10px;font:inherit;margin-bottom:8px}
+.editbox textarea{min-height:80px;resize:vertical}.teacher{background:var(--prof);border-color:#ead6a8}
+.danger{background:#fff0ef;border-color:#efc0ba}.hidden{display:none!important}.notice{padding:12px;border-radius:10px;background:#eef4ff;margin:10px 0}
+.small{font-size:12px;color:var(--muted)}footer{text-align:center;color:var(--muted);font-size:12px;padding:0 20px 35px}.pdf{display:inline-flex;margin-top:8px}
+.status{font-size:12px;color:var(--muted)}.login{max-width:460px;margin:45px auto}
+</style>
+</head>
+<body>
+<header><div class="head"><div class="brand"><div class="logo">🧪</div><div><h1>Cahier numérique de SVT</h1><p id="label">Choisis ton niveau</p></div></div><button id="back" class="hidden">← Retour</button></div></header>
+<main id="content"></main><footer>Cahier numérique de SVT · contenus personnalisés par classe.</footer>
+
+<script src="config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+const sb=supabase.createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY,{auth:{persistSession:true,autoRefreshToken:true}});
+const CLASSES={"6e":["6e1","6e2","6e3","6e4","6e5"],"5e":["5e1","5e3","5e5"],"3e":["3e2","3e3"]};
+let niveau=null,classe=null,prof=new URLSearchParams(location.search).get("prof")==="1",sessionUser=null;
+const $=s=>document.querySelector(s),content=$("#content"),label=$("#label"),back=$("#back");
+const esc=x=>String(x??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#039;"}[m]));
+const attr=esc;
+function empty(){return {chapitres:[]}}
+async function loadClass(c){
+  const {data,error}=await sb.from("Cahier").select("id,classe,contenu").eq("classe",c).maybeSingle();
+  if(error){console.error(error);return empty()}
+  let x=data?.contenu;if(!x)x=empty();if(Array.isArray(x))x={chapitres:x};x.chapitres??=[];return x
+}
+async function saveClass(c,x){
+  if(!sessionUser){alert("Connexion professeur requise pour enregistrer.");return false}
+  const {data:old,error:e1}=await sb.from("Cahier").select("id").eq("classe",c).maybeSingle();
+  if(e1){alert("Lecture Supabase impossible : "+e1.message);return false}
+  let r=old?.id?await sb.from("Cahier").update({contenu:x}).eq("id",old.id):await sb.from("Cahier").insert({classe:c,contenu:x});
+  if(r.error){alert("Enregistrement impossible : "+r.error.message);return false}return true
+}
+function home(){
+  niveau=null;classe=null;label.textContent="Choisis ton niveau";back.classList.add("hidden");
+  content.innerHTML=`<section class="hero" style="text-align:center;padding:42px 28px"><span class="eyebrow">Bienvenue</span><h2>🧪 Ton cahier de SVT</h2><p class="muted">Choisis ton niveau pour retrouver le cahier de ta classe.</p></section>
+  <div class="grid">${Object.entries(CLASSES).map(([n,a])=>`<article class="card" onclick="openNiveau('${n}')"><span class="tag">Niveau</span><h3>${n}</h3><p class="muted">${a.length} classe(s) · Accéder →</p></article>`).join("")}</div>`
+}
+async function openNiveau(n){
+  niveau=n;classe=null;label.textContent=n;back.classList.remove("hidden");
+  content.innerHTML=`<button class="back" onclick="home()">← Accueil</button><section class="hero"><span class="eyebrow">${n}</span><h2>Choisir ma classe</h2><p class="muted">Chaque classe dispose de son propre cahier.</p></section><div id="classes" class="grid"><p class="muted">Chargement…</p></div>`;
+  let html="";
+  for(const c of CLASSES[n]){const x=await loadClass(c);html+=`<article class="card" onclick="openClasse('${c}')"><span class="tag">Classe</span><h3>${c}</h3><p class="muted">${x.chapitres.length} chapitre(s) · Ouvrir →</p></article>`}
+  $("#classes").innerHTML=html
+}
+async function openClasse(c){classe=c;label.textContent=c;await classHome()}
+async function classHome(){
+  const x=await loadClass(classe);
+  content.innerHTML=`<button class="back" onclick="openNiveau('${niveau}')">← ${niveau}</button>
+  <section class="hero"><span class="eyebrow">${classe}</span><h2>Bienvenue dans ton cahier</h2><p class="muted">Les activités, corrections, documents et révisions sont directement intégrés dans les chapitres.</p></section>
+  <div class="grid"><article class="card" onclick="chapters()"><span class="tag">Cours</span><h3>📚 Nos chapitres</h3><p class="muted">${x.chapitres.length} chapitre(s)</p></article></div>`
+}
+async function chapters(){
+  const x=await loadClass(classe);
+  content.innerHTML=`<button class="back" onclick="classHome()">← ${classe}</button><section class="hero"><span class="eyebrow">${classe}</span><h2>Nos chapitres</h2><p class="muted">Le cahier se complète au fur et à mesure des séances.</p></section>
+  ${prof&&sessionUser?'<div class="row"><button onclick="newChapter()">➕ Ajouter un chapitre</button><button onclick="logout()">Se déconnecter</button></div>':""}
+  <div class="grid" style="margin-top:14px">${x.chapitres.map((ch,i)=>`<article class="card" onclick="chapter(${i})"><span class="tag">Chapitre ${i+1}</span><h3>${esc(ch.titre||"Nouveau chapitre")}</h3><p class="muted">${esc(ch.problematique||"Problématique à construire")}</p></article>`).join("")||'<section class="hero"><h3>Aucun chapitre pour le moment.</h3><p class="muted">Le contenu apparaîtra ici dès qu’il sera ajouté.</p></section>'}</div>`
+}
+async function chapter(i){
+  const x=await loadClass(classe),ch=x.chapitres[i];if(!ch)return;
+  content.innerHTML=`<button class="back" onclick="chapters()">← Tous les chapitres</button>${prof&&sessionUser?editor(i,ch):reader(i,ch)}`
+}
+function reader(i,ch){
+  return `<section class="hero"><span class="eyebrow">Chapitre ${i+1}</span><h2>${esc(ch.titre||"Chapitre")}</h2><div class="problem"><strong>🎯 Problématique</strong><br>${esc(ch.problematique||"")}</div></section>
+  <section><h2>📖 Séances</h2>${(ch.seances||[]).map((s,n)=>`<article class="session"><div class="small">SÉANCE ${n+1}</div><h3>${esc(s.titre||"Séance")}</h3>
+  <p><strong>Activité</strong><br>${esc(s.activite||"")}</p><p><strong>Correction</strong><br>${esc(s.correction||"")}</p><p><strong>Bilan</strong><br>${esc(s.bilan||"")}</p>
+  ${s.pdf?`<a class="btn pdf" href="${esc(s.pdf)}" target="_blank">📄 Ouvrir le PDF</a>`:""}</article>`).join("")||'<p class="muted">Aucune séance pour le moment.</p>'}</section>
+  <section class="hero"><span class="eyebrow">Fin du chapitre</span><h2>🧠 Schéma-bilan</h2><p class="muted">${esc(ch.schema||"")}</p>${ch.schemaPdf?`<a class="btn pdf" href="${esc(ch.schemaPdf)}" target="_blank">📄 Voir le schéma-bilan</a>`:""}</section>
+  <section class="hero"><span class="eyebrow">À mémoriser</span><h2>📝 Fiche de mémorisation</h2><p class="muted">${esc(ch.memo||"")}</p>${ch.memoPdf?`<a class="btn pdf" href="${esc(ch.memoPdf)}" target="_blank">📄 Ouvrir la fiche</a>`:""}</section>`
+}
+function editor(i,ch){
+  return `<section class="hero teacher"><span class="eyebrow">Mode professeur</span><h2>✏️ Chapitre ${i+1}</h2>
+  <div class="editbox"><label>Titre</label><input id="titre" value="${attr(ch.titre)}"><label>Problématique</label><textarea id="prob">${esc(ch.problematique)}</textarea></div>
+  <h2>📖 Séances</h2><div id="ses">${(ch.seances||[]).map((s,n)=>sessionEdit(s,n)).join("")}</div>
+  <button onclick="addSession(${i})">➕ Ajouter une séance</button>
+  <div class="editbox"><label>Schéma-bilan du chapitre</label><textarea id="schema">${esc(ch.schema)}</textarea><label>PDF du schéma-bilan</label><input id="schemaPdf" value="${attr(ch.schemaPdf)}" placeholder="URL si déjà hébergé">
+  <label>Fiche de mémorisation</label><textarea id="memo">${esc(ch.memo)}</textarea><label>PDF de la fiche</label><input id="memoPdf" value="${attr(ch.memoPdf)}" placeholder="URL si déjà hébergé"></div>
+  <div class="row"><button onclick="saveChapter(${i})">💾 Enregistrer</button><button class="danger" onclick="deleteChapter(${i})">🗑️ Supprimer</button></div></section>`
+}
+function sessionEdit(s,n){
+  return `<div class="editbox"><label>Séance ${n+1} — titre</label><input class="st" value="${attr(s.titre)}">
+  <label>Activité</label><textarea class="sa">${esc(s.activite)}</textarea><label>Correction</label><textarea class="sc">${esc(s.correction)}</textarea>
+  <label>Bilan de la séance</label><textarea class="sb">${esc(s.bilan)}</textarea><label>PDF de l'activité / document</label>
+  <input class="sf" type="file" accept="application/pdf" onchange="uploadPdf(this,${n})"><input class="su" value="${attr(s.pdf)}" placeholder="Lien PDF enregistré"><span class="status" id="up${n}"></span></div>`
+}
+async function uploadPdf(input,n){
+  const f=input.files[0];if(!f)return;if(!sessionUser){alert("Connecte-toi en professeur.");return}
+  if(f.type!=="application/pdf"){alert("Choisis un PDF.");input.value="";return}
+  const path=`${classe}/${Date.now()}-${f.name.replace(/[^a-zA-Z0-9._-]/g,"_")}`;
+  $("#up"+n).textContent="Envoi…";
+  const {error}=await sb.storage.from("documents").upload(path,f,{contentType:"application/pdf",upsert:false});
+  if(error){$("#up"+n).textContent="Erreur : "+error.message;return}
+  const {data}=sb.storage.from("documents").getPublicUrl(path);
+  input.closest(".editbox").querySelector(".su").value=data.publicUrl;$("#up"+n).textContent="PDF ajouté ✓"
+}
+async function newChapter(){
+  const x=await loadClass(classe);x.chapitres.push({titre:"Nouveau chapitre",problematique:"",seances:[],schema:"",schemaPdf:"",memo:"",memoPdf:""});
+  if(await saveClass(classe,x))chapters()
+}
+async function addSession(i){
+  const x=await loadClass(classe);x.chapitres[i].seances??=[];x.chapitres[i].seances.push({titre:"Nouvelle séance",activite:"",correction:"",bilan:"",pdf:""});
+  await saveClass(classe,x);chapter(i)
+}
+async function saveChapter(i){
+  const x=await loadClass(classe),ch=x.chapitres[i];ch.titre=$("#titre").value;ch.problematique=$("#prob").value;ch.schema=$("#schema").value;ch.schemaPdf=$("#schemaPdf").value;ch.memo=$("#memo").value;ch.memoPdf=$("#memoPdf").value;
+  ch.seances=[...document.querySelectorAll("#ses .editbox")].map(b=>({titre:b.querySelector(".st").value,activite:b.querySelector(".sa").value,correction:b.querySelector(".sc").value,bilan:b.querySelector(".sb").value,pdf:b.querySelector(".su").value}));
+  if(await saveClass(classe,x)){alert("Chapitre enregistré ✓");chapter(i)}
+}
+async function deleteChapter(i){if(!confirm("Supprimer ce chapitre ?"))return;const x=await loadClass(classe);x.chapitres.splice(i,1);if(await saveClass(classe,x))chapters()}
+async function login(){
+  content.innerHTML=`<section class="hero login"><span class="eyebrow">Espace professeur</span><h2>Connexion</h2><p class="muted">Cet espace est séparé de la vue élève.</p><div class="editbox"><label>Email</label><input id="email" type="email"><label>Mot de passe</label><input id="pwd" type="password"><button onclick="doLogin()">Se connecter</button><p id="err" class="status"></p></div></section>`
+}
+async function doLogin(){
+  const {data,error}=await sb.auth.signInWithPassword({email:$("#email").value,password:$("#pwd").value});
+  if(error){$("#err").textContent=error.message;return}sessionUser=data.user;prof=true;if(!niveau)home();else if(classe)chapters();else openNiveau(niveau)
+}
+async function logout(){await sb.auth.signOut();sessionUser=null;prof=false;history.replaceState({},document.title,location.pathname);if(classe)classHome();else home()}
+async function start(){const {data}=await sb.auth.getSession();sessionUser=data.session?.user||null;if(prof&&!sessionUser){await login();return}home()}
+back.onclick=home;start();
+</script>
+</body>
+</html>
