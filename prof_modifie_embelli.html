@@ -1,0 +1,554 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Éditeur professeur — Cahier numérique de SVT</title>
+<style>
+:root{
+  --bg:#eef6f2;
+  --card:#ffffff;
+  --text:#213331;
+  --muted:#6f807d;
+  --a:#34796a;
+  --a-dark:#286456;
+  --a2:#dff0e9;
+  --b:#d5e4de;
+  --prof:#fff8e8;
+  --danger:#fff0ef;
+  --shadow:0 12px 35px rgba(35,65,59,.08);
+  --shadow-hover:0 16px 40px rgba(35,65,59,.14);
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  margin:0;
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
+  background:
+    radial-gradient(circle at 5% 0%,#d8eee5 0,transparent 28%),
+    radial-gradient(circle at 95% 10%,#edf4d9 0,transparent 24%),
+    var(--bg);
+  color:var(--text);
+  min-height:100vh;
+}
+header{
+  position:sticky;top:0;z-index:20;
+  background:rgba(255,255,255,.88);
+  backdrop-filter:blur(14px);
+  border-bottom:1px solid rgba(213,228,222,.9);
+  box-shadow:0 4px 18px rgba(30,65,55,.05);
+}
+.head{
+  max-width:1120px;margin:auto;padding:12px 20px;
+  display:flex;align-items:center;justify-content:space-between;gap:12px;
+}
+.brand{display:flex;gap:12px;align-items:center}
+.logo{
+  width:46px;height:46px;border-radius:15px;
+  background:linear-gradient(135deg,#dff3eb,#cce8dd);
+  display:grid;place-items:center;font-size:23px;
+  box-shadow:inset 0 0 0 1px #c6e1d7;
+}
+.brand h1{font-size:18px;margin:0;letter-spacing:-.02em}
+.brand p{font-size:12px;color:var(--muted);margin:3px 0}
+main{max-width:1120px;margin:auto;padding:28px 20px 55px}
+button,.btn{
+  font:inherit;border:1px solid var(--b);background:#fff;color:var(--text);
+  border-radius:11px;padding:9px 13px;cursor:pointer;font-weight:700;
+  text-decoration:none;transition:.18s ease;
+}
+button:hover,.btn:hover{transform:translateY(-1px);box-shadow:0 5px 14px rgba(30,70,60,.08)}
+button.primary{
+  background:linear-gradient(135deg,var(--a),#428978);
+  color:#fff;border-color:var(--a);
+  box-shadow:0 7px 18px rgba(52,121,106,.18);
+}
+button.primary:hover{background:linear-gradient(135deg,var(--a-dark),var(--a))}
+button.danger{background:var(--danger);border-color:#efc0ba;color:#9d4b45}
+.hero,.card,.editbox{
+  background:rgba(255,255,255,.93);
+  border:1px solid var(--b);
+  border-radius:20px;
+  padding:21px;
+  box-shadow:var(--shadow);
+}
+.hero{border-radius:24px;margin-bottom:19px}
+.hero h2{font-size:29px;line-height:1.15;margin:7px 0 10px;letter-spacing:-.025em}
+.eyebrow{
+  display:inline-flex;align-items:center;gap:6px;
+  font-size:11px;text-transform:uppercase;letter-spacing:.12em;
+  color:var(--a);font-weight:850;
+}
+.muted{color:var(--muted);line-height:1.55}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(235px,1fr));gap:15px}
+.card{
+  cursor:pointer;
+  position:relative;
+  overflow:hidden;
+  transition:.2s ease;
+}
+.card:before{
+  content:"";position:absolute;left:0;top:0;bottom:0;width:4px;
+  background:linear-gradient(#66a995,#34796a);
+  opacity:.8;
+}
+.card:hover{
+  transform:translateY(-3px);
+  border-color:#a9cbc0;
+  box-shadow:var(--shadow-hover);
+}
+.card h3{margin:11px 0 7px;font-size:20px}
+.tag{
+  display:inline-flex;padding:5px 9px;border-radius:999px;
+  background:var(--a2);color:var(--a);
+  font-size:11px;font-weight:850;
+}
+.editbox{
+  margin:14px 0;
+  border-style:dashed;
+  background:rgba(255,255,255,.72);
+}
+.teacher{
+  background:
+    radial-gradient(circle at 100% 0%,#fff0c5aa,transparent 30%),
+    rgba(255,250,235,.96);
+  border-color:#ead6a8;
+}
+.editbox label{
+  display:block;font-size:12px;font-weight:850;margin:10px 0 6px;color:#425552;
+}
+input,textarea,select{
+  width:100%;border:1px solid var(--b);border-radius:10px;
+  padding:10px 11px;font:inherit;background:#fff;color:var(--text);
+  outline:none;transition:.15s ease;
+}
+input:focus,textarea:focus,select:focus{
+  border-color:#79ad9d;
+  box-shadow:0 0 0 3px #dff0e988;
+}
+textarea{min-height:85px;resize:vertical}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}
+.hidden{display:none!important}
+.error{background:#fff0ef;border:1px solid #efc0ba}
+.login{max-width:460px;margin:55px auto}
+.status{font-size:12px;color:var(--muted)}
+.session-box{
+  border:1px solid var(--b);border-radius:17px;padding:17px;
+  margin:14px 0;background:linear-gradient(180deg,#fff,#fbfdfc);
+  box-shadow:0 5px 18px rgba(35,65,59,.05);
+  position:relative;
+}
+.session-box:before{
+  content:"";position:absolute;left:0;top:18px;bottom:18px;width:3px;
+  border-radius:5px;background:#72aa9a;
+}
+.session-box strong{font-size:15px}
+.pdf-box{
+  background:#f4faf7;border:1px solid #cfe4dc;border-radius:12px;
+  padding:11px;margin:9px 0;
+}
+.pdf-box strong{font-size:12px;color:#42645c}
+.pdf-box input{margin-top:7px}
+.pdf-ok{display:inline-flex;margin-top:7px}
+.hero.teacher>h2{display:flex;align-items:center;gap:8px}
+#sessions + button{
+  border-style:dashed;
+  color:var(--a);
+  background:#f6fbf9;
+}
+footer{text-align:center;color:var(--muted);font-size:12px;padding:0 20px 35px}
+@media(max-width:650px){
+  main{padding:18px 12px 40px}
+  .head{padding:10px 12px}
+  .brand h1{font-size:16px}
+  .brand p{font-size:11px}
+  .logo{width:41px;height:41px}
+  .hero{padding:17px;border-radius:18px}
+  .hero h2{font-size:24px}
+  .grid{grid-template-columns:1fr}
+  .session-box{padding:14px}
+}
+</style>
+</head>
+<body>
+<header><div class="head">
+  <div class="brand"><div class="logo">🧪</div><div><h1>Cahier numérique de SVT</h1><p id="label">Éditeur professeur</p></div></div>
+  <button id="logoutBtn" class="hidden" onclick="logout()">Se déconnecter</button>
+</div></header>
+<main id="content"></main>
+<footer>Éditeur professeur · les modifications sont enregistrées dans Supabase.</footer>
+
+<script src="config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+const sb=supabase.createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY,{auth:{persistSession:true,autoRefreshToken:true}});
+
+// UNIQUEMENT les classes du professeur
+const CLASSES={
+  "6e":["6e1","6e2","6e3","6e4","6e5"],
+  "5e":["5e1","5e3","5e5"],
+  "3e":["3e2","3e3"]
+};
+
+let niveau=null,classe=null,user=null,currentClassData=null,currentChapterIndex=-1;
+const content=document.getElementById("content");
+const label=document.getElementById("label");
+const logoutBtn=document.getElementById("logoutBtn");
+
+const esc=v=>String(v??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#039;"}[m]));
+const safe=v=>v==null?"":String(v);
+
+function normalizeSession(s){
+  const x=s&&typeof s==="object"?s:{};
+  return {
+    titre:safe(x.titre||x.title||"Séance"),
+    activite:safe(x.activite||x.activity),
+    correction:safe(x.correction),
+    bilan:safe(x.bilan),
+    // Ancien champ "pdf" conservé comme PDF d'activité
+    pdfActivite:safe(x.pdfActivite||x.pdf_activite||x.activityPdf||x.pdf||x.document),
+    pdfCorrection:safe(x.pdfCorrection||x.pdf_correction||x.correctionPdf)
+  };
+}
+
+function normalizeChapter(ch){
+  const x=ch&&typeof ch==="object"?ch:{};
+  const raw=Array.isArray(x.seances)?x.seances:(Array.isArray(x.sessions)?x.sessions:[]);
+  return {
+    titre:safe(x.titre||x.title||"Nouveau chapitre"),
+    problematique:safe(x.problematique||x.probleme||x.problem),
+    seances:raw.filter(Boolean).map(normalizeSession),
+    // Les anciens textes restent conservés dans la base, même s'ils ne sont plus éditables.
+    schema:safe(x.schema||x.schemaBilan||x.schema_bilan),
+    schemaPdf:safe(x.schemaPdf||x.schema_pdf),
+    memo:safe(x.memo||x.memorisation||x.ficheMemo),
+    memoPdf:safe(x.memoPdf||x.memo_pdf)
+  };
+}
+
+function normalizeCahier(raw){
+  let x=raw;
+  if(!x||typeof x!=="object")x={};
+  if(Array.isArray(x))x={chapitres:x};
+  if(!Array.isArray(x.chapitres))x.chapitres=[];
+  x.chapitres=x.chapitres.map(normalizeChapter);
+  return x;
+}
+
+async function loadClass(c){
+  const {data,error}=await sb.from("Cahier").select("id,classe,contenu").eq("classe",c).maybeSingle();
+  if(error)throw new Error(error.message);
+  return {id:data?.id||null,contenu:normalizeCahier(data?.contenu)};
+}
+
+async function saveClass(c,contenu,id){
+  let r;
+  if(id){
+    r=await sb.from("Cahier").update({contenu}).eq("id",id);
+    if(r.error)throw new Error(r.error.message);
+    return id;
+  }
+  r=await sb.from("Cahier").insert({classe:c,contenu}).select("id").maybeSingle();
+  if(r.error)throw new Error(r.error.message);
+  return r.data?.id||null;
+}
+
+function showError(msg){
+  content.innerHTML=`<section class="hero error"><h2>⚠️ Une erreur est survenue</h2><p>${esc(msg)}</p><button onclick="home()">Retour</button></section>`;
+}
+
+async function init(){
+  const {data}=await sb.auth.getSession();
+  user=data?.session?.user||null;
+  if(user){logoutBtn.classList.remove("hidden");home()}else login();
+
+  sb.auth.onAuthStateChange((_e,s)=>{
+    user=s?.user||null;
+    if(user){logoutBtn.classList.remove("hidden");home()}
+    else{logoutBtn.classList.add("hidden");login()}
+  });
+}
+
+function login(){
+  label.textContent="Éditeur professeur";
+  content.innerHTML=`<section class="hero login">
+    <span class="eyebrow">Espace sécurisé</span>
+    <h2>👨‍🏫 Éditeur professeur</h2>
+    <p class="muted">Connecte-toi pour modifier les cahiers de tes classes.</p>
+    <div class="editbox">
+      <label>Email</label><input id="email" type="email" autocomplete="username" placeholder="ton adresse e-mail">
+      <label>Mot de passe</label><input id="password" type="password" autocomplete="current-password" placeholder="Mot de passe">
+      <button class="primary" style="width:100%;margin-top:5px" onclick="doLogin()">Se connecter</button>
+      <div id="loginStatus" class="status" style="margin-top:10px"></div>
+    </div>
+  </section>`;
+}
+
+async function doLogin(){
+  const email=document.getElementById("email").value.trim();
+  const password=document.getElementById("password").value;
+  const status=document.getElementById("loginStatus");
+  status.textContent="Connexion…";
+  const {error}=await sb.auth.signInWithPassword({email,password});
+  if(error)status.textContent="Connexion impossible : "+error.message;
+}
+
+async function logout(){await sb.auth.signOut()}
+
+function home(){
+  niveau=null;classe=null;currentClassData=null;currentChapterIndex=-1;
+  label.textContent="Éditeur professeur";
+  content.innerHTML=`<section class="hero" style="text-align:center;padding:40px 25px">
+    <span class="eyebrow">Espace professeur</span><h2>🧪 Cahier numérique de SVT</h2>
+    <p class="muted">Gère tes cahiers de SVT, classe par classe, depuis un espace professeur simple et sécurisé.</p>
+  </section>
+  <div class="grid">${Object.keys(CLASSES).map(n=>`
+    <article class="card" onclick="openNiveau('${n}')">
+      <span class="tag">🧪 Niveau</span><h3>${n}</h3><p class="muted">Choisir une classe <span aria-hidden="true">→</span></p>
+    </article>`).join("")}</div>`;
+}
+
+async function openNiveau(n){
+  niveau=n;classe=null;currentClassData=null;currentChapterIndex=-1;
+  label.textContent=`Éditeur · ${n}`;
+  content.innerHTML=`<button onclick="home()">← Accueil</button>
+  <section class="hero" style="margin-top:14px">
+    <span class="eyebrow">${n}</span><h2>Choisir une classe</h2>
+    <p class="muted">Sélectionne la classe dont tu veux modifier le cahier.</p>
+  </section>
+  <div id="classes" class="grid"><p class="muted">Chargement…</p></div>`;
+
+  try{
+    const arr=await Promise.all(CLASSES[n].map(async c=>{
+      try{const d=await loadClass(c);return{c,count:d.contenu.chapitres.length}}
+      catch(e){return{c,count:0}}
+    }));
+    document.getElementById("classes").innerHTML=arr.map(o=>`
+      <article class="card" onclick="openClasse('${o.c}')">
+        <span class="tag">Classe</span><h3>${o.c}</h3>
+        <p class="muted">${o.count} chapitre(s) · Modifier →</p>
+      </article>`).join("");
+  }catch(e){showError(e.message)}
+}
+
+async function openClasse(c){
+  classe=c;currentClassData=null;currentChapterIndex=-1;
+  label.textContent=`Éditeur · ${c}`;
+  await chapters();
+}
+
+async function chapters(){
+  try{
+    currentClassData=await loadClass(classe);
+    currentChapterIndex=-1;
+    const x=currentClassData.contenu;
+    content.innerHTML=`<button onclick="openNiveau('${niveau}')">← ${niveau}</button>
+    <section class="hero" style="margin-top:14px">
+      <span class="eyebrow">${classe}</span><h2>📚 Mes chapitres</h2>
+      <p class="muted">Ajoute et complète les chapitres directement ici.</p>
+      <button class="primary" onclick="newChapter()">＋ Ajouter un chapitre</button>
+    </section>
+    <div class="grid">${x.chapitres.map((ch,i)=>`
+      <article class="card" onclick="editChapter(${i})">
+        <span class="tag">Chapitre ${i+1}</span>
+        <h3>${esc(ch.titre||"Nouveau chapitre")}</h3>
+        <p class="muted">${esc(ch.problematique||"Aucune problématique renseignée")}</p>
+        <p class="small">${ch.seances.length} séance(s)</p>
+      </article>`).join("")||
+      `<section class="hero"><h3>Aucun chapitre</h3><p class="muted">Clique sur « Ajouter un chapitre » pour commencer.</p></section>`}
+    </div>`;
+  }catch(e){showError(e.message)}
+}
+
+async function newChapter(){
+  try{
+    if(!currentClassData)currentClassData=await loadClass(classe);
+    currentClassData.contenu.chapitres.push(normalizeChapter({titre:"Nouveau chapitre",problematique:"",seances:[]}));
+    currentClassData.id=await saveClass(classe,currentClassData.contenu,currentClassData.id);
+    editChapter(currentClassData.contenu.chapitres.length-1);
+  }catch(e){alert("Impossible d'ajouter le chapitre : "+e.message)}
+}
+
+function existingPdf(url,labelText){
+  return url?`<div class="pdf-box"><strong>📄 ${labelText} déjà enregistré</strong><br>
+    <a class="btn pdf-ok" href="${esc(url)}" target="_blank">Ouvrir le PDF</a></div>`:"";
+}
+
+function pdfField(labelText,kind,index,url){
+  return `<div class="pdf-box" data-current-url="${esc(url)}">
+    ${existingPdf(url,labelText)}
+    <label>${url?"Remplacer le PDF de "+labelText.toLowerCase():"PDF de "+labelText}</label>
+    <input class="${kind}" type="file" accept="application/pdf" onchange="uploadPdf(this,'${kind}',${index})">
+    <span class="status" id="up-${kind}-${index}"></span>
+  </div>`;
+}
+
+function sessionEditor(s,n){
+  const x=normalizeSession(s);
+  return `<div class="session-box" data-pdf-activite="${esc(x.pdfActivite)}" data-pdf-correction="${esc(x.pdfCorrection)}">
+    <div class="row" style="justify-content:space-between">
+      <strong>Séance ${n+1}</strong>
+      <button class="danger" onclick="removeSession(${n})">Supprimer</button>
+    </div>
+    <label>Titre de la séance</label><input class="st" value="${esc(x.titre)}">
+    <label>Activité</label><textarea class="sa">${esc(x.activite)}</textarea>
+    ${pdfField("l'activité","pa",n,x.pdfActivite)}
+    <label>Correction</label><textarea class="sc">${esc(x.correction)}</textarea>
+    ${pdfField("la correction","pc",n,x.pdfCorrection)}
+    <label>Bilan</label><textarea class="sb">${esc(x.bilan)}</textarea>
+  </div>`;
+}
+
+function editChapter(i){
+  try{
+    if(!currentClassData||!Array.isArray(currentClassData.contenu?.chapitres)){
+      showError("Le cahier n'est pas chargé.");return;
+    }
+    if(i<0||i>=currentClassData.contenu.chapitres.length){
+      showError("Ce chapitre est introuvable.");return;
+    }
+
+    const ch=normalizeChapter(currentClassData.contenu.chapitres[i]);
+    currentClassData.contenu.chapitres[i]=ch;
+    currentChapterIndex=i;
+
+    content.innerHTML=`<button onclick="chapters()">← Tous les chapitres</button>
+    <section class="hero teacher" style="margin-top:14px">
+      <span class="eyebrow">Chapitre ${i+1}</span><h2>✏️ Modifier le chapitre</h2>
+
+      <div class="editbox">
+        <label>Titre</label><input id="chTitre" value="${esc(ch.titre)}">
+        <label>Problématique</label><textarea id="chProb">${esc(ch.problematique)}</textarea>
+      </div>
+
+      <h2>📖 Séances</h2>
+      <div id="sessions">${ch.seances.map((s,n)=>sessionEditor(s,n)).join("")}</div>
+      <button onclick="addSession(${i})">＋ Ajouter une séance</button>
+
+      <div class="editbox">
+        <label>🧠 Schéma-bilan du chapitre</label>
+        ${pdfField("le schéma-bilan","schemaPdf",i,ch.schemaPdf)}
+
+        <label>📝 Fiche de mémorisation</label>
+        ${pdfField("la fiche de mémorisation","memoPdf",i,ch.memoPdf)}
+      </div>
+
+      <div class="row">
+        <button class="primary" onclick="saveChapter(${i})">💾 Enregistrer</button>
+        <button class="danger" onclick="deleteChapter(${i})">🗑️ Supprimer le chapitre</button>
+      </div>
+      <div id="saveStatus" class="status"></div>
+    </section>`;
+  }catch(e){showError(e.message)}
+}
+
+async function addSession(i){
+  try{
+    if(!currentClassData)currentClassData=await loadClass(classe);
+    const ch=normalizeChapter(currentClassData.contenu.chapitres[i]);
+    ch.seances.push(normalizeSession({titre:`Séance ${ch.seances.length+1}`}));
+    currentClassData.contenu.chapitres[i]=ch;
+    currentClassData.id=await saveClass(classe,currentClassData.contenu,currentClassData.id);
+    editChapter(i);
+  }catch(e){alert("Impossible d'ajouter la séance : "+e.message)}
+}
+
+async function removeSession(n){
+  const i=currentChapterIndex;
+  if(i<0||!currentClassData)return;
+  try{
+    const ch=normalizeChapter(currentClassData.contenu.chapitres[i]);
+    ch.seances.splice(n,1);
+    currentClassData.contenu.chapitres[i]=ch;
+    currentClassData.id=await saveClass(classe,currentClassData.contenu,currentClassData.id);
+    editChapter(i);
+  }catch(e){alert("Impossible de supprimer la séance : "+e.message)}
+}
+
+function currentPdfFromBox(box,kind,oldValue){
+  const field=box.querySelector(`.${kind}`);
+  return field?.dataset?.url || field?.closest(".pdf-box")?.dataset?.currentUrl || oldValue || "";
+}
+
+async function saveChapter(i){
+  const status=document.getElementById("saveStatus");
+  if(status)status.textContent="Enregistrement…";
+
+  try{
+    const old=normalizeChapter(currentClassData.contenu.chapitres[i]);
+    const boxes=[...document.querySelectorAll("#sessions .session-box")];
+
+    const ses=boxes.map((box,index)=>{
+      const oldSession=old.seances[index]||{};
+      return normalizeSession({
+        titre:box.querySelector(".st")?.value,
+        activite:box.querySelector(".sa")?.value,
+        correction:box.querySelector(".sc")?.value,
+        bilan:box.querySelector(".sb")?.value,
+        pdfActivite:currentPdfFromBox(box,"pa",oldSession.pdfActivite),
+        pdfCorrection:currentPdfFromBox(box,"pc",oldSession.pdfCorrection)
+      });
+    });
+
+    const schemaBox=document.querySelector(".schemaPdf")?.closest(".pdf-box");
+    const memoBox=document.querySelector(".memoPdf")?.closest(".pdf-box");
+
+    currentClassData.contenu.chapitres[i]=normalizeChapter({
+      ...old,
+      titre:document.getElementById("chTitre").value,
+      problematique:document.getElementById("chProb").value,
+      seances:ses,
+      schemaPdf:document.querySelector(".schemaPdf")?.dataset?.url || schemaBox?.dataset?.currentUrl || old.schemaPdf,
+      memoPdf:document.querySelector(".memoPdf")?.dataset?.url || memoBox?.dataset?.currentUrl || old.memoPdf
+    });
+
+    currentClassData.id=await saveClass(classe,currentClassData.contenu,currentClassData.id);
+
+    if(status)status.textContent="Enregistré ✓";
+    setTimeout(()=>{if(status)status.textContent=""},2500);
+  }catch(e){
+    if(status)status.textContent="Erreur : "+e.message;
+    alert("Enregistrement impossible : "+e.message);
+  }
+}
+
+async function deleteChapter(i){
+  if(!confirm("Supprimer définitivement ce chapitre ?"))return;
+  try{
+    currentClassData.contenu.chapitres.splice(i,1);
+    currentClassData.id=await saveClass(classe,currentClassData.contenu,currentClassData.id);
+    await chapters();
+  }catch(e){alert("Suppression impossible : "+e.message)}
+}
+
+async function uploadPdf(input,kind,index){
+  const file=input.files?.[0];
+  if(!file)return;
+  if(file.type!=="application/pdf"){
+    alert("Choisis un fichier PDF.");
+    input.value="";
+    return;
+  }
+
+  const status=document.getElementById(`up-${kind}-${index}`);
+  if(status)status.textContent="Envoi du PDF…";
+
+  const path=`${classe}/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9._-]/g,"_")}`;
+  const {error}=await sb.storage.from("documents").upload(path,file,{contentType:"application/pdf",upsert:false});
+
+  if(error){
+    if(status)status.textContent="Erreur : "+error.message;
+    return;
+  }
+
+  const {data}=sb.storage.from("documents").getPublicUrl(path);
+  input.dataset.url=data.publicUrl;
+  const box=input.closest(".pdf-box");
+  if(box)box.dataset.currentUrl=data.publicUrl;
+  if(status)status.textContent="PDF ajouté ✓ — pense à enregistrer le chapitre";
+}
+
+init();
+</script>
+</body>
+</html>
