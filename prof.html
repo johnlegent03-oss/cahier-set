@@ -1,0 +1,318 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Éditeur professeur — Cahier numérique de SVT</title>
+<style>
+:root{--bg:#eef6f2;--card:#fff;--text:#213331;--muted:#6f807d;--a:#34796a;--a-dark:#286456;--a2:#dff0e9;--b:#d5e4de;--danger:#fff0ef;--shadow:0 12px 35px rgba(35,65,59,.08);--shadow-hover:0 16px 40px rgba(35,65,59,.14)}
+*{box-sizing:border-box}html{scroll-behavior:smooth}
+body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;background:radial-gradient(circle at 5% 0%,#d8eee5 0,transparent 28%),radial-gradient(circle at 95% 10%,#edf4d9 0,transparent 24%),var(--bg);color:var(--text);min-height:100vh}
+header{position:sticky;top:0;z-index:20;background:rgba(255,255,255,.9);backdrop-filter:blur(14px);border-bottom:1px solid rgba(213,228,222,.9);box-shadow:0 4px 18px rgba(30,65,55,.05)}
+.head{max-width:1120px;margin:auto;padding:12px 20px;display:flex;align-items:center;justify-content:space-between;gap:12px}
+.brand{display:flex;gap:12px;align-items:center}.logo{width:46px;height:46px;border-radius:15px;background:linear-gradient(135deg,#dff3eb,#cce8dd);display:grid;place-items:center;font-size:23px;box-shadow:inset 0 0 0 1px #c6e1d7}
+.brand h1{font-size:18px;margin:0;letter-spacing:-.02em}.brand p{font-size:12px;color:var(--muted);margin:3px 0}
+main{max-width:1120px;margin:auto;padding:28px 20px 55px}
+button,.btn{font:inherit;border:1px solid var(--b);background:#fff;color:var(--text);border-radius:11px;padding:9px 13px;cursor:pointer;font-weight:700;text-decoration:none;transition:.18s ease}
+button:hover,.btn:hover{transform:translateY(-1px);box-shadow:0 5px 14px rgba(30,70,60,.08)}
+button.primary{background:linear-gradient(135deg,var(--a),#428978);color:#fff;border-color:var(--a);box-shadow:0 7px 18px rgba(52,121,106,.18)}
+button.danger{background:var(--danger);border-color:#efc0ba;color:#9d4b45}
+button:disabled{opacity:.55;cursor:not-allowed;transform:none;box-shadow:none}
+.hero,.card,.editbox{background:rgba(255,255,255,.93);border:1px solid var(--b);border-radius:20px;padding:21px;box-shadow:var(--shadow)}
+.hero{border-radius:24px;margin-bottom:19px}.hero h2{font-size:29px;line-height:1.15;margin:7px 0 10px;letter-spacing:-.025em}
+.eyebrow{display:inline-flex;align-items:center;gap:6px;font-size:11px;text-transform:uppercase;letter-spacing:.12em;color:var(--a);font-weight:850}
+.muted{color:var(--muted);line-height:1.55}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(235px,1fr));gap:15px}
+.card{cursor:pointer;position:relative;overflow:hidden;transition:.2s ease}.card:before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:linear-gradient(#66a995,#34796a);opacity:.8}
+.card:hover{transform:translateY(-3px);border-color:#a9cbc0;box-shadow:var(--shadow-hover)}.card h3{margin:11px 0 7px;font-size:20px}
+.tag{display:inline-flex;padding:5px 9px;border-radius:999px;background:var(--a2);color:var(--a);font-size:11px;font-weight:850}
+.editbox{margin:14px 0;border-style:dashed;background:rgba(255,255,255,.72)}
+.teacher{background:radial-gradient(circle at 100% 0%,#fff0c5aa,transparent 30%),rgba(255,250,235,.96);border-color:#ead6a8}
+.editbox label{display:block;font-size:12px;font-weight:850;margin:10px 0 6px;color:#425552}
+input,select{width:100%;border:1px solid var(--b);border-radius:10px;padding:10px 11px;font:inherit;background:#fff;color:var(--text);outline:none;transition:.15s ease}
+input:focus,select:focus{border-color:#79ad9d;box-shadow:0 0 0 3px #dff0e988}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}.hidden{display:none!important}
+.error{background:#fff0ef;border:1px solid #efc0ba}.login{max-width:460px;margin:55px auto}.status{font-size:12px;color:var(--muted)}
+.save-indicator{display:inline-flex;align-items:center;gap:6px;min-height:20px}.save-indicator.saving{color:#a06b18}.save-indicator.saved{color:var(--a)}.save-indicator.error{color:#9d4b45;background:none;border:0}
+.session-box{border:1px solid var(--b);border-radius:17px;padding:17px;margin:14px 0;background:linear-gradient(180deg,#fff,#fbfdfc);box-shadow:0 5px 18px rgba(35,65,59,.05);position:relative}
+.session-box:before{content:"";position:absolute;left:0;top:18px;bottom:18px;width:3px;border-radius:5px;background:#72aa9a}
+.session-box strong{font-size:15px}
+.rich-toolbar{display:flex;align-items:center;gap:5px;flex-wrap:wrap;padding:7px;background:#f6faf8;border:1px solid var(--b);border-radius:10px 10px 0 0}
+.rich-toolbar button{padding:6px 9px;min-width:34px;border-radius:8px;font-weight:800}.rich-toolbar select{width:auto;min-width:95px;padding:6px 8px;border-radius:8px}
+.rich-editor{min-height:105px;border:1px solid var(--b);border-top:0;border-radius:0 0 10px 10px;padding:11px;background:#fff;line-height:1.55;outline:none;overflow:auto}
+.rich-editor:focus{border-color:#79ad9d;box-shadow:0 0 0 3px #dff0e988}.rich-editor:empty:before{content:attr(data-placeholder);color:#9aa3af}
+.session-problem{min-height:65px}.entry{border:1px solid #dce8e3;border-radius:13px;padding:13px;margin:12px 0;background:#fbfdfc}
+.entry-head{display:flex;align-items:center;gap:8px;justify-content:space-between;flex-wrap:wrap}.entry-date{width:170px}.entry-type{font-size:12px;font-weight:850;color:var(--a);text-transform:uppercase;letter-spacing:.06em}
+.entry-actions{display:flex;gap:6px;align-items:center}.entry-actions button{padding:6px 9px}.entry-add{border-style:dashed;color:var(--a);background:#f7fbf9;width:100%;margin-top:5px}
+.entry-label{font-size:12px;font-weight:850;margin:10px 0 6px;color:#425552}.entry-text{min-height:110px}
+.pdf-box{background:#f4faf7;border:1px solid #cfe4dc;border-radius:12px;padding:11px;margin:9px 0}.pdf-box strong{font-size:12px;color:#42645c}.pdf-box input{margin-top:7px}.pdf-ok{display:inline-flex;margin-top:7px}
+.pdf-actions{display:flex;gap:7px;flex-wrap:wrap;margin-top:7px}.pdf-existing{padding-bottom:8px}.legacy-note{font-size:12px;color:#7a6a49;background:#fff8e8;border:1px solid #ead6a8;border-radius:10px;padding:9px;margin-top:8px}
+.section-heading{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-top:25px}
+footer{text-align:center;color:var(--muted);font-size:12px;padding:0 20px 35px}
+@media(max-width:650px){main{padding:18px 12px 40px}.head{padding:10px 12px}.brand h1{font-size:16px}.brand p{font-size:11px}.logo{width:41px;height:41px}.hero{padding:17px;border-radius:18px}.hero h2{font-size:24px}.grid{grid-template-columns:1fr}.session-box{padding:14px}.entry-date{width:100%}}
+</style>
+</head>
+<body>
+<header><div class="head">
+  <div class="brand"><div class="logo">🧪</div><div><h1>Cahier numérique de SVT</h1><p id="label">Éditeur professeur</p></div></div>
+  <button id="logoutBtn" class="hidden" onclick="logout()">Se déconnecter</button>
+</div></header>
+<main id="content"></main>
+<footer>Éditeur professeur · les modifications sont enregistrées dans Supabase.</footer>
+
+<script src="config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+const sb=supabase.createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY,{auth:{persistSession:true,autoRefreshToken:true}});
+const CLASSES={"6e":["6e1","6e2","6e3","6e4","6e5"],"5e":["5e1","5e3","5e5"],"3e":["3e2","3e3"]};
+const content=document.getElementById("content"),label=document.getElementById("label"),logoutBtn=document.getElementById("logoutBtn");
+let niveau=null,classe=null,user=null,currentClassData=null,currentChapterIndex=-1;
+let autosaveTimer=null,autosaveRunning=false,autosaveAgain=false;
+const richRanges={};
+const NAV_KEY="cahierSVT.prof.navigation.v2";
+
+const esc=v=>String(v??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#039;"}[m]));
+const safe=v=>v==null?"":String(v);
+function empty(){return{chapitres:[]}}
+
+function normalizeEntry(e){
+  const x=e&&typeof e==="object"?e:{};
+  return{date:safe(x.date||x.jour||x.datee),texte:safe(x.texte||x.text||x.contenu||x.html),pdf:safe(x.pdf||x.pdfUrl||x.document)};
+}
+function legacyEntries(text,pdf){
+  const t=safe(text),p=safe(pdf);
+  return t||p?[{date:"",texte:t,pdf:p}]:[];
+}
+function normalizeSession(s){
+  const x=s&&typeof s==="object"?s:{};
+  const activites=Array.isArray(x.activites)?x.activites.map(normalizeEntry).filter(e=>e.date||e.texte||e.pdf):legacyEntries(x.activite||x.activity,x.pdfActivite||x.pdf_activite||x.activityPdf||x.pdf||x.document);
+  const corrections=Array.isArray(x.corrections)?x.corrections.map(normalizeEntry).filter(e=>e.date||e.pdf):legacyEntries("",x.pdfCorrection||x.pdf_correction||x.correctionPdf);
+  const bilans=Array.isArray(x.bilans)?x.bilans.map(normalizeEntry).filter(e=>e.date||e.texte||e.pdf):legacyEntries(x.bilan,"");
+  return{titre:safe(x.titre||x.title||"Séance"),problematique:safe(x.problematique||x.probleme||x.problem),activites,corrections,bilans,activite:safe(x.activite||x.activity),correction:safe(x.correction),bilan:safe(x.bilan),pdfActivite:safe(x.pdfActivite||x.pdf_activite||x.activityPdf||x.pdf||x.document),pdfCorrection:safe(x.pdfCorrection||x.pdf_correction||x.correctionPdf)};
+}
+function normalizeChapter(ch){
+  const x=ch&&typeof ch==="object"?ch:{},raw=Array.isArray(x.seances)?x.seances:(Array.isArray(x.sessions)?x.sessions:[]);
+  return{titre:safe(x.titre||x.title||"Nouveau chapitre"),germoir:safe(x.germoir||x.germoirIdees),germoirPdf:safe(x.germoirPdf||x.germoir_pdf),problematique:safe(x.problematique||x.probleme||x.problem),seances:raw.filter(Boolean).map(normalizeSession),schema:safe(x.schema||x.schemaBilan||x.schema_bilan),schemaPdf:safe(x.schemaPdf||x.schema_pdf),memo:safe(x.memo||x.memorisation||x.ficheMemo),memoPdf:safe(x.memoPdf||x.memo_pdf),evaluationPdf:safe(x.evaluationPdf||x.evaluation_pdf||x.evalPdf||x.pdfEvaluation)};
+}
+function normalizeCahier(raw){
+  let x=raw;if(!x||typeof x!=="object")x={};if(Array.isArray(x))x={chapitres:x};if(!Array.isArray(x.chapitres))x.chapitres=[];x.chapitres=x.chapitres.map(normalizeChapter);return x;
+}
+
+async function loadClass(c){
+  const{data,error}=await sb.from("Cahier").select("id,classe,contenu").eq("classe",c).maybeSingle();
+  if(error)throw new Error(error.message);return{id:data?.id||null,contenu:normalizeCahier(data?.contenu)};
+}
+async function saveClass(c,contenu,id){
+  let r;
+  if(id){r=await sb.from("Cahier").update({contenu}).eq("id",id);if(r.error)throw new Error(r.error.message);return id;}
+  r=await sb.from("Cahier").insert({classe:c,contenu}).select("id").maybeSingle();if(r.error)throw new Error(r.error.message);return r.data?.id||null;
+}
+
+function saveNav(){
+  try{localStorage.setItem(NAV_KEY,JSON.stringify({niveau,classe,currentChapterIndex,view:currentChapterIndex>=0?"chapter":(classe?"chapters":(niveau?"classes":"home"))}))}catch(e){}
+}
+function loadNav(){try{return JSON.parse(localStorage.getItem(NAV_KEY)||"null")}catch(e){return null}}
+function clearNav(){try{localStorage.removeItem(NAV_KEY)}catch(e){}}
+
+function showError(msg){content.innerHTML='<section class="hero error"><h2>⚠️ Une erreur est survenue</h2><p>'+esc(msg)+'</p><button onclick="restoreLastPosition()">Retour</button></section>'}
+function setSaveStatus(state,msg){
+  const el=document.getElementById("saveStatus");if(!el)return;
+  el.className="status save-indicator "+(state||"");el.textContent=msg||"";
+}
+
+function richToolbar(id){
+  return`<div class="rich-toolbar">
+    <button type="button" onmousedown="event.preventDefault()" onclick="richCmd('${id}','bold')" title="Gras"><b>G</b></button>
+    <button type="button" onmousedown="event.preventDefault()" onclick="richCmd('${id}','italic')" title="Italique"><i>I</i></button>
+    <button type="button" onmousedown="event.preventDefault()" onclick="richCmd('${id}','underline')" title="Souligné"><u>S</u></button>
+    <button type="button" onmousedown="event.preventDefault()" onclick="richCmd('${id}','foreColor','#c0392b')" title="Rouge">🔴</button>
+    <button type="button" onmousedown="event.preventDefault()" onclick="richCmd('${id}','foreColor','#2980b9')" title="Bleu">🔵</button>
+    <button type="button" onmousedown="event.preventDefault()" onclick="richCmd('${id}','foreColor','#27ae60')" title="Vert">🟢</button>
+    <button type="button" onmousedown="event.preventDefault()" onclick="richCmd('${id}','foreColor','#000000')" title="Noir">⚫</button>
+    <select onchange="richCmd('${id}','fontName',this.value);this.selectedIndex=0" title="Police"><option value="">Police</option><option value="Arial">Arial</option><option value="Georgia">Georgia</option><option value="Verdana">Verdana</option><option value="Trebuchet MS">Trebuchet</option><option value="Courier New">Courier New</option></select>
+    <select onchange="richCmd('${id}','fontSize',this.value);this.selectedIndex=0" title="Taille"><option value="">Taille</option><option value="2">Petit</option><option value="3">Normal</option><option value="5">Grand</option><option value="7">Très grand</option></select>
+  </div>`;
+}
+function rememberSelection(id){
+  const el=document.getElementById(id);if(!el)return;
+  const sel=window.getSelection();if(sel&&sel.rangeCount&&el.contains(sel.anchorNode))richRanges[id]=sel.getRangeAt(0).cloneRange();
+}
+function restoreSelection(id){
+  const r=richRanges[id];if(!r)return false;const sel=window.getSelection();
+  try{sel.removeAllRanges();sel.addRange(r);return true}catch(e){return false}
+}
+function richCmd(id,cmd,value=null){
+  const el=document.getElementById(id);if(!el)return;restoreSelection(id);el.focus();document.execCommand(cmd,false,value);rememberSelection(id);scheduleAutosave();
+}
+document.addEventListener("selectionchange",()=>{const a=document.activeElement;if(a?.classList?.contains("rich-editor"))rememberSelection(a.id)});
+
+function existingPdf(url,labelText){
+  if(!url)return"";
+  return`<div class="pdf-existing"><strong>📄 ${esc(labelText)} déjà enregistré</strong><div class="pdf-actions"><a class="btn pdf-ok" href="${esc(url)}" target="_blank" rel="noopener">Ouvrir le PDF</a><button type="button" class="danger" onclick="clearPdf(this)">Retirer le PDF</button></div></div>`;
+}
+function pdfField(labelText,kind,id,url){
+  return`<div class="pdf-box" data-current-url="${esc(url)}">${existingPdf(url,labelText)}<label>${url?"Remplacer le PDF de "+labelText.toLowerCase():"PDF de "+labelText+" (facultatif)"}</label><input class="${esc(kind)}" type="file" accept="application/pdf" onchange="uploadPdf(this,'${esc(kind)}','${esc(id)}')"><span class="status"></span></div>`;
+}
+function clearPdf(button){
+  const box=button.closest(".pdf-box");if(!box)return;
+  box.dataset.currentUrl="";
+  const input=box.querySelector('input[type=file]');if(input){input.value="";delete input.dataset.url;}
+  button.closest(".pdf-existing")?.remove();
+  scheduleAutosave();
+}
+
+function entryEditor(type,entry,sessionIndex,entryIndex){
+  const x=normalizeEntry(entry),id=`${type}-${sessionIndex}-${entryIndex}-${Math.random().toString(36).slice(2,7)}`,labelText={activite:"🧪 Activité",correction:"📄 Correction",bilan:"🧠 Bilan"}[type],isCorrection=type==="correction";
+  return`<div class="entry" data-entry-type="${type}" data-pdf="${esc(x.pdf)}">
+    <div class="entry-head"><span class="entry-type">${labelText}</span><div class="entry-actions"><label style="margin:0;font-size:12px;font-weight:700">📅 <input class="entry-date" type="date" value="${esc(x.date)}" aria-label="Date"></label><button type="button" class="danger" onclick="removeEntry(this)">Supprimer</button></div></div>
+    ${isCorrection
+      ?`${x.pdf?existingPdf(x.pdf,"PDF de correction"):""}<div class="pdf-box" data-current-url="${esc(x.pdf)}"><label>${x.pdf?"Remplacer le PDF de correction":"PDF de correction (facultatif)"}</label><input class="entry-pdf" type="file" accept="application/pdf" onchange="uploadPdf(this,'entry','${id}')"><span class="status"></span></div>`
+      :`<div class="entry-label">${type==="activite"?"Contenu de l'activité":"Contenu du bilan"}</div>${richToolbar(id)}<div id="${id}" class="rich-editor entry-text" contenteditable="true" data-placeholder="Écris le contenu…">${x.texte}</div><div class="pdf-box" data-current-url="${esc(x.pdf)}">${x.pdf?existingPdf(x.pdf,type==="activite"?"PDF de l'activité":"PDF du bilan"):""}<label>${x.pdf?"Remplacer le PDF":"PDF (facultatif)"}</label><input class="entry-pdf" type="file" accept="application/pdf" onchange="uploadPdf(this,'entry','${id}')"><span class="status"></span></div>`}
+  </div>`;
+}
+
+function sessionEditor(s,n){
+  const x=normalizeSession(s),acts=x.activites||[],cors=x.corrections||[],bils=x.bilans||[];
+  return`<div class="session-box">
+    <div class="row" style="justify-content:space-between;align-items:center"><strong>Séance ${n+1}</strong><button class="danger" type="button" onclick="removeSession(${n})">Supprimer</button></div>
+    <label>Titre de la séance</label>${richToolbar(`st-${n}`)}<div id="st-${n}" class="rich-editor session-title" contenteditable="true" data-placeholder="Titre de la séance">${x.titre}</div>
+    <label>🎯 Problème de la séance</label>${richToolbar(`sp-${n}`)}<div id="sp-${n}" class="rich-editor session-problem" contenteditable="true" data-placeholder="Quel problème scientifique cherche-t-on à résoudre ?">${x.problematique}</div>
+    <div class="entry-section"><label>🧪 Activité</label><div class="entries entries-activite">${acts.map((e,j)=>entryEditor("activite",e,n,j)).join("")}</div><button type="button" class="entry-add" onclick="addEntry(this,'activite')">＋ Ajouter une entrée d'activité</button></div>
+    <div class="entry-section"><label>📄 Correction</label><p class="muted" style="font-size:12px;margin-top:0">La correction se fait dans l'onglet Activité. Ici, ajoute uniquement le PDF de correction et sa date.</p><div class="entries entries-correction">${cors.map((e,j)=>entryEditor("correction",e,n,j)).join("")}</div><button type="button" class="entry-add" onclick="addEntry(this,'correction')">＋ Ajouter un PDF de correction</button>${x.correction?`<div class="legacy-note">Ancienne correction textuelle conservée pour compatibilité avec les anciennes données. Elle n'est plus modifiable ici.</div>`:""}</div>
+    <div class="entry-section"><label>🧠 Bilan</label><div class="entries entries-bilan">${bils.map((e,j)=>entryEditor("bilan",e,n,j)).join("")}</div><button type="button" class="entry-add" onclick="addEntry(this,'bilan')">＋ Ajouter une entrée de bilan</button></div>
+  </div>`;
+}
+function addEntry(button,type){
+  const entries=button.previousElementSibling,sessionBox=button.closest(".session-box"),n=[...document.querySelectorAll("#sessions .session-box")].indexOf(sessionBox),j=entries.querySelectorAll(".entry").length;
+  entries.insertAdjacentHTML("beforeend",entryEditor(type,{date:new Date().toISOString().slice(0,10),texte:"",pdf:""},n,j));scheduleAutosave();
+}
+function removeEntry(button){if(!confirm("Supprimer cette entrée ?"))return;button.closest(".entry")?.remove();scheduleAutosave()}
+
+function readEntries(sessionBox,type,oldEntries){
+  const oldArr=Array.isArray(oldEntries)?oldEntries:[];
+  return[...sessionBox.querySelectorAll(`.entries-${type} .entry`)].map((entry,index)=>{
+    const old=normalizeEntry(oldArr[index]||{});
+    return{date:entry.querySelector(".entry-date")?.value||"",texte:type==="correction"?"":(entry.querySelector(".entry-text")?.innerHTML||""),pdf:(entry.querySelector(".entry-pdf")?.dataset?.url||entry.querySelector(".entry-pdf")?.closest(".pdf-box")?.dataset?.currentUrl||entry.dataset.pdf||old.pdf||"")};
+  }).filter(e=>e.date||e.texte||e.pdf);
+}
+function readEditorChapter(i){
+  if(!currentClassData?.contenu?.chapitres?.[i])throw new Error("Le chapitre n'est pas chargé.");
+  const old=normalizeChapter(currentClassData.contenu.chapitres[i]),boxes=[...document.querySelectorAll("#sessions .session-box")];
+  const ses=boxes.map((box,index)=>{
+    const os=normalizeSession(old.seances[index]||{});
+    return normalizeSession({titre:box.querySelector(".session-title")?.innerHTML||"",problematique:box.querySelector(".session-problem")?.innerHTML||"",activites:readEntries(box,"activite",os.activites),corrections:readEntries(box,"correction",os.corrections),bilans:readEntries(box,"bilan",os.bilans),correction:os.correction,activite:os.activite,bilan:os.bilan,pdfActivite:os.pdfActivite,pdfCorrection:os.pdfCorrection});
+  });
+  const pdf=(selector,oldValue)=>document.querySelector(selector)?.dataset?.url||document.querySelector(selector)?.closest(".pdf-box")?.dataset?.currentUrl||oldValue||"";
+  const ch=normalizeChapter({...old,titre:document.getElementById("chTitre")?.innerHTML||"",germoir:document.getElementById("chGermoir")?.innerHTML||"",problematique:document.getElementById("chProb")?.innerHTML||"",germoirPdf:pdf(".germoirPdf",old.germoirPdf),seances:ses,schemaPdf:pdf(".schemaPdf",old.schemaPdf),memoPdf:pdf(".memoPdf",old.memoPdf),evaluationPdf:pdf(".evaluationPdf",old.evaluationPdf)});
+  currentClassData.contenu.chapitres[i]=ch;return ch;
+}
+
+async function saveChapter(i){
+  if(!currentClassData||!classe)return false;
+  setSaveStatus("saving","Enregistrement…");
+  try{
+    readEditorChapter(i);currentClassData.id=await saveClass(classe,currentClassData.contenu,currentClassData.id);setSaveStatus("saved","Enregistré ✓");saveNav();
+    setTimeout(()=>{if(document.getElementById("saveStatus"))setSaveStatus("","")},2500);return true;
+  }catch(e){setSaveStatus("error","Erreur : "+e.message);alert("Enregistrement impossible : "+e.message);return false}
+}
+async function runAutosave(){
+  if(autosaveRunning){autosaveAgain=true;return}
+  if(currentChapterIndex<0||!document.getElementById("chTitre"))return;
+  autosaveRunning=true;setSaveStatus("saving","Enregistrement…");
+  try{readEditorChapter(currentChapterIndex);currentClassData.id=await saveClass(classe,currentClassData.contenu,currentClassData.id);setSaveStatus("saved","Enregistré ✓");saveNav()}
+  catch(e){setSaveStatus("error","Erreur d'enregistrement");console.error("Autosave:",e)}
+  finally{autosaveRunning=false;if(autosaveAgain){autosaveAgain=false;runAutosave()}else setTimeout(()=>{if(document.getElementById("saveStatus"))setSaveStatus("","")},2500)}
+}
+function scheduleAutosave(){
+  if(currentChapterIndex<0)return;clearTimeout(autosaveTimer);setSaveStatus("saving","Modifications en attente…");autosaveTimer=setTimeout(runAutosave,1500);
+}
+document.addEventListener("input",e=>{if(e.target.matches("input[type=text],input[type=date],input:not([type]),.rich-editor"))scheduleAutosave()});
+document.addEventListener("change",e=>{if(e.target.matches("input[type=date]"))scheduleAutosave()});
+
+async function init(){
+  const{data}=await sb.auth.getSession();user=data?.session?.user||null;
+  if(user){logoutBtn.classList.remove("hidden");await restoreLastPosition()}else login();
+  sb.auth.onAuthStateChange(async(_e,s)=>{user=s?.user||null;if(user){logoutBtn.classList.remove("hidden");await restoreLastPosition()}else{logoutBtn.classList.add("hidden");clearNav();login()}});
+}
+function login(){
+  label.textContent="Éditeur professeur";content.innerHTML=`<section class="hero login"><span class="eyebrow">Espace sécurisé</span><h2>👨‍🏫 Éditeur professeur</h2><p class="muted">Connecte-toi pour modifier les cahiers de tes classes.</p><div class="editbox"><label>Email</label><input id="email" type="email" autocomplete="username" placeholder="ton adresse e-mail"><label>Mot de passe</label><input id="password" type="password" autocomplete="current-password" placeholder="Mot de passe"><button class="primary" style="width:100%;margin-top:5px" onclick="doLogin()">Se connecter</button><div id="loginStatus" class="status" style="margin-top:10px"></div></div></section>`;
+}
+async function doLogin(){const email=document.getElementById("email").value.trim(),password=document.getElementById("password").value,status=document.getElementById("loginStatus");status.textContent="Connexion…";const{error}=await sb.auth.signInWithPassword({email,password});if(error)status.textContent="Connexion impossible : "+error.message}
+async function logout(){clearTimeout(autosaveTimer);await sb.auth.signOut()}
+
+function home(){
+  clearTimeout(autosaveTimer);niveau=null;classe=null;currentClassData=null;currentChapterIndex=-1;clearNav();label.textContent="Éditeur professeur";
+  content.innerHTML=`<section class="hero" style="text-align:center;padding:40px 25px"><span class="eyebrow">Espace professeur</span><h2>🧪 Cahier numérique de SVT</h2><p class="muted">Gère tes cahiers de SVT, classe par classe, depuis un espace professeur simple et sécurisé.</p></section><div class="grid">${Object.keys(CLASSES).map(n=>`<article class="card" onclick="openNiveau('${n}')"><span class="tag">🧪 Niveau</span><h3>${n}</h3><p class="muted">Choisir une classe →</p></article>`).join("")}</div>`;
+}
+async function openNiveau(n){
+  clearTimeout(autosaveTimer);niveau=n;classe=null;currentClassData=null;currentChapterIndex=-1;saveNav();label.textContent=`Éditeur · ${n}`;
+  content.innerHTML=`<button onclick="home()">← Accueil</button><section class="hero" style="margin-top:14px"><span class="eyebrow">${n}</span><h2>Choisir une classe</h2><p class="muted">Sélectionne la classe dont tu veux modifier le cahier.</p></section><div id="classes" class="grid"><p class="muted">Chargement…</p></div>`;
+  try{
+    const arr=await Promise.all(CLASSES[n].map(async c=>{try{const d=await loadClass(c);return{c,count:d.contenu.chapitres.length}}catch(e){return{c,count:0}}}));
+    const target=document.getElementById("classes");if(!target)return;target.innerHTML=arr.map(o=>`<article class="card" onclick="openClasse('${o.c}')"><span class="tag">Classe</span><h3>${o.c}</h3><p class="muted">${o.count} chapitre(s) · Modifier →</p></article>`).join("");
+  }catch(e){showError(e.message)}
+}
+async function openClasse(c){clearTimeout(autosaveTimer);classe=c;currentClassData=null;currentChapterIndex=-1;saveNav();label.textContent=`Éditeur · ${c}`;await chapters()}
+async function chapters(){
+  if(!classe)return;
+  try{
+    currentClassData=await loadClass(classe);currentChapterIndex=-1;saveNav();const x=currentClassData.contenu;
+    content.innerHTML=`<button onclick="openNiveau('${niveau}')">← ${niveau}</button><section class="hero" style="margin-top:14px"><span class="eyebrow">${classe}</span><h2>📚 Mes chapitres</h2><p class="muted">Ajoute et complète les chapitres directement ici.</p><button class="primary" onclick="newChapter()">＋ Ajouter un chapitre</button></section><div class="grid">${x.chapitres.map((ch,i)=>`<article class="card" onclick="editChapter(${i})"><span class="tag">Chapitre ${i+1}</span><div class="rich-output"><h3>${ch.titre||"Nouveau chapitre"}</h3></div><p class="muted">${stripHtml(ch.problematique)||"Aucune problématique renseignée"}</p><p class="small">${ch.seances.length} séance(s)</p></article>`).join("")||`<section class="hero"><h3>Aucun chapitre</h3><p class="muted">Clique sur « Ajouter un chapitre » pour commencer.</p></section>`}</div>`;
+  }catch(e){showError(e.message)}
+}
+function stripHtml(v){const d=document.createElement("div");d.innerHTML=safe(v);return d.textContent||d.innerText||""}
+async function newChapter(){
+  try{if(!currentClassData)currentClassData=await loadClass(classe);currentClassData.contenu.chapitres.push(normalizeChapter({titre:"Nouveau chapitre",problematique:"",germoir:"",seances:[]}));currentClassData.id=await saveClass(classe,currentClassData.contenu,currentClassData.id);const i=currentClassData.contenu.chapitres.length-1;currentChapterIndex=i;saveNav();editChapter(i)}
+  catch(e){alert("Impossible d'ajouter le chapitre : "+e.message)}
+}
+function editChapter(i){
+  try{
+    if(!currentClassData||!Array.isArray(currentClassData.contenu?.chapitres)){showError("Le cahier n'est pas chargé.");return}
+    if(i<0||i>=currentClassData.contenu.chapitres.length){showError("Ce chapitre est introuvable.");return}
+    const ch=normalizeChapter(currentClassData.contenu.chapitres[i]);currentClassData.contenu.chapitres[i]=ch;currentChapterIndex=i;saveNav();
+    content.innerHTML=`<button onclick="chapters()">← Tous les chapitres</button><section class="hero teacher" style="margin-top:14px"><span class="eyebrow">Chapitre ${i+1}</span><h2>✏️ Modifier le chapitre</h2>
+      <div class="editbox"><label>🌱 Germoir à idées</label>${richToolbar("chGermoir")}<div id="chGermoir" class="rich-editor" contenteditable="true" data-placeholder="Écris ici les idées à faire émerger…">${ch.germoir||""}</div>${pdfField("le Germoir à idées","germoirPdf",i,ch.germoirPdf)}
+      <label>Titre du chapitre</label>${richToolbar("chTitre")}<div id="chTitre" class="rich-editor" contenteditable="true" data-placeholder="Titre du chapitre">${ch.titre||""}</div>
+      <label>Problématique du chapitre</label>${richToolbar("chProb")}<div id="chProb" class="rich-editor" contenteditable="true" data-placeholder="Problématique du chapitre…">${ch.problematique||""}</div></div>
+      <div class="section-heading"><h2>📖 Séances</h2><span class="status">Une séance peut s'étaler sur plusieurs jours.</span></div>
+      <div id="sessions">${ch.seances.map((s,n)=>sessionEditor(s,n)).join("")}</div><button type="button" class="entry-add" onclick="addSession(${i})">＋ Ajouter une séance</button>
+      <div class="editbox"><label>🧠 Schéma-bilan du chapitre</label>${pdfField("le schéma-bilan","schemaPdf",i,ch.schemaPdf)}<label>📝 Fiche de mémorisation</label>${pdfField("la fiche de mémorisation","memoPdf",i,ch.memoPdf)}<label>✅ Évaluation de fin de chapitre</label>${pdfField("l'évaluation de fin de chapitre","evaluationPdf",i,ch.evaluationPdf)}</div>
+      <div class="row"><button class="primary" onclick="saveChapter(${i})">💾 Enregistrer</button><button class="danger" onclick="deleteChapter(${i})">🗑️ Supprimer le chapitre</button><span id="saveStatus" class="status save-indicator"></span></div></section>`;
+  }catch(e){showError(e.message)}
+}
+async function addSession(i){
+  try{
+    if(!currentClassData)currentClassData=await loadClass(classe);
+    const saved=await saveChapter(i);if(saved!==true)return;
+    const ch=normalizeChapter(currentClassData.contenu.chapitres[i]);ch.seances.push(normalizeSession({titre:`Séance ${ch.seances.length+1}`,problematique:"",activites:[],corrections:[],bilans:[]}));currentClassData.contenu.chapitres[i]=ch;
+    currentClassData.id=await saveClass(classe,currentClassData.contenu,currentClassData.id);currentChapterIndex=i;saveNav();editChapter(i);
+  }catch(e){alert("Impossible d'ajouter la séance : "+e.message)}
+}
+async function removeSession(n){
+  const i=currentChapterIndex;if(i<0||!currentClassData)return;if(!confirm("Supprimer définitivement cette séance ?"))return;
+  try{const saved=await saveChapter(i);if(saved!==true)return;const ch=normalizeChapter(currentClassData.contenu.chapitres[i]);ch.seances.splice(n,1);currentClassData.contenu.chapitres[i]=ch;currentClassData.id=await saveClass(classe,currentClassData.contenu,currentClassData.id);currentChapterIndex=i;saveNav();editChapter(i)}
+  catch(e){alert("Impossible de supprimer la séance : "+e.message)}
+}
+async function deleteChapter(i){
+  if(!confirm("Supprimer définitivement ce chapitre ?"))return;
+  try{const saved=await saveChapter(i);if(saved!==true)return;currentClassData.contenu.chapitres.splice(i,1);currentClassData.id=await saveClass(classe,currentClassData.contenu,currentClassData.id);currentChapterIndex=-1;saveNav();await chapters()}
+  catch(e){alert("Suppression impossible : "+e.message)}
+}
+async function uploadPdf(input,kind,id){
+  const file=input.files?.[0];if(!file)return;if(file.type!=="application/pdf"){alert("Choisis un fichier PDF.");input.value="";return}
+  const box=input.closest(".pdf-box"),status=box?.querySelector(".status");if(status)status.textContent="Envoi du PDF…";
+  const path=`${classe}/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9._-]/g,"_")}`;
+  try{
+    const{error}=await sb.storage.from("documents").upload(path,file,{contentType:"application/pdf",upsert:false});if(error)throw new Error(error.message);
+    const{data}=sb.storage.from("documents").getPublicUrl(path);input.dataset.url=data.publicUrl;if(box)box.dataset.currentUrl=data.publicUrl;if(status)status.textContent="PDF ajouté ✓";
+    if(currentChapterIndex>=0){clearTimeout(autosaveTimer);await runAutosave()}
+  }catch(e){if(status)status.textContent="Erreur : "+e.message;alert("Envoi du PDF impossible : "+e.message)}
+}
+async function restoreLastPosition(){
+  const n=loadNav();if(!n?.niveau){home();return}niveau=n.niveau;if(!CLASSES[niveau]){home();return}
+  if(n.classe&&CLASSES[niveau].includes(n.classe)){classe=n.classe;label.textContent=`Éditeur · ${classe}`;try{currentClassData=await loadClass(classe);const ci=Number.isInteger(n.currentChapterIndex)?n.currentChapterIndex:-1;if(n.view==="chapter"&&ci>=0&&ci<currentClassData.contenu.chapitres.length){currentChapterIndex=ci;editChapter(ci);return}await chapters();return}catch(e){showError(e.message);return}}
+  await openNiveau(niveau);
+}
+init();
+</script>
+</body>
+</html>
