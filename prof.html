@@ -403,7 +403,6 @@ function newEvaluation(){
   });
 }
 
-async 
 async function deleteEvaluation(id){
   const ev=(evaluations||[]).find(x=>String(x.id)===String(id));
   if(!ev) return;
