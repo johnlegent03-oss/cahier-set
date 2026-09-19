@@ -470,7 +470,7 @@ async function duplicateEvaluation(id){
   }
 }
 
-function editEvaluation(id){
+async function editEvaluation(id){
   try{
     const cached=evaluationsCache.find(x=>String(x.id)===String(id));
     if(cached){editEvaluationObject(cached);return;}
