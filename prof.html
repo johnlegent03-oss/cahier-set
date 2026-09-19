@@ -392,7 +392,7 @@ async function openEvaluations(){
 function evaluationCard(e){
   const {crits,items}=flattenIndicators(e);
   const count=items.filter(i=>i.nom).length;
-  return `<article class="eval-card"><div class="entry-head"><div><span class="tag">${esc(e.classe||"Classe")}</span><h3>${esc(e.titre)}</h3><p class="small-note">${crits.length} critère(s) · ${count} indicateur(s) · ${Number(e.total||0)} point(s)</p></div><div class="row" style="margin:0"><button type="button" style="pointer-events:auto;position:relative;z-index:5" onclick="event.stopPropagation();editEvaluation('${esc(e.id)}')">✏️ Modifier</button><button type="button" style="pointer-events:auto;position:relative;z-index:5" onclick="event.stopPropagation();duplicateEvaluation('${esc(e.id)}')">📋 Dupliquer</button><button type="button" class="primary" style="pointer-events:auto;position:relative;z-index:5" onclick="event.stopPropagation();openCorrection('${esc(e.id)}')">📝 Corriger</button></div></div></article>`;
+  return `<article class="eval-card"><div class="entry-head"><div><span class="tag">${esc(e.classe||"Classe")}</span><h3>${esc(e.titre)}</h3><p class="small-note">${crits.length} critère(s) · ${count} indicateur(s) · ${Number(e.total||0)} point(s)</p></div><div class="row" style="margin:0"><button type="button" style="pointer-events:auto;position:relative;z-index:5" onclick="event.stopPropagation();editEvaluation('${esc(e.id)}')">✏️ Modifier</button><button type="button" style="pointer-events:auto;position:relative;z-index:5" onclick="event.stopPropagation();duplicateEvaluation('${esc(e.id)}')">📋 Dupliquer</button><button type="button" class="primary" style="pointer-events:auto;position:relative;z-index:5" onclick="event.stopPropagation();openCorrection('${esc(e.id)}')">📝 Corriger</button></div></div></article>`;<button type="button" class="danger" style="pointer-events:auto;position:relative;z-index:5" onclick="event.stopPropagation();deleteEvaluation('${esc(e.id)}')">🗑️ Supprimer</button>
 }
 
 function newEvaluation(){
@@ -404,31 +404,32 @@ function newEvaluation(){
 }
 
 async function deleteEvaluation(id){
-  const ev=(evaluations||[]).find(x=>String(x.id)===String(id));
-  if(!ev) return;
-  const ok=confirm(`Supprimer l'évaluation « ${ev.titre||"Sans titre"} » ?\n\nCette action supprimera également les corrections associées.`);
-  if(!ok) return;
+  const ev=evaluationsCache.find(x=>String(x.id)===String(id));
+  if(!ev)return;
+
+  if(!confirm(`Supprimer l'évaluation « ${ev.titre||"Sans titre"} » ?\n\nLes corrections associées seront également supprimées.`))return;
 
   try{
-    // Corrections first because EvaluationCorrections references the evaluation.
-    const {error: corrError}=await supabase
+    const {error:corrError}=await sb
       .from("EvaluationCorrections")
       .delete()
-      .eq("evaluation_id", id);
-    if(corrError) throw corrError;
+      .eq("evaluation_id",id);
 
-    const {error: evalError}=await supabase
+    if(corrError)throw new Error(corrError.message);
+
+    const {error:evalError}=await sb
       .from("Evaluations")
       .delete()
-      .eq("id", id);
-    if(evalError) throw evalError;
+      .eq("id",id);
 
-    evaluations=(evaluations||[]).filter(x=>String(x.id)!==String(id));
-    if(typeof renderEvaluations==="function") renderEvaluations();
-    alert("Évaluation supprimée.");
-  }catch(err){
-    console.error(err);
-    alert("Impossible de supprimer l’évaluation : "+(err?.message||err));
+    if(evalError)throw new Error(evalError.message);
+
+    evaluationsCache=evaluationsCache.filter(x=>String(x.id)!==String(id));
+
+    await openEvaluations();
+
+  }catch(e){
+    alert("Suppression impossible : "+e.message);
   }
 }
 
