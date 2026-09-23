@@ -953,7 +953,16 @@ async function startStudentCorrection(evalId){
     resultat:{points:{},note:0,commentaire:"",criteriaStats:{}}
   });
 }
-
+async function loadBanks(){
+  const [st,co]=await Promise.all([
+    sb.from("ProfessorStudents").select("id,classe,nom,created_at").order("classe").order("nom"),
+    sb.from("ProfessorCompetencies").select("id,niveau,nom,created_at").order("niveau").order("nom")
+  ]);
+  if(st.error)throw new Error(st.error.message);
+  if(co.error)throw new Error(co.error.message);
+  studentsCache=st.data||[];
+  competenciesCache=co.data||[];
+}
 async function pickStudentForCorrection(evalId){
   try{
     await loadBanks();
