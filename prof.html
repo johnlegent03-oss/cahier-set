@@ -935,10 +935,198 @@ async function deleteCorrection(evalId,correctionId,eleve){
   }
 }
 
+function studentDisplayName(s){
+  return s?.nom || s?.name || "Élève";
+}
+
+function sortStudents(list){
+  return [...list].sort((a,b)=>
+    studentDisplayName(a).localeCompare(studentDisplayName(b),"fr",{sensitivity:"base"})
+  );
+}
+
 async function startStudentCorrection(evalId){
   const name=prompt("Nom et prénom de l'élève :");
   if(!name?.trim())return;
-  await renderCorrectionEditor(evalId,null,{eleve:name.trim(),resultat:{points:{},note:0,commentaire:"",criteriaStats:{}}});
+  await renderCorrectionEditor(evalId,null,{
+    eleve:name.trim(),
+    resultat:{points:{},note:0,commentaire:"",criteriaStats:{}}
+  });
+}
+
+async function pickStudentForCorrection(evalId){
+  try{
+    await loadBanks();
+
+    const cached=evaluationsCache.find(x=>String(x.id)===String(evalId));
+    const ev=evalNormalize(cached||{});
+
+    const students=sortStudents(
+      studentsCache.filter(s=>!ev.classe||s.classe===ev.classe)
+    );
+
+    if(!students.length){
+      alert(`Aucun élève enregistré dans la classe ${ev.classe||"de cette évaluation"}.\n\nAjoute-les dans « 👥 Élèves & compétences ».`);
+      return;
+    }
+
+    const existing=await sb.from("EvaluationCorrections")
+      .select("id,eleve,eleve_id,resultat")
+      .eq("evaluation_id",evalId);
+
+    if(existing.error)throw new Error(existing.error.message);
+
+    const byId=new Map(
+      (existing.data||[])
+        .filter(x=>x.eleve_id)
+        .map(x=>[String(x.eleve_id),x])
+    );
+
+    content.innerHTML=`
+      <button onclick="openCorrection('${esc(evalId)}')">← Retour aux copies</button>
+
+      <section class="hero" style="margin-top:14px">
+        <span class="eyebrow">${esc(ev.classe||"")}</span>
+
+        <h2>👥 Choisir les élèves à corriger</h2>
+
+        <p class="muted">
+          Sélectionne un ou plusieurs élèves.
+          Pour plusieurs élèves, la même correction sera enregistrée pour chacun.
+        </p>
+
+        <div class="row" style="margin-top:14px">
+          <button type="button" onclick="
+            document.querySelectorAll('.correction-student-check').forEach(c=>c.checked=true);
+            updateCorrectionSelectionCount();
+          ">☑️ Tout sélectionner</button>
+
+          <button type="button" onclick="
+            document.querySelectorAll('.correction-student-check').forEach(c=>c.checked=false);
+            updateCorrectionSelectionCount();
+          ">☐ Tout désélectionner</button>
+
+          <span id="correctionSelectionCount" class="status">
+            0 élève sélectionné
+          </span>
+        </div>
+
+        <div class="student-picker-grid">
+          ${students.map(s=>{
+            const c=byId.get(String(s.id));
+
+            return `
+              <label class="student-choice" style="cursor:pointer">
+                <div style="display:flex;gap:10px;align-items:flex-start">
+                  <input
+                    type="checkbox"
+                    class="correction-student-check"
+                    value="${esc(s.id)}"
+                    onchange="updateCorrectionSelectionCount()"
+                    style="margin-top:4px"
+                  >
+
+                  <span>
+                    <strong>👤 ${esc(studentDisplayName(s))}</strong>
+                    <span class="small-note" style="display:block;margin-top:4px">
+                      ${c
+                        ? `Correction enregistrée · ${Number(c.resultat?.note||0)} / ${Number(ev.total||0)}`
+                        : `Nouvelle correction`}
+                    </span>
+                  </span>
+                </div>
+              </label>
+            `;
+          }).join("")}
+        </div>
+
+        <div class="row" style="margin-top:18px">
+          <button
+            type="button"
+            class="primary"
+            onclick="startSelectedStudentsCorrection('${esc(evalId)}')">
+            📝 Corriger les élèves sélectionnés
+          </button>
+        </div>
+      </section>
+    `;
+  }catch(e){
+    alert("Impossible de charger les élèves : "+e.message);
+  }
+}
+
+function updateCorrectionSelectionCount(){
+  const n=document.querySelectorAll('.correction-student-check:checked').length;
+  const el=document.getElementById("correctionSelectionCount");
+
+  if(el){
+    el.textContent=
+      `${n} élève${n>1?"s":""} sélectionné${n>1?"s":""}`;
+  }
+}
+
+async function startSelectedStudentsCorrection(evalId){
+  const ids=[...document.querySelectorAll('.correction-student-check:checked')]
+    .map(c=>String(c.value));
+
+  if(!ids.length){
+    alert("Sélectionne au moins un élève.");
+    return;
+  }
+
+  const students=sortStudents(
+    studentsCache.filter(s=>ids.includes(String(s.id)))
+  );
+
+  if(!students.length)return;
+
+  if(students.length===1){
+    const s=students[0];
+    const existing=await sb.from("EvaluationCorrections")
+      .select("id,eleve,eleve_id,resultat")
+      .eq("evaluation_id",evalId)
+      .eq("eleve_id",s.id)
+      .maybeSingle();
+
+    if(existing.error){
+      alert("Impossible de vérifier la correction : "+existing.error.message);
+      return;
+    }
+
+    if(existing.data){
+      await editCorrection(evalId,existing.data.id);
+      return;
+    }
+
+    await renderCorrectionEditor(evalId,null,{
+      eleve:studentDisplayName(s),
+      eleve_id:s.id,
+      resultat:{points:{},note:0,commentaire:"",criteriaStats:{}}
+    });
+    return;
+  }
+
+  await renderCorrectionEditor(
+    evalId,
+    null,
+    {
+      eleve:`${students.length} élèves sélectionnés`,
+      eleve_id:"",
+      resultat:{points:{},note:0,commentaire:"",criteriaStats:{}}
+    },
+    ids
+  );
+}
+
+async function startBankStudentCorrection(evalId,studentId){
+  const s=studentsCache.find(x=>String(x.id)===String(studentId));
+  if(!s)return;
+
+  await renderCorrectionEditor(evalId,null,{
+    eleve:studentDisplayName(s),
+    eleve_id:s.id,
+    resultat:{points:{},note:0,commentaire:"",criteriaStats:{}}
+  });
 }
 
 async function editCorrection(evalId,correctionId){
