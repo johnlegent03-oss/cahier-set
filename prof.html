@@ -548,7 +548,7 @@ function printHtmlInCurrentWindow(title,bodyHtml,extraCss=""){
   setTimeout(()=>window.print(),120);
 }
 
-async async function generateBlankEvaluationGrid(evalId){
+async function generateBlankEvaluationGrid(evalId){
   try{
     const ev=await getEvaluationById(evalId);
     if(!ev){alert("Évaluation introuvable.");return;}
