@@ -2389,7 +2389,6 @@ function ppWeightedAverage(grades){
 }
 function ppGenerateAppreciation(grades,student){
   const avg=ppWeightedAverage(grades);
-  const b=ppBehaviorSummary(student);
   let result="";
   if(avg===null) result="Résultats à compléter pour établir une appréciation générale.";
   else if(avg>=16) result="Très bons résultats d’ensemble";
@@ -2397,10 +2396,6 @@ function ppGenerateAppreciation(grades,student){
   else if(avg>=12) result="Résultats satisfaisants dans l’ensemble";
   else if(avg>=10) result="Résultats encore fragiles dans plusieurs disciplines";
   else result="Résultats insuffisants dans l’ensemble, avec des progrès à poursuivre";
-  if(b.neg===0 && b.pos>0) result+=". Le comportement et l’investissement sont très positifs";
-  else if(b.neg===0) result+=". Le comportement est satisfaisant";
-  else if(b.pos>b.neg) result+=". Le comportement est globalement positif, malgré quelques points de vigilance";
-  else if(b.neg>0) result+=". Le comportement nécessite une vigilance particulière et davantage de régularité";
   if(avg!==null) result+=`. Moyenne générale pondérée : ${ppFormatGrade(avg)}/20.`;
   return result;
 }
