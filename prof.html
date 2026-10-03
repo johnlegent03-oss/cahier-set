@@ -883,7 +883,14 @@ function renderStudentTracking(){
   const rows=trackingRows(),summary=trackingSummary(rows);
   const scoreValues=rows.map(trackingScore20);
   const studentAverage=formatAverage20(scoreValues);
-  const classes=[...new Set([...studentTrackingCache.map(c=>c.evaluation?.classe),...behaviorStudentsCache.map(s=>s.classe)].map(x=>String(x||"").trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b,"fr"));
+  const classes=[...new Set([
+  ...studentTrackingCache.flatMap(c=>
+    Array.isArray(c.evaluation?.assignedClasses)&&c.evaluation.assignedClasses.length
+      ? c.evaluation.assignedClasses
+      : [c.evaluation?.classe]
+  ),
+  ...behaviorStudentsCache.map(s=>s.classe)
+].filter(Boolean))]
   loadBehaviorEvents();
   const behaviorEvents=studentTrackingStudent?behaviorEventsForStudent(studentTrackingStudent,studentTrackingClass,studentTrackingPeriod,studentTrackingStudentId):[];
   const behaviorCountsMap=behaviorCounts(behaviorEvents),behaviorPeriodSummary=behaviorSummary(behaviorEvents);
@@ -966,7 +973,11 @@ function renderClassTracking(){
   const classes=[...new Set([
     ...Object.values(CLASSES).flat(),
     ...studentsCache.map(s=>s.classe),
-    ...studentTrackingCache.map(c=>c.evaluation?.classe),
+    ...studentTrackingCache.flatMap(c=>
+  Array.isArray(c.evaluation?.assignedClasses)&&c.evaluation.assignedClasses.length
+    ? c.evaluation.assignedClasses
+    : [c.evaluation?.classe]
+),
     ...behaviorStudentsCache.map(s=>s.classe),
     ...behaviorEventsCache.map(e=>e.classe)
   ].map(x=>String(x||"").trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b,"fr",{numeric:true,sensitivity:"base"}));
