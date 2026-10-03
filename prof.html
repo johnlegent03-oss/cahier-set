@@ -145,6 +145,13 @@ const content=document.getElementById("content"),label=document.getElementById("
 let niveau=null,classe=null,user=null,currentClassData=null,currentChapterIndex=-1;
 let autosaveTimer=null,autosaveRunning=false,autosaveAgain=false;
 let currentCorrectionEvaluation=null;
+  function requireTeacher(){
+  if(!user){
+    login();
+    return false;
+  }
+  return true;
+}
 const richRanges={};
 const NAV_KEY="cahierSVT.prof.navigation.v2";
 const EVAL_NAV_KEY="cahierSVT.prof.evaluations.navigation.v1";
