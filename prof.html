@@ -2291,9 +2291,9 @@ function ppPeriodEnd(p){
   const calendarYear=now.getFullYear();
   const month=now.getMonth()+1;
   const schoolYearStart=month>=9?calendarYear:calendarYear-1;
-  if(p==="t1")return `${schoolYearStart}-12-31`;
-  if(p==="t2")return `${schoolYearStart+1}-03-31`;
-  if(p==="t3")return `${schoolYearStart+1}-08-31`;
+  if(p==="t1")return `${schoolYearStart}-11-20`;
+ if(p==="t2")return `${schoolYearStart+1}-02-12`;
+ if(p==="t3")return `${schoolYearStart+1}-06-04`;
   return "2999-12-31";
 }
 function ppStudentById(id){return ppStudents.find(s=>String(s.id)===String(id))||null}
