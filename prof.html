@@ -386,7 +386,7 @@ function entryEditor(type,entry,sessionIndex,entryIndex){
   return`<div class="entry" data-entry-type="${type}" data-pdf="${esc(x.pdf)}">
     <div class="entry-head"><span class="entry-type">${labelText}</span><div class="entry-actions"><label style="margin:0;font-size:12px;font-weight:700">📅 <input class="entry-date" type="date" value="${esc(x.date)}" aria-label="Date"></label><button type="button" class="danger" onclick="removeEntry(this)">Supprimer</button></div></div>
     ${isCorrection
-      ?`${x.pdf?existingPdf(x.pdf,"PDF de correction"):""}<div class="pdf-box" data-current-url="${esc(x.pdf)}"><label>${x.pdf?"Remplacer le PDF de correction":"PDF de correction (facultatif)"}</label><input class="entry-pdf" type="file" accept="application/pdf" onchange="uploadPdf(this,'entry','${id}')"><span class="status"></span></div>`
+  ?`<div class="pdf-box" data-current-url="${esc(x.pdf)}">${x.pdf?existingPdf(x.pdf,"PDF de correction"):""}<label>${x.pdf?"Remplacer le PDF de correction":"PDF de correction (facultatif)"}</label><input class="entry-pdf" type="file" accept="application/pdf" onchange="uploadPdf(this,'entry','${id}')"><span class="status"></span></div>`
       :`<div class="entry-label">${type==="activite"?"Contenu de l'activité":"Contenu du bilan"}</div>${richToolbar(id)}<div id="${id}" class="rich-editor entry-text" contenteditable="true" data-placeholder="Écris le contenu…">${x.texte}</div><div class="pdf-box" data-current-url="${esc(x.pdf)}">${x.pdf?existingPdf(x.pdf,type==="activite"?"PDF de l'activité":"PDF du bilan"):""}<label>${x.pdf?"Remplacer le PDF":"PDF (facultatif)"}</label><input class="entry-pdf" type="file" accept="application/pdf" onchange="uploadPdf(this,'entry','${id}')"><span class="status"></span></div>`}
   </div>`;
 }
