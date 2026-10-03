@@ -2363,7 +2363,17 @@ async function ppRenderStudent(tab="synthese"){
     const [events,contacts,amenagements,actions]=await Promise.all([ppLoadTable(PP_TABLES.events,ppStudentId),ppLoadTable(PP_TABLES.contacts,ppStudentId),ppLoadTable(PP_TABLES.amenagements,ppStudentId),ppLoadTable(PP_TABLES.actions,ppStudentId)]);
     if(tab==="synthese"){
       let evals=[];try{if(!studentTrackingCache.length)await loadStudentTracking();evals=studentTrackingCache.filter(x=>String(x.eleveId||"")===String(s.id)||normalizeTrackingStudentName(x.eleve)===normalizeTrackingStudentName(ppName(s)));}catch(e){}
-      const avg=evals.length?formatAverage20(evals.map(trackingScore20)):"—";const activeAm=amenagements.filter(x=>x.actif!==false).length;const openActions=actions.filter(x=>x.statut!=="termine").length;const gradePeriod=ppPeriod==="year"?"T1":ppPeriod.toUpperCase();let grades=[];try{grades=await ppLoadGrades(s.id,gradePeriod)}catch(e){}const vigilanceEvents=events.filter(x=>String(x.type)==="vigilance");
+      const avg=evals.length?formatAverage20(evals.map(trackingScore20)):"—";const activeAm=amenagements.filter(x=>x.actif!==false).length;const openActions=actions.filter(x=>x.statut!=="termine").length;const gradePeriod=ppPeriod==="year"?"T1":ppPeriod.toUpperCase();let grades=[];try{grades=await ppLoadGrades(s.id,gradePeriod)}catch(e){}const vigilanceEvents=events.filter(x=>{
+  if(String(x.type)!=="vigilance") return false;
+
+  if(ppPeriod==="year") return true;
+
+  const date=String(x.date||"").slice(0,10);
+  const start=ppPeriodStart(ppPeriod);
+  const end=ppPeriodEnd(ppPeriod);
+
+  return date>=start && date<=end;
+});
 const vigilance=vigilanceEvents.length;const vigilanceHtml=vigilanceEvents.length
   ?vigilanceEvents.map(x=>'<div class="pp-item"><strong>'+esc(x.titre||"Point de vigilance")+'</strong><div class="small-note">'+esc(x.date||"")+'</div>'+(x.contenu?'<p>'+esc(x.contenu)+'</p>':"")+'</div>').join("")
   :'<div class="pp-empty">Aucun point de vigilance.</div>';const manualAvg=ppWeightedAverage(grades);const generated=ppGenerateAppreciation(grades,s);
