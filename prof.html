@@ -1832,6 +1832,12 @@ async function pickStudentForCorrection(evalId, selectedClass){
     const classes=[...new Set(studentsCache.map(s=>String(s.classe||"").trim()).filter(Boolean))]
       .sort((a,b)=>a.localeCompare(b,"fr",{numeric:true,sensitivity:"base"}));
     const currentClass=selectedClass!==undefined?String(selectedClass).trim():String(loadEvalNav().classe||ev.classe||"").trim();
+    if(currentClass){
+  saveEvalNav({classe:currentClass});
+  try{
+    localStorage.setItem("EVAL_SELECTED_CLASS",currentClass);
+  }catch(e){}
+}
     const students=currentClass?sortStudents(studentsCache.filter(s=>String(s.classe||"").trim()===currentClass)):[];
     const existing=await sb.from("EvaluationCorrections").select("id,eleve,eleve_id,resultat").eq("evaluation_id",evalId);
     if(existing.error)throw new Error(existing.error.message);
