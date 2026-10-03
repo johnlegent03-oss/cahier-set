@@ -2303,10 +2303,20 @@ async function ppLoadStudents(){
   if(error)throw new Error(error.message);ppStudents=data||[];studentsCache=ppStudents.slice();return ppStudents;
 }
 async function ppLoadTable(table,studentId=null,classeFilter=null){
-  let q=sb.from(table).select("*").order("date",{ascending:false}).order("created_at",{ascending:false});
+  let q=sb.from(table).select("*");
+
+  if(table===PP_TABLES.conseils){
+    q=q.order("created_at",{ascending:false});
+  }else{
+    q=q.order("date",{ascending:false}).order("created_at",{ascending:false});
+  }
+
   if(studentId)q=q.eq("eleve_id",String(studentId));
   if(classeFilter)q=q.eq("classe",classeFilter);
-  const {data,error}=await q;if(error)throw new Error(error.message);return data||[];
+
+  const {data,error}=await q;
+  if(error)throw new Error(error.message);
+  return data||[];
 }
 async function ppInsert(table,payload){
   const row={...payload,created_by:user?.id||null};
