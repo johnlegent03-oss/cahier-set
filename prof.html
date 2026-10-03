@@ -327,14 +327,59 @@ function existingPdf(url,labelText){
 function pdfField(labelText,kind,id,url){
   return`<div class="pdf-box" data-current-url="${esc(url)}">${existingPdf(url,labelText)}<label>${url?"Remplacer le PDF de "+labelText.toLowerCase():"PDF de "+labelText+" (facultatif)"}</label><input class="${esc(kind)}" type="file" accept="application/pdf" onchange="uploadPdf(this,'${esc(kind)}','${esc(id)}')"><span class="status"></span></div>`;
 }
-function clearPdf(button){
-  const box=button.closest(".pdf-box");if(!box)return;
-  box.dataset.currentUrl="";
-  box.dataset.pdfCleared="1";
-  const input=box.querySelector('input[type=file]');if(input){input.value="";delete input.dataset.url;}
-  button.closest(".pdf-existing")?.remove();
-  button.closest(".entry")?.setAttribute("data-pdf","");
-  scheduleAutosave();
+async function clearPdf(button){
+  const box=button.closest(".pdf-box");
+  if(!box)return;
+
+  const oldUrl=
+    box.dataset.currentUrl ||
+    box.querySelector('input[type=file]')?.dataset?.url ||
+    "";
+
+  if(!oldUrl){
+    box.dataset.currentUrl="";
+    button.closest(".pdf-existing")?.remove();
+    scheduleAutosave();
+    return;
+  }
+
+  if(!confirm("Supprimer définitivement ce PDF ?"))return;
+
+  try{
+    // Récupère le chemin du fichier dans le bucket Supabase "documents"
+    const marker="/storage/v1/object/public/documents/";
+    const pos=oldUrl.indexOf(marker);
+
+    if(pos===-1){
+      throw new Error("Impossible de déterminer le fichier PDF à supprimer.");
+    }
+
+    const path=decodeURIComponent(oldUrl.slice(pos+marker.length));
+
+    const {error}=await sb.storage
+      .from("documents")
+      .remove([path]);
+
+    if(error)throw new Error(error.message);
+
+    // Retire maintenant le PDF du cahier
+    box.dataset.currentUrl="";
+
+    const input=box.querySelector('input[type=file]');
+    if(input){
+      input.value="";
+      delete input.dataset.url;
+    }
+
+    button.closest(".pdf-existing")?.remove();
+
+    // Enregistre immédiatement la modification dans le cahier
+    clearTimeout(autosaveTimer);
+    await runAutosave();
+
+  }catch(e){
+    alert("Suppression du PDF impossible : "+e.message);
+  }
 }
 
 function entryEditor(type,entry,sessionIndex,entryIndex){
