@@ -2403,16 +2403,37 @@ function ppWeightedAverage(grades){
   }
   return coefTotal?total/coefTotal:null;
 }
-function ppGenerateAppreciation(grades,student){
+function ppGenerateAppreciation(grades,student,events=[]){
   const avg=ppWeightedAverage(grades);
   let result="";
+
   if(avg===null) result="Résultats à compléter pour établir une appréciation générale.";
   else if(avg>=16) result="Très bons résultats d’ensemble";
   else if(avg>=14) result="Bons résultats d’ensemble";
   else if(avg>=12) result="Résultats satisfaisants dans l’ensemble";
   else if(avg>=10) result="Résultats encore fragiles dans plusieurs disciplines";
   else result="Résultats insuffisants dans l’ensemble, avec des progrès à poursuivre";
-  if(avg!==null) result+=`. Moyenne générale pondérée : ${ppFormatGrade(avg)}/20.`;
+
+  if(avg!==null){
+    result+=`. Moyenne générale pondérée : ${ppFormatGrade(avg)}/20.`;
+  }
+
+  const remarques=events
+    .filter(x=>["observation","vigilance","équipe","autre"].includes(String(x.type)))
+    .filter(x=>String(x.contenu||"").trim())
+    .sort((a,b)=>String(b.date||"").localeCompare(String(a.date||"")));
+
+  if(remarques.length){
+    const textes=remarques
+      .slice(0,3)
+      .map(x=>String(x.contenu||"").trim())
+      .filter(Boolean);
+
+    if(textes.length){
+      result+=" "+textes.join(" ");
+    }
+  }
+
   return result;
 }
 function ppGradesEditor(grades){
@@ -2450,7 +2471,10 @@ async function ppSaveGrades(){
 async function ppGenerateAndFillAppreciation(){
   const s=ppStudentById(ppStudentId);if(!s)return;
   try{
-    const period=ppPeriod==="year"?"T1":ppPeriod.toUpperCase();const grades=await ppLoadGrades(s.id,period);const txt=ppGenerateAppreciation(grades,s);
+    const period=ppPeriod==="year"?"T1":ppPeriod.toUpperCase();
+const grades=await ppLoadGrades(s.id,period);
+const events=await ppLoadTable(PP_TABLES.events,s.id);
+const txt=ppGenerateAppreciation(grades,s,events);
     const el=document.getElementById("ppGeneratedAppreciation");if(el)el.value=txt;
   }catch(e){alert("Génération impossible : "+e.message)}
 }
