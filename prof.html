@@ -590,7 +590,18 @@ async function loadStudentTracking(){
   }).filter(x=>x.evaluation);
   return studentTrackingCache;
 }
+function evaluationAppliesToClass(ev,classe){
+  const target=String(classe||"").trim();
+  if(!target)return true;
 
+  const assigned=Array.isArray(ev?.assignedClasses)
+    ? ev.assignedClasses.map(v=>String(v||"").trim()).filter(Boolean)
+    : [];
+
+  return assigned.length
+    ? assigned.includes(target)
+    : String(ev?.classe||"").trim()===target;
+}
 function trackingPeriodLabel(period){
   return period==="t1"?"Trimestre 1":period==="t2"?"Trimestre 2":period==="t3"?"Trimestre 3":"Année";
 }
@@ -658,9 +669,8 @@ function trackingDate(dateValue){
 }
 function trackingRows(){
   return studentTrackingCache.filter(c=>{
-    const cls=c.evaluation?.classe||"";
     const date=trackingRecordDate(c);
-    return (!studentTrackingClass||cls===studentTrackingClass)
+    return evaluationAppliesToClass(c.evaluation,studentTrackingClass)
       &&(!studentTrackingStudentId ? (!studentTrackingStudent||c.eleve===studentTrackingStudent) : String(c.eleveId||"")===String(studentTrackingStudentId))
       &&trackingPeriodMatch(date,studentTrackingPeriod);
   }).sort((a,b)=>{
@@ -676,7 +686,7 @@ function trackingStudentOptions(){
     if(!s?.id)return;
     out.set(String(s.id),{id:String(s.id),name:studentDisplayName(s)});
   });
-  studentTrackingCache.filter(c=>!targetClass||String(c.evaluation?.classe||"").trim()===targetClass).forEach(c=>{
+  studentTrackingCache.filter(c=>evaluationAppliesToClass(c.evaluation,targetClass)).forEach(c=>{
     const id=c.eleveId?String(c.eleveId):"";
     if(id&&!out.has(id))out.set(id,{id,name:c.eleve||"Élève"});
   });
@@ -689,8 +699,8 @@ function trackingStudents(){
     const display=studentDisplayName(s);
     if(display)out.set(String(s.id),display);
   });
-  studentTrackingCache.filter(c=>!targetClass||String(c.evaluation?.classe||"").trim()===targetClass).forEach(c=>{
-    const key=c.eleveId?String(c.eleveId):`legacy:${normalizeTrackingStudentName(c.eleve)}`;
+studentTrackingCache.filter(c=>evaluationAppliesToClass(c.evaluation,targetClass)).forEach(c=>{
+  const key=c.eleveId?String(c.eleveId):`legacy:${normalizeTrackingStudentName(c.eleve)}`;
     if(!out.has(key))out.set(key,c.eleve);
   });
   behaviorEventsCache.filter(e=>!targetClass||String(e.classe||"").trim()===targetClass).forEach(e=>{
@@ -909,9 +919,8 @@ function renderStudentTracking(){
 
 function classTrackingRows(){
   const rows=studentTrackingCache.filter(c=>{
-    const cls=c.evaluation?.classe||"";
     const date=trackingRecordDate(c);
-    return (!classTrackingClass||cls===classTrackingClass)
+    return evaluationAppliesToClass(c.evaluation,classTrackingClass)
       &&trackingPeriodMatch(date,classTrackingPeriod);
   });
   const byStudent={};
