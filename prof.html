@@ -2215,18 +2215,54 @@ async function ppSaveCouncil(){if(!ppClass)return;const period=document.getEleme
 
 async function init(){
   buildQuickNav();
-  const{data}=await sb.auth.getSession();user=data?.session?.user||null;
-  if(user){logoutBtn.classList.remove("hidden");globalHome?.classList.add("show");await restoreLastPosition()}else login();
-  sb.auth.onAuthStateChange(async(event,s)=>{
-  user=s?.user||null;
-  if(event === "SIGNED_OUT"){ logoutBtn.classList.add("hidden"); globalHome?.classList.remove("show"); clearNav(); login(); return; }
-  // Ne pas reconstruire l'interface lors des événements TOKEN_REFRESHED / USER_UPDATED.
-  // Sinon, quand l'enseignant revient sur l'onglet après être allé ailleurs,
-  // Supabase peut rafraîchir la session et la saisie en cours est perdue.
-  if(user){ logoutBtn.classList.remove("hidden"); globalHome?.classList.add("show"); }
-});
+
+  try{
+    const {data,error}=await sb.auth.getSession();
+
+    if(error){
+      console.error("Erreur de session :",error);
+      user=null;
+      logoutBtn.classList.add("hidden");
+      globalHome?.classList.remove("show");
+      login();
+      return;
+    }
+
+    user=data?.session?.user??null;
+
+    if(!user){
+      logoutBtn.classList.add("hidden");
+      globalHome?.classList.remove("show");
+      login();
+      return;
+    }
+
+    logoutBtn.classList.remove("hidden");
+    globalHome?.classList.add("show");
+    await restoreLastPosition();
+
+    sb.auth.onAuthStateChange(async(event,s)=>{
+      user=s?.user??null;
+
+      if(event==="SIGNED_OUT"||!user){
+        logoutBtn.classList.add("hidden");
+        globalHome?.classList.remove("show");
+        login();
+        return;
+      }
+
+      logoutBtn.classList.remove("hidden");
+      globalHome?.classList.add("show");
+    });
+
+  }catch(error){
+    console.error("Initialisation impossible :",error);
+    user=null;
+    logoutBtn.classList.add("hidden");
+    globalHome?.classList.remove("show");
+    login();
+  }
 }
-function login(){
   label.textContent="Éditeur professeur";content.innerHTML=`<section class="hero login"><span class="eyebrow">Espace sécurisé</span><h2>👨‍🏫 Éditeur professeur</h2><p class="muted">Connecte-toi pour modifier les cahiers de tes classes.</p><div class="editbox"><label>Email</label><input id="email" type="email" autocomplete="username" placeholder="ton adresse e-mail"><label>Mot de passe</label><input id="password" type="password" autocomplete="current-password" placeholder="Mot de passe"><button class="primary" style="width:100%;margin-top:5px" onclick="doLogin()">Se connecter</button><div id="loginStatus" class="status" style="margin-top:10px"></div></div></section>`;
 }
 async function doLogin(){const email=document.getElementById("email").value.trim(),password=document.getElementById("password").value,status=document.getElementById("loginStatus");status.textContent="Connexion…";const{error}=await sb.auth.signInWithPassword({email,password});if(error)status.textContent="Connexion impossible : "+error.message}
