@@ -2282,8 +2282,8 @@ function ppPeriodStart(p){
   const month=now.getMonth()+1;
   const schoolYearStart=month>=9?calendarYear:calendarYear-1;
   if(p==="t1")return `${schoolYearStart}-09-01`;
-  if(p==="t2")return `${schoolYearStart+1}-01-01`;
-  if(p==="t3")return `${schoolYearStart+1}-04-01`;
+  if(p==="t2")return `${schoolYearStart}-11-21`;
+  if(p==="t3")return `${schoolYearStart+1}-02-13`;
   return "1900-01-01";
 }
 function ppPeriodEnd(p){
