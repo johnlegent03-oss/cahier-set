@@ -346,7 +346,6 @@ async function clearPdf(button){
   if(!confirm("Supprimer définitivement ce PDF ?"))return;
 
   try{
-    // Récupère le chemin du fichier dans le bucket Supabase "documents"
     const marker="/storage/v1/object/public/documents/";
     const pos=oldUrl.indexOf(marker);
 
@@ -354,7 +353,9 @@ async function clearPdf(button){
       throw new Error("Impossible de déterminer le fichier PDF à supprimer.");
     }
 
-    const path=decodeURIComponent(oldUrl.slice(pos+marker.length));
+    const path=decodeURIComponent(
+      oldUrl.slice(pos+marker.length)
+    );
 
     const {error}=await sb.storage
       .from("documents")
@@ -362,7 +363,6 @@ async function clearPdf(button){
 
     if(error)throw new Error(error.message);
 
-    // Retire maintenant le PDF du cahier
     box.dataset.currentUrl="";
 
     const input=box.querySelector('input[type=file]');
@@ -373,7 +373,6 @@ async function clearPdf(button){
 
     button.closest(".pdf-existing")?.remove();
 
-    // Enregistre immédiatement la modification dans le cahier
     clearTimeout(autosaveTimer);
     await runAutosave();
 
