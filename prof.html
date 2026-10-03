@@ -279,7 +279,17 @@ async function quickNavigate(value){
 
 
 function showError(msg){content.innerHTML='<section class="hero error"><h2>⚠️ Une erreur est survenue</h2><p>'+esc(msg)+'</p><button onclick="restoreLastPosition()">Retour</button></section>'}
-function setSaveStatus(state,msg){
+async function flushPendingAutosave(){
+  clearTimeout(autosaveTimer);
+
+  if(
+    currentChapterIndex>=0 &&
+    document.getElementById("chTitre")
+  ){
+    await runAutosave();
+  }
+}
+  function setSaveStatus(state,msg){
   const el=document.getElementById("saveStatus");if(!el)return;
   el.className="status save-indicator "+(state||"");el.textContent=msg||"";
 }
