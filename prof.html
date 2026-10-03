@@ -2343,11 +2343,56 @@ async function ppSaveCouncil(){if(!ppClass)return;const period=document.getEleme
 async function init(){
   buildQuickNav();
 
+  /*
+    On installe le listener AUTH AVANT de vérifier
+    la session existante.
+    
+    Ainsi, il fonctionne aussi lorsque l'utilisateur
+    arrive sur la page sans être encore connecté.
+  */
+  sb.auth.onAuthStateChange(async(event,session)=>{
+    console.log("AUTH EVENT :",event);
+
+    user=session?.user ?? null;
+
+    if(event==="SIGNED_OUT" || !user){
+      logoutBtn.classList.add("hidden");
+      globalHome?.classList.remove("show");
+      login();
+      return;
+    }
+
+    /*
+      L'utilisateur vient de se connecter.
+      On affiche immédiatement l'espace professeur.
+    */
+    logoutBtn.classList.remove("hidden");
+    globalHome?.classList.add("show");
+
+    if(event==="SIGNED_IN"){
+      setTimeout(()=>{
+        restoreLastPosition().catch(e=>{
+          console.error(
+            "Restauration après connexion impossible :",
+            e
+          );
+        });
+      },0);
+    }
+  });
+
+  /*
+    Vérification de la session déjà existante.
+  */
   try{
     const {data,error}=await sb.auth.getSession();
 
     if(error){
-      console.error("Erreur de session :",error);
+      console.error(
+        "Erreur de session :",
+        error
+      );
+
       user=null;
       logoutBtn.classList.add("hidden");
       globalHome?.classList.remove("show");
@@ -2355,7 +2400,7 @@ async function init(){
       return;
     }
 
-    user=data?.session?.user??null;
+    user=data?.session?.user ?? null;
 
     if(!user){
       logoutBtn.classList.add("hidden");
@@ -2364,29 +2409,22 @@ async function init(){
       return;
     }
 
+    /*
+      Session déjà présente :
+      on ouvre directement l'espace professeur.
+    */
     logoutBtn.classList.remove("hidden");
     globalHome?.classList.add("show");
+
     await restoreLastPosition();
 
-    sb.auth.onAuthStateChange(async(event,s)=>{
-      user=s?.user??null;
-
-      if(event==="SIGNED_OUT"||!user){
-        logoutBtn.classList.add("hidden");
-        globalHome?.classList.remove("show");
-        login();
-        return;
-      }
-
-      logoutBtn.classList.remove("hidden");
-      globalHome?.classList.add("show");
-      if(event==="SIGNED_IN"){
-        setTimeout(()=>{restoreLastPosition().catch(e=>console.error("Restauration après connexion impossible :",e));},0);
-      }
-    });
-
   }catch(error){
-    console.error("Initialisation impossible :",error);
+
+    console.error(
+      "Initialisation impossible :",
+      error
+    );
+
     user=null;
     logoutBtn.classList.add("hidden");
     globalHome?.classList.remove("show");
@@ -2398,16 +2436,88 @@ function login(){
   content.innerHTML=`<section class="hero login"><span class="eyebrow">Espace sécurisé</span><h2>👨‍🏫 Éditeur professeur</h2><p class="muted">Connecte-toi pour modifier les cahiers de tes classes.</p><div class="editbox"><label>Email</label><input id="email" type="email" autocomplete="username" placeholder="ton adresse e-mail"><label>Mot de passe</label><input id="password" type="password" autocomplete="current-password" placeholder="Mot de passe"><button class="primary" style="width:100%;margin-top:5px" onclick="doLogin()">Se connecter</button><div id="loginStatus" class="status" style="margin-top:10px"></div></div></section>`;
 }
 async function doLogin(){
-  const email=document.getElementById("email")?.value.trim()||"",password=document.getElementById("password")?.value||"",status=document.getElementById("loginStatus"),button=document.querySelector(".login button.primary");
-  if(!email||!password){if(status)status.textContent="Renseigne l'adresse e-mail et le mot de passe.";return;}
-  if(status)status.textContent="Connexion…";
-  if(button)button.disabled=true;
+
+  const email=
+    document.getElementById("email")?.value.trim() || "";
+
+  const password=
+    document.getElementById("password")?.value || "";
+
+  const status=
+    document.getElementById("loginStatus");
+
+  const button=
+    document.querySelector(".login button.primary");
+
+  if(!email || !password){
+    if(status){
+      status.textContent=
+        "Renseigne l'adresse e-mail et le mot de passe.";
+    }
+    return;
+  }
+
+  if(status){
+    status.textContent="Connexion…";
+  }
+
+  if(button){
+    button.disabled=true;
+  }
+
   try{
-    const{error}=await sb.auth.signInWithPassword({email,password});
-    if(error)throw new Error(error.message);
-    if(status)status.textContent="Connexion réussie ✓";
-  }catch(e){if(status)status.textContent="Connexion impossible : "+e.message;}
-  finally{if(button)button.disabled=false;}
+
+    const {data,error}=
+      await sb.auth.signInWithPassword({
+        email,
+        password
+      });
+
+    if(error){
+      throw new Error(error.message);
+    }
+
+    /*
+      Sécurité supplémentaire :
+      même si l'événement SIGNED_IN tarde à être traité,
+      on ouvre l'espace professeur directement.
+    */
+    user=data?.user ?? null;
+
+    if(!user){
+      throw new Error(
+        "Connexion réussie mais utilisateur non récupéré."
+      );
+    }
+
+    if(status){
+      status.textContent="Connexion réussie ✓";
+    }
+
+    logoutBtn?.classList.remove("hidden");
+    globalHome?.classList.add("show");
+
+    await restoreLastPosition();
+
+  }catch(e){
+
+    console.error(
+      "Erreur de connexion :",
+      e
+    );
+
+    if(status){
+      status.textContent=
+        "Connexion impossible : " +
+        e.message;
+    }
+
+  }finally{
+
+    if(button){
+      button.disabled=false;
+    }
+  }
 }
 async function logout(){clearTimeout(autosaveTimer);await sb.auth.signOut()}
 
