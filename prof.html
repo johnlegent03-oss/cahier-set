@@ -1598,9 +1598,42 @@ async function openCorrection(id,classOverride=""){
     evalRememberFromEvaluation(ev,"correction",{evaluationId:ev.id,classe:correctionClass,correctionId:null});
     try{localStorage.setItem("EVAL_SELECTED_CLASS",correctionClass);}catch(e){}
     if(isHistoricalEvaluation(ev)){await openHistoricalCorrection(id,ev);return;}
-    const {data,error}=await sb.from("EvaluationCorrections").select("id,eleve,eleve_id,resultat").eq("evaluation_id",id).order("created_at",{ascending:true});
-    if(error)throw new Error(error.message);
-    const corrections=data||[];
+    await loadBanks();
+
+const {data,error}=await sb
+  .from("EvaluationCorrections")
+  .select("id,eleve,eleve_id,resultat")
+  .eq("evaluation_id",id)
+  .order("created_at",{ascending:true});
+
+if(error)throw new Error(error.message);
+
+const targetClass=String(correctionClass||"").trim();
+
+const classStudents=studentsCache.filter(
+  s=>String(s?.classe||"").trim()===targetClass
+);
+
+const classStudentIds=new Set(
+  classStudents.map(s=>String(s.id))
+);
+
+const classStudentNames=new Set(
+  classStudents.map(s=>studentDisplayName(s).trim().toLocaleLowerCase("fr"))
+);
+
+const corrections=(data||[]).filter(c=>{
+  if(!targetClass)return true;
+
+  // Cas normal : on possède l'identifiant réel de l'élève
+  if(c.eleve_id){
+    return classStudentIds.has(String(c.eleve_id));
+  }
+
+  // Compatibilité avec les anciennes corrections sans eleve_id
+  const name=String(c.eleve||"").trim().toLocaleLowerCase("fr");
+  return classStudentNames.has(name);
+});
     content.innerHTML=`<button onclick="evalReturnToList()">← Mes évaluations</button>
       <section class="hero" style="margin-top:14px">
         <span class="eyebrow">${esc(correctionClass||"Classe")}</span><h2>📝 Correction · ${esc(ev.titre)}</h2>
