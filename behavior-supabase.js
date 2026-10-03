@@ -1,374 +1,253 @@
 /* ============================================================
-   Cahier numérique de SVT — Suivi comportemental
-   Stockage Supabase : StudentBehaviorEvents
+   Cahier numérique de SVT — Suivi comportemental V63
+   Stockage principal : Supabase / StudentBehaviorEvents
+   Chargé après prof.html.
    ============================================================ */
-
-(function () {
+(function(){
   "use strict";
 
-  const TABLE = "StudentBehaviorEvents";
+  const TABLE="StudentBehaviorEvents";
+  const LEGACY_KEY="svt_behavior_events_v1";
+  const MIGRATION_KEY="svt_behavior_migrated_v1";
 
-  let behaviorSupabaseLoading = false;
-  let behaviorSupabaseLoaded = false;
+  let behaviorSupabaseLoading=false;
+  let behaviorSupabaseLoaded=false;
 
-
-  /* ------------------------------------------------------------
-     Connexion Supabase
-     ------------------------------------------------------------ */
-
-  function currentSb() {
-    return window.sb || (typeof sb !== "undefined" ? sb : null);
+  function currentSb(){
+    return window.sb || (typeof sb!=="undefined" ? sb : null);
   }
 
+  function getCache(){
+    return (
+      typeof behaviorEventsCache!=="undefined" &&
+      Array.isArray(behaviorEventsCache)
+    )
+      ? behaviorEventsCache
+      : [];
+  }
 
-  /* ------------------------------------------------------------
-     Transformation d'une ligne Supabase
-     ------------------------------------------------------------ */
+  function setCache(events){
+    if(typeof behaviorEventsCache!=="undefined"){
+      behaviorEventsCache=Array.isArray(events) ? events : [];
+    }
+  }
 
-  function normalizeEvent(row, studentName) {
+  function normalizeName(v){
+    return String(v||"")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g,"")
+      .replace(/[-']/g," ")
+      .replace(/\s+/g," ")
+      .trim()
+      .toLocaleLowerCase("fr");
+  }
 
+  function normalizeEvent(row,studentName){
     return {
-      id: String(row.id),
-
-      studentId: row.eleve_id
-        ? String(row.eleve_id)
-        : "",
-
-      student: String(
-        studentName || row.student || ""
-      ),
-
-      classe: String(
-        row.classe || ""
-      ),
-
-      period: String(
-        row.period || "year"
-      ),
-
-      type: String(
-        row.type || ""
-      ),
-
-      date:
-        row.date ||
-        row.created_at ||
-        new Date().toISOString(),
-
-      note: String(
-        row.note || ""
-      )
+      id:String(row.id),
+      studentId:row.eleve_id ? String(row.eleve_id) : "",
+      student:String(studentName || row.student || ""),
+      classe:String(row.classe || ""),
+      period:String(row.period || "year"),
+      type:String(row.type || ""),
+      date:row.date || row.created_at || new Date().toISOString(),
+      note:String(row.note || "")
     };
   }
 
+  function studentName(student){
+    if(typeof studentDisplayName==="function"){
+      return String(studentDisplayName(student)||"");
+    }
 
-  /* ------------------------------------------------------------
-     Récupération des noms à partir des eleve_id
-     ------------------------------------------------------------ */
+    return [
+      student?.nom,
+      student?.prenom
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .trim();
+  }
 
-  async function buildStudentNames(rows) {
+  async function buildStudentNames(rows){
+    const names=new Map();
 
-    const ids = [
-      ...new Set(
-        (rows || [])
-          .map(row => row.eleve_id)
-          .filter(Boolean)
-          .map(String)
-      )
-    ];
-
-    const names = new Map();
-
-
-    /*
-     * On utilise d'abord les élèves déjà chargés
-     * par le cahier numérique.
-     */
-
-    if (typeof behaviorStudentsCache !== "undefined") {
-
-      (behaviorStudentsCache || []).forEach(student => {
-
-        if (!student || !student.id) {
-          return;
+    if(typeof behaviorStudentsCache!=="undefined"){
+      (behaviorStudentsCache||[]).forEach(s=>{
+        if(s?.id){
+          names.set(
+            String(s.id),
+            String(s.nom || studentName(s))
+          );
         }
-
-        names.set(
-          String(student.id),
-          String(student.nom || "")
-        );
-
       });
     }
 
+    const missing=[
+      ...new Set(
+        (rows||[])
+          .map(r=>r.eleve_id)
+          .filter(Boolean)
+          .map(String)
+      )
+    ].filter(id=>!names.has(id));
 
-    /*
-     * Pour les élèves dont le nom n'est pas encore connu,
-     * on interroge directement la table Eleves.
-     */
+    const db=currentSb();
 
-    const missing = ids.filter(
-      id => !names.has(id)
-    );
+    if(db && missing.length){
+      try{
+        const {data,error}=await db
+          .from("Eleves")
+          .select("*")
+          .in("id",missing);
 
-
-    if (missing.length) {
-
-      const db = currentSb();
-
-      if (db) {
-
-        try {
-
-          const { data, error } = await db
-            .from("Eleves")
-            .select("*")
-            .in("id", missing);
-
-
-          if (!error) {
-
-            (data || []).forEach(student => {
-
-              let name = "";
-
-
-              if (
-                typeof studentDisplayName === "function"
-              ) {
-
-                name = studentDisplayName(
-                  student
-                );
-
-              } else {
-
-                name = [
-                  student.nom,
-                  student.prenom
-                ]
-                  .filter(Boolean)
-                  .join(" ")
-                  .trim();
-              }
-
-
-              names.set(
-                String(student.id),
-                String(name || "")
-              );
-
-            });
-
-          }
-
-        } catch (e) {
-
-          console.warn(
-            "Impossible de récupérer les noms des élèves :",
-            e
-          );
-
+        if(!error){
+          (data||[]).forEach(s=>{
+            names.set(
+              String(s.id),
+              studentName(s)
+            );
+          });
         }
-
+      }catch(e){
+        console.warn(
+          "Impossible de récupérer les noms des élèves :",
+          e
+        );
       }
-
     }
-
 
     return names;
   }
 
+  async function fetchBehaviorEventsFromSupabase(){
 
-  /* ------------------------------------------------------------
-     Chargement des observations depuis Supabase
-     ------------------------------------------------------------ */
+    const client=currentSb();
 
-  async function fetchBehaviorEventsFromSupabase() {
-
-    const db = currentSb();
-
-    if (!db || behaviorSupabaseLoading) {
+    if(!client || behaviorSupabaseLoading){
       return;
     }
 
+    /*
+      On vérifie explicitement la session avant de charger
+      les observations. Cela évite de lancer le chargement
+      avant que Supabase Auth soit initialisé.
+    */
+    try{
+      const sessionQ=await client.auth.getSession();
 
-    behaviorSupabaseLoading = true;
+      if(!sessionQ?.data?.session){
+        behaviorSupabaseLoaded=false;
+        return;
+      }
 
+    }catch(e){
+      console.warn(
+        "Session Supabase indisponible :",
+        e
+      );
+      return;
+    }
 
-    try {
+    behaviorSupabaseLoading=true;
 
-      const { data, error } = await db
+    try{
+
+      const {data,error}=await client
         .from(TABLE)
         .select(
           "id,eleve_id,classe,type,period,date,note,created_at"
         )
-        .order(
-          "date",
-          { ascending: false }
-        );
+        .order("date",{ascending:false});
 
-
-      if (error) {
+      if(error){
         throw error;
       }
 
+      const studentNames=
+        await buildStudentNames(data||[]);
 
-      /*
-       * On récupère les noms correspondant
-       * aux eleve_id.
-       */
-
-      const studentNames =
-        await buildStudentNames(
-          data || []
-        );
-
-
-      /*
-       * On transforme les lignes Supabase
-       * dans le format attendu par ton ancien suivi.
-       */
-
-      behaviorEventsCache =
-        (data || []).map(row =>
-
+      setCache(
+        (data||[]).map(row=>
           normalizeEvent(
             row,
             studentNames.get(
-              String(row.eleve_id || "")
+              String(row.eleve_id||"")
             ) || ""
           )
+        )
+      );
 
-        );
-
-
-      behaviorSupabaseLoaded = true;
-
+      behaviorSupabaseLoaded=true;
 
       /*
-       * Actualisation de l'affichage.
-       */
+        Migration des anciennes observations locales.
+        Elle est effectuée après le chargement Supabase
+        afin d'éviter les doublons.
+      */
+      await migrateLegacyEvents(studentNames);
 
-      if (
-        typeof renderStudentTracking ===
-        "function"
-      ) {
+      renderCurrentView();
 
-        renderStudentTracking();
-
-      }
-
-
-      if (
-        typeof renderClassTracking ===
-        "function"
-      ) {
-
-        renderClassTracking();
-
-      }
-
-
-    } catch (e) {
+    }catch(e){
 
       console.error(
-        "Erreur chargement suivi comportemental :",
+        "Suivi comportemental Supabase :",
         e
       );
 
-    } finally {
+    }finally{
 
-      behaviorSupabaseLoading = false;
+      behaviorSupabaseLoading=false;
 
     }
-
   }
 
+  function renderCurrentView(){
 
-  /* ------------------------------------------------------------
-     Remplacement de l'ancien loadBehaviorEvents()
-     ------------------------------------------------------------ */
-
-  window.loadBehaviorEvents = function () {
-
-    if (
-      !behaviorSupabaseLoaded &&
-      !behaviorSupabaseLoading
-    ) {
-
-      fetchBehaviorEventsFromSupabase();
-
+    if(
+      typeof renderStudentTracking==="function" &&
+      document.getElementById("trackingStudent")
+    ){
+      renderStudentTracking();
     }
 
+    if(
+      typeof renderClassTracking==="function" &&
+      (
+        document.querySelector(".behavior-roster-row") ||
+        document.querySelector(".behavior-actions")
+      )
+    ){
+      renderClassTracking();
+    }
+  }
 
-    return behaviorEventsCache || [];
-  };
-
-
-  /* ------------------------------------------------------------
-     Compatibilité avec l'ancien code
-     ------------------------------------------------------------ */
-
-  window.saveBehaviorEvents = function () {
-
-    /*
-     * Le stockage réel est maintenant Supabase.
-     * Cette fonction reste présente car l'ancien
-     * prof.html l'appelle encore.
-     */
-
-    return true;
-  };
-
-
-  /* ------------------------------------------------------------
-     INSERT d'une observation
-     ------------------------------------------------------------ */
-
-  async function insertBehaviorEvent(
+  async function insertOne(
     student,
     type,
     period,
     note
-  ) {
+  ){
 
-    const db = currentSb();
+    const client=currentSb();
 
-
-    if (!db) {
-
+    if(!client){
       throw new Error(
         "Connexion Supabase indisponible."
       );
-
     }
 
-
-    const payload = {
-
-      eleve_id:
-        String(student.id),
-
-      classe:
-        String(student.classe || ""),
-
-      type:
-        String(type),
-
-      period:
-        String(period || "year"),
-
-      date:
-        new Date().toISOString(),
-
-      note:
-        String(note || "").trim()
-
+    const payload={
+      eleve_id:String(student.id),
+      classe:String(student.classe||""),
+      type:String(type),
+      period:String(period||"year"),
+      date:new Date().toISOString(),
+      note:String(note||"").trim()
     };
 
-
-    const { data, error } = await db
+    const {data,error}=await client
       .from(TABLE)
       .insert(payload)
       .select(
@@ -376,37 +255,234 @@
       )
       .single();
 
-
-    if (error) {
+    if(error){
       throw error;
     }
 
-
-    /*
-     * On conserve immédiatement le nom
-     * pour que l'affichage fonctionne sans
-     * attendre un nouveau chargement.
-     */
-
     return normalizeEvent(
       data,
-      String(student.nom || "")
+      String(
+        student.nom ||
+        studentName(student)
+      )
     );
-
   }
 
+  async function migrateLegacyEvents(
+    studentNames
+  ){
 
-  /* ------------------------------------------------------------
-     AJOUT — UN SEUL ÉLÈVE
-     ------------------------------------------------------------ */
+    let migrated=false;
 
-  window.addBehaviorEvent = async function (type) {
+    try{
+      migrated=
+        localStorage.getItem(
+          MIGRATION_KEY
+        )==="1";
+    }catch(e){}
 
-    const name =
-      studentTrackingStudent;
+    if(migrated){
+      return;
+    }
 
+    let legacy=[];
 
-    if (!name) {
+    try{
+      legacy=JSON.parse(
+        localStorage.getItem(
+          LEGACY_KEY
+        ) || "[]"
+      );
+    }catch(e){
+      legacy=[];
+    }
+
+    if(
+      !Array.isArray(legacy) ||
+      !legacy.length
+    ){
+
+      try{
+        localStorage.setItem(
+          MIGRATION_KEY,
+          "1"
+        );
+      }catch(e){}
+
+      return;
+    }
+
+    const students=
+      typeof behaviorStudentsCache!=="undefined"
+        ? (behaviorStudentsCache||[])
+        : [];
+
+    const existing=getCache();
+
+    let changed=false;
+
+    for(const old of legacy){
+
+      const oldId=
+        old?.studentId
+          ? String(old.studentId)
+          : "";
+
+      const oldClass=
+        String(old?.classe||"").trim();
+
+      const oldName=
+        normalizeName(
+          old?.student||""
+        );
+
+      let student=null;
+
+      /*
+        Priorité à l'identifiant élève.
+        Cela évite les problèmes d'homonymes.
+      */
+      if(oldId){
+        student=
+          students.find(
+            s=>String(s.id)===oldId
+          ) || null;
+      }
+
+      /*
+        Si aucun ID n'est disponible,
+        recherche par nom + classe.
+      */
+      if(!student && oldName){
+
+        const matches=
+          students.filter(
+            s=>
+              normalizeName(s.nom)===oldName &&
+              (
+                !oldClass ||
+                String(s.classe||"").trim()===oldClass
+              )
+          );
+
+        /*
+          On ne migre que si le nom identifie
+          un seul élève.
+        */
+        if(matches.length===1){
+          student=matches[0];
+        }
+      }
+
+      if(!student?.id){
+        continue;
+      }
+
+      /*
+        Vérification anti-doublon.
+      */
+      const already=
+        existing.some(
+          e=>
+            String(e.studentId||"")===
+            String(student.id) &&
+
+            String(e.type||"")===
+            String(old.type||"") &&
+
+            String(e.note||"")===
+            String(old.note||"") &&
+
+            Math.abs(
+              new Date(e.date).getTime() -
+              new Date(old.date||0).getTime()
+            ) < 2000
+        );
+
+      if(already){
+        continue;
+      }
+
+      try{
+
+        const event=
+          await insertOne(
+            student,
+            old.type||"",
+            old.period||"year",
+            old.note||""
+          );
+
+        existing.unshift(event);
+        changed=true;
+
+      }catch(e){
+
+        console.warn(
+          "Migration d'une observation impossible :",
+          e
+        );
+
+      }
+    }
+
+    if(changed){
+      setCache(existing);
+    }
+
+    try{
+      localStorage.setItem(
+        MIGRATION_KEY,
+        "1"
+      );
+    }catch(e){}
+  }
+
+  /*
+    Fonction conservée pour compatibilité
+    avec prof.html.
+  */
+  window.loadBehaviorEvents=function(){
+
+    if(
+      !behaviorSupabaseLoaded &&
+      !behaviorSupabaseLoading
+    ){
+      fetchBehaviorEventsFromSupabase();
+    }
+
+    return getCache();
+  };
+
+  /*
+    Compatibilité avec l'ancien système.
+    Les données sont désormais enregistrées
+    directement dans Supabase.
+  */
+  window.saveBehaviorEvents=function(){
+    return true;
+  };
+
+  /*
+    Ajout d'une observation à un élève.
+  */
+  window.addBehaviorEvent=async function(type){
+
+    const studentId=
+      String(
+        typeof studentTrackingStudentId!=="undefined"
+          ? studentTrackingStudentId
+          : ""
+      );
+
+    const name=
+      String(
+        typeof studentTrackingStudent!=="undefined"
+          ? studentTrackingStudent
+          : ""
+      );
+
+    if(!studentId && !name){
 
       alert(
         "Sélectionne d'abord un élève."
@@ -415,50 +491,76 @@
       return;
     }
 
-
-    const meta =
-      typeof behaviorMeta === "function"
+    const meta=
+      typeof behaviorMeta==="function"
         ? behaviorMeta(type)
         : {
-            icon: "📝",
-            label: type
+            icon:"📝",
+            label:type
           };
 
+    const note=
+      prompt(
+        `${meta.icon} ${meta.label}\n\nPrécision facultative :`,
+        ""
+      );
 
-    const note = prompt(
-
-      `${meta.icon} ${meta.label}\n\n` +
-      `Précision facultative :`,
-
-      ""
-
-    );
-
-
-    if (note === null) {
+    if(note===null){
       return;
     }
 
+    const students=
+      typeof behaviorStudentsCache!=="undefined"
+        ? (behaviorStudentsCache||[])
+        : [];
+
+    let student=
+      studentId
+        ? students.find(
+            s=>String(s.id)===studentId
+          )
+        : null;
 
     /*
-     * Recherche de l'élève dans la liste
-     * déjà chargée par le cahier.
-     */
+      Recherche secondaire par nom + classe.
+      On refuse automatiquement les homonymes.
+    */
+    if(!student && name){
 
-    const student =
-      (behaviorStudentsCache || [])
-        .find(
+      const cls=
+        String(
+          typeof studentTrackingClass!=="undefined"
+            ? studentTrackingClass
+            : ""
+        ).trim();
 
-          s =>
-            String(s.nom || "")
-              .trim() ===
-            String(name)
-              .trim()
-
+      const matches=
+        students.filter(
+          s=>
+            normalizeName(s.nom)===
+              normalizeName(name) &&
+            (
+              !cls ||
+              String(s.classe||"").trim()===cls
+            )
         );
 
+      if(matches.length===1){
 
-    if (!student || !student.id) {
+        student=matches[0];
+
+      }else if(matches.length>1){
+
+        alert(
+          "Plusieurs élèves portent ce nom. " +
+          "Sélectionne précisément l'élève dans la liste."
+        );
+
+        return;
+      }
+    }
+
+    if(!student?.id){
 
       alert(
         "Impossible de retrouver l'élève dans la table Eleves."
@@ -467,49 +569,38 @@
       return;
     }
 
+    try{
 
-    try {
+      const period=
+        typeof studentTrackingPeriod!=="undefined"
+          ? studentTrackingPeriod
+          : "year";
 
-      const event =
-        await insertBehaviorEvent(
-
+      const event=
+        await insertOne(
           student,
-
           type,
-
-          studentTrackingPeriod ||
-            "year",
-
+          period,
           note
-
         );
 
-
       /*
-       * Ajout immédiat dans le cache
-       * utilisé par l'ancien affichage.
-       */
-
-      behaviorEventsCache = [
-
+        Mise à jour immédiate du cache local
+        pour que l'observation apparaisse
+        sans rechargement de page.
+      */
+      setCache([
         event,
+        ...getCache()
+      ]);
 
-        ...(behaviorEventsCache || [])
-
-      ];
-
-
-      if (
-        typeof renderStudentTracking ===
-        "function"
-      ) {
-
+      if(
+        typeof renderStudentTracking==="function"
+      ){
         renderStudentTracking();
-
       }
 
-
-    } catch (e) {
+    }catch(e){
 
       alert(
         "Enregistrement impossible : " +
@@ -517,33 +608,26 @@
       );
 
     }
-
   };
 
+  /*
+    Ajout d'une même observation
+    à plusieurs élèves sélectionnés.
+  */
+  window.addBehaviorEventToSelected=
+    async function(type){
 
-  /* ------------------------------------------------------------
-     AJOUT — PLUSIEURS ÉLÈVES
-     ------------------------------------------------------------ */
-
-  window.addBehaviorEventToSelected =
-    async function (type) {
-
-      const selected = [
-
+      const selected=[
         ...document.querySelectorAll(
           ".behavior-student-check:checked"
         )
-
       ]
-
         .map(
-          element => element.value
+          el=>String(el.value||"")
         )
-
         .filter(Boolean);
 
-
-      if (!selected.length) {
+      if(!selected.length){
 
         alert(
           "Sélectionne au moins un élève."
@@ -552,166 +636,112 @@
         return;
       }
 
-
-      const meta =
-        typeof behaviorMeta === "function"
+      const meta=
+        typeof behaviorMeta==="function"
           ? behaviorMeta(type)
           : {
-              icon: "📝",
-              label: type
+              icon:"📝",
+              label:type
             };
 
+      const note=
+        prompt(
+          `${meta.icon} ${meta.label}\n\n` +
+          `Observation facultative pour les ` +
+          `${selected.length} élève(s) :`,
+          ""
+        );
 
-      const note = prompt(
-
-        `${meta.icon} ${meta.label}\n\n` +
-        `Observation facultative pour les ` +
-        `${selected.length} élève(s) :`,
-
-        ""
-
-      );
-
-
-      if (note === null) {
+      if(note===null){
         return;
       }
 
+      const students=
+        typeof behaviorStudentsCache!=="undefined"
+          ? (behaviorStudentsCache||[])
+          : [];
 
-      const period =
-        classTrackingPeriod ||
-        "year";
+      const period=
+        typeof classTrackingPeriod!=="undefined"
+          ? classTrackingPeriod
+          : "year";
 
+      const added=[];
 
-      const added = [];
+      try{
 
+        for(const id of selected){
 
-      try {
-
-        /*
-         * On enregistre chaque élève
-         * individuellement dans Supabase.
-         */
-
-        for (
-          const studentId of selected
-        ) {
-
-          const student =
-            (behaviorStudentsCache || [])
-              .find(
-
-                s =>
-                  String(s.id) ===
-                  String(studentId)
-
-              );
-
-
-          if (
-            !student ||
-            !student.id
-          ) {
-
-            continue;
-
-          }
-
-
-          const event =
-            await insertBehaviorEvent(
-
-              student,
-
-              type,
-
-              period,
-
-              note
-
+          const student=
+            students.find(
+              s=>String(s.id)===id
             );
 
+          if(!student?.id){
+            continue;
+          }
 
-          added.push(event);
-
+          added.push(
+            await insertOne(
+              student,
+              type,
+              period,
+              note
+            )
+          );
         }
-
 
         /*
-         * Ajout au cache local d'affichage.
-         */
-
-        behaviorEventsCache = [
-
+          Une seule mise à jour du cache
+          après toutes les insertions.
+        */
+        setCache([
           ...added,
+          ...getCache()
+        ]);
 
-          ...(behaviorEventsCache || [])
-
-        ];
-
-
-        if (
-          typeof renderClassTracking ===
-          "function"
-        ) {
-
+        if(
+          typeof renderClassTracking==="function"
+        ){
           renderClassTracking();
-
         }
 
-
         alert(
-
           `${added.length} observation(s) enregistrée(s) ✓`
-
         );
 
-
-      } catch (e) {
+      }catch(e){
 
         alert(
-
           "Enregistrement impossible : " +
           e.message
-
         );
 
-
         /*
-         * Si une partie des observations
-         * a déjà été enregistrée, on recharge
-         * depuis Supabase pour resynchroniser.
-         */
-
+          En cas d'erreur, on recharge depuis
+          Supabase afin de resynchroniser le cache.
+        */
         fetchBehaviorEventsFromSupabase();
-
       }
-
     };
 
+  /*
+    Suppression durable d'une observation.
+  */
+  window.deleteBehaviorEvent=
+    async function(id){
 
-  /* ------------------------------------------------------------
-     SUPPRESSION
-     ------------------------------------------------------------ */
-
-  window.deleteBehaviorEvent =
-    async function (id) {
-
-      if (
+      if(
         !confirm(
           "Supprimer cette observation ?"
         )
-      ) {
-
+      ){
         return;
-
       }
 
+      const client=currentSb();
 
-      const db = currentSb();
-
-
-      if (!db) {
+      if(!client){
 
         alert(
           "Connexion Supabase indisponible."
@@ -720,81 +750,96 @@
         return;
       }
 
+      try{
 
-      try {
-
-        const { error } =
-          await db
-
+        const {error}=
+          await client
             .from(TABLE)
-
             .delete()
-
             .eq(
               "id",
               String(id)
             );
 
-
-        if (error) {
+        if(error){
           throw error;
         }
 
-
         /*
-         * Suppression du cache local
-         * après confirmation Supabase.
-         */
-
-        behaviorEventsCache =
-          (behaviorEventsCache || [])
-            .filter(
-
-              event =>
-                String(event.id) !==
-                String(id)
-
-            );
-
-
-        if (
-          typeof renderStudentTracking ===
-          "function"
-        ) {
-
-          renderStudentTracking();
-
-        }
-
-
-        if (
-          typeof renderClassTracking ===
-          "function"
-        ) {
-
-          renderClassTracking();
-
-        }
-
-
-      } catch (e) {
-
-        alert(
-
-          "Suppression impossible : " +
-          e.message
-
+          Mise à jour immédiate du cache.
+          L'enregistrement ayant également été supprimé
+          de Supabase, il ne réapparaîtra pas au prochain chargement
+          si les droits RLS autorisent bien la suppression.
+        */
+        setCache(
+          getCache().filter(
+            e=>String(e.id)!==String(id)
+          )
         );
 
-      }
+        renderCurrentView();
 
+      }catch(e){
+
+        alert(
+          "Suppression impossible : " +
+          e.message
+        );
+      }
     };
 
+  /*
+    AUTHENTIFICATION
+    ----------------
+    Ne pas lancer le chargement avant que
+    la session Supabase soit disponible.
+  */
+  const db=currentSb();
 
-  /* ------------------------------------------------------------
-     CHARGEMENT AUTOMATIQUE
-     ------------------------------------------------------------ */
+  if(db){
 
+    db.auth.onAuthStateChange(
+      (event)=>{
+
+        if(
+          event==="SIGNED_IN" ||
+          event==="TOKEN_REFRESHED"
+        ){
+
+          behaviorSupabaseLoaded=false;
+
+          /*
+            setTimeout évite de lancer une requête
+            Supabase pendant le traitement interne
+            du changement d'état Auth.
+          */
+          setTimeout(
+            fetchBehaviorEventsFromSupabase,
+            0
+          );
+
+        }else if(
+          event==="SIGNED_OUT"
+        ){
+
+          behaviorSupabaseLoaded=false;
+
+          /*
+            Vidage immédiat du cache après déconnexion
+            afin qu'un autre compte ne voie pas les
+            données du compte précédent.
+          */
+          setCache([]);
+        }
+      }
+    );
+  }
+
+  /*
+    Premier chargement différé.
+    Le délai laisse à prof.html le temps
+    d'initialiser Supabase et l'authentification.
+  */
   setTimeout(
     fetchBehaviorEventsFromSupabase,
     500
