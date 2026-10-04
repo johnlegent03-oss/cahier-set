@@ -591,11 +591,20 @@ function evalNormalize(e){
   }
 
   return {
-    id:x.id||null,
-    titre:safe(x.titre||"Nouvelle évaluation"),
-    classe:safe(x.classe||""),
-    assignedClasses,
-    total:Number(x.total||0),
+  id:x.id||null,
+  titre:safe(x.titre||"Nouvelle évaluation"),
+  classe:safe(x.classe||""),
+  assignedClasses,
+
+  // Informations pédagogiques de l'évaluation
+  chapitre:Number(meta?.chapitre||0),
+  typeEvaluation:safe(meta?.typeEvaluation||"evaluation"),
+  coefficient:Number(
+    meta?.coefficient ??
+    (meta?.typeEvaluation==="activite" ? 0.5 : 1)
+  ),
+
+  total:Number(x.total||0),
 
     // Nouvelle structure question par question
     competences,
@@ -1222,6 +1231,17 @@ async function saveEvaluationObject(ev){
 
   const meta={
     __evaluationMeta:true,
+    chapitre:Number(ev.chapitre||0),
+
+typeEvaluation:
+  ev.typeEvaluation==="activite"
+    ?"activite"
+    :"evaluation",
+
+coefficient:
+  ev.typeEvaluation==="activite"
+    ?0.5
+    :1,
 
     classes:Array.isArray(ev.assignedClasses)
       ? [...new Set(
@@ -1775,10 +1795,57 @@ function editEvaluationObject(ev){
   }
   const totalAuto=comps.reduce((sum,co)=>sum+(co.criteres||[]).reduce((a,c)=>a+(c.indicateurs||[]).reduce((b,it)=>b+Number(it.points||0),0),0),0);
   content.innerHTML=`<button onclick="evalReturnToList()">← Mes évaluations</button>
+  const evType=document.getElementById("evType");
+const evCoefficient=document.getElementById("evCoefficient");
+const evCoefficientInfo=document.getElementById("evCoefficientInfo");
+
+function updateEvaluationType(){
+  const isActivite=evType?.value==="activite";
+
+  if(evCoefficient){
+    evCoefficient.value=isActivite?"0.5":"1";
+  }
+
+  if(evCoefficientInfo){
+    evCoefficientInfo.textContent=
+      isActivite
+        ?"Coefficient : 0,5"
+        :"Coefficient : 1";
+  }
+}
+
+evType?.addEventListener("change",updateEvaluationType);
+updateEvaluationType();
   <section class="hero teacher" style="margin-top:14px">
     <span class="eyebrow">Paramétrage</span><h2>📝 ${e.id?"Modifier":"Créer"} une évaluation</h2>
     <div class="editbox">
       <label>Titre</label><input id="evTitre" value="${esc(e.titre)}">
+      <label>Chapitre</label>
+<input
+  id="evChapitre"
+  type="number"
+  min="1"
+  step="1"
+  value="${e.chapitre||""}"
+  placeholder="Ex. 1"
+>
+
+<label>Type</label>
+<select id="evType">
+  <option value="activite" ${(e.typeEvaluation==="activite")?"selected":""}>
+    Activité
+  </option>
+  <option value="evaluation" ${(!e.typeEvaluation||e.typeEvaluation==="evaluation")?"selected":""}>
+    Évaluation de chapitre
+  </option>
+</select>
+
+<input
+  id="evCoefficient"
+  type="hidden"
+  value="${e.coefficient||1}"
+>
+<p id="evCoefficientInfo" class="small-note"></p>
       <label>Classes concernées</label>
       <div id="evClasses" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px;margin-top:6px">${Object.values(CLASSES).flat().map(c=>{const checked=(e.assignedClasses||[]).includes(c);return `<label style="display:flex;gap:7px;align-items:center;padding:9px;border:1px solid var(--b);border-radius:9px;background:#fff;cursor:pointer"><input type="checkbox" class="ev-class-check" value="${esc(c)}" ${checked?'checked':''}> <span>${esc(c)}</span></label>`}).join("")}</div>
       <p class="small-note">La même grille peut être attribuée à plusieurs classes.</p>
@@ -1880,17 +1947,34 @@ function collectEvaluationEditor(){
   .map(x=>String(x.value).trim())
   .filter(Boolean);
 
-  return {
-    titre:document.getElementById("evTitre").value.trim()
-      ||"Nouvelle évaluation",
-    classe:assignedClasses[0]||"",
-    assignedClasses,
-    total:totalAuto,
-    competences:questions,
-    criteres,
-    exercices:[]
-  };
-}
+  const typeEvaluation=
+  document.getElementById("evType")?.value||"evaluation";
+
+const chapitre=Number(
+  document.getElementById("evChapitre")?.value||0
+);
+
+const coefficient=
+  typeEvaluation==="activite"
+    ?0.5
+    :1;
+
+return {
+  titre:document.getElementById("evTitre").value.trim()
+    ||"Nouvelle évaluation",
+
+  classe:assignedClasses[0]||"",
+  assignedClasses,
+
+  chapitre,
+  typeEvaluation,
+  coefficient,
+
+  total:totalAuto,
+  competences:questions,
+  criteres,
+  exercices:[]
+};
 async function saveEvaluationFromEditor(id){
   if(window.__savingEvaluation)return;
   window.__savingEvaluation=true;
