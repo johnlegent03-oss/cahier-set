@@ -2207,7 +2207,42 @@ async function generateCorrectionPDF(evalId){
       }).join("");
       return `<section><h3>🎯 Compétence ${ci+1} — ${escPrint(comp.nom)}</h3>${criteriaHtml}<div class="mastery">Maîtrise : <strong>${m.mastery.code} — ${escPrint(m.mastery.label)}</strong> (${m.validated} / ${comp.criteres.length} critère(s) validé(s))</div></section>`;
     }).join("");
-    const body=`<div class="print-page"><h1>Correction — ${escPrint(ev.titre)}</h1><p><strong>${escPrint(student)}</strong> — ${escPrint(ev.classe||"Classe")}</p><div class="result" style="border:1px solid #ccd5d1;padding:10px;margin:10px 0;font-size:14px"><strong>${c.score} / ${total}</strong> — ${pct}%</div>${compHtml}${comment?`<div class="comment" style="border:1px solid #d8dfdc;padding:10px;margin-top:12px"><strong>Commentaire :</strong><br>${escPrint(comment)}</div>`:""}</div>`;
+    const masterySummary=Object.values(groups).map(comp=>{
+  const m=masteryForComp(comp);
+  return `<tr>
+    <td><strong>${escPrint(comp.nom)}</strong></td>
+    <td style="text-align:center">
+      <strong>${m.mastery.code}</strong> — ${escPrint(m.mastery.label)}
+    </td>
+  </tr>`;
+}).join("");
+    const body=`<div class="print-page">
+  <h1>Correction — ${escPrint(ev.titre)}</h1>
+  <p><strong>${escPrint(student)}</strong> — ${escPrint(ev.classe||"Classe")}</p>
+
+  <div class="result" style="border:1px solid #ccd5d1;padding:10px;margin:10px 0;font-size:14px">
+    <strong>${c.score} / ${total}</strong> — ${pct}%
+  </div>
+
+  <section class="mastery-summary" style="border:1px solid #ccd5d1;padding:12px;margin:14px 0">
+    <h2 style="margin:0 0 10px">📊 Récapitulatif de la maîtrise</h2>
+    <table style="width:100%;border-collapse:collapse">
+      <thead>
+        <tr>
+          <th style="text-align:left;padding:7px;border-bottom:1px solid #ccd5d1">Compétence</th>
+          <th style="text-align:center;padding:7px;border-bottom:1px solid #ccd5d1">Maîtrise</th>
+        </tr>
+      </thead>
+      <tbody>${masterySummary}</tbody>
+    </table>
+  </section>
+
+  ${compHtml}
+
+  ${comment?`<div class="comment" style="border:1px solid #d8dfdc;padding:10px;margin-top:12px">
+    <strong>Commentaire :</strong><br>${escPrint(comment)}
+  </div>`:""}
+</div>`;
     printHtmlInCurrentWindow(`Correction — ${ev.titre}`,body);
   }catch(e){alert("Impression impossible : "+e.message)}
 }
