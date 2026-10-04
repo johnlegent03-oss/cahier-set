@@ -488,19 +488,127 @@ function historicalMeta(e){
 
 function evalNormalize(e){
   const x=e&&typeof e==="object"?e:{};
+
+  const meta=Array.isArray(x.exercices)
+    ?x.exercices.find(v=>v&&v.__evaluationMeta)
+    :null;
+
+  const assignedClasses=(()=>{
+    const a=Array.isArray(meta?.classes)
+      ?meta.classes
+          .map(v=>String(v||"").trim())
+          .filter(Boolean)
+      :[];
+
+    return [...new Set(
+      a.length
+        ?a
+        :[safe(x.classe||"")].filter(Boolean)
+    )];
+  })();
+
+  /*
+   * Nouvelle structure :
+   * les questions sont enregistrées dans __evaluationMeta.questions.
+   *
+   * Si elles existent, on les reconstruit à partir des critères
+   * enregistrés avec leur questionId / questionNumero.
+   */
+  let competences=[];
+
+  if(Array.isArray(meta?.questions) && meta.questions.length){
+
+    const criteres=Array.isArray(x.criteres)
+      ?x.criteres
+      :[];
+
+    competences=meta.questions.map((q,qi)=>{
+
+      const questionId=String(
+        q.id||`comp${qi+1}`
+      );
+
+      const questionCriteres=criteres
+        .filter(cr=>String(
+          cr.questionId||cr.competenceId||""
+        )===questionId)
+        .map(cr=>({
+          ...cr,
+          competenceId:questionId,
+          competenceNom:safe(
+            cr.competenceNom||q.nom||""
+          )
+        }));
+
+      return {
+        id:questionId,
+        nom:safe(
+          q.nom||"Compétence non renseignée"
+        ),
+        bankId:q.bankId||null,
+        questionNumero:Number(
+          q.questionNumero||qi+1
+        ),
+        criteres:questionCriteres
+      };
+    });
+
+  }else if(Array.isArray(x.competences) && x.competences.length){
+
+    /*
+     * Compatibilité avec les évaluations déjà enregistrées
+     * avec l'ancienne structure.
+     */
+    competences=x.competences;
+
+  }else{
+
+    /*
+     * Compatibilité avec les anciennes évaluations
+     * qui ne possédaient pas encore de tableau competences.
+     */
+    const crits=Array.isArray(x.criteres)
+      ?x.criteres
+      :[];
+
+    const groups={};
+
+    crits.forEach(cr=>{
+      const id=cr.competenceId||"comp1";
+
+      if(!groups[id]){
+        groups[id]={
+          id,
+          nom:cr.competenceNom||"Compétence évaluée",
+          criteres:[]
+        };
+      }
+
+      groups[id].criteres.push(cr);
+    });
+
+    competences=Object.values(groups);
+  }
+
   return {
     id:x.id||null,
     titre:safe(x.titre||"Nouvelle évaluation"),
     classe:safe(x.classe||""),
-    assignedClasses:(()=>{
-      const meta=Array.isArray(x.exercices)?x.exercices.find(v=>v&&v.__evaluationMeta):null;
-      const a=Array.isArray(meta?.classes)?meta.classes.map(v=>String(v||"").trim()).filter(Boolean):[];
-      return [...new Set(a.length?a:[safe(x.classe||"")].filter(Boolean))];
-    })(),
+    assignedClasses,
     total:Number(x.total||0),
-    competences:Array.isArray(x.competences)?x.competences:[],
-    criteres:Array.isArray(x.criteres)?x.criteres:[],
-    exercices:Array.isArray(x.exercices)?x.exercices:[],
+
+    // Nouvelle structure question par question
+    competences,
+
+    // Conservation des critères pour compatibilité
+    criteres:Array.isArray(x.criteres)
+      ?x.criteres
+      :[],
+
+    exercices:Array.isArray(x.exercices)
+      ?x.exercices
+      :[],
+
     created_at:x.created_at||null
   };
 }
@@ -1081,22 +1189,74 @@ async function loadEvaluations(){
 }
 
 async function saveEvaluationObject(ev){
-  const flatCriteres=(ev.competences&&ev.competences.length)
-    ? ev.competences.flatMap(comp=>(comp.criteres||[]).map(cr=>({...cr,competenceId:comp.id,competenceNom:comp.nom})))
-    : (ev.criteres||[]);
-  const existingExercises=Array.isArray(ev.exercices)?ev.exercices.filter(x=>!(x&&x.__evaluationMeta)):[];
-  const meta={__evaluationMeta:true,classes:Array.isArray(ev.assignedClasses)?[...new Set(ev.assignedClasses.map(v=>String(v||"").trim()).filter(Boolean))]:(ev.classe?[String(ev.classe).trim()]:[])};
-  const payload={
-    titre:ev.titre,classe:ev.classe,total:Number(ev.total||0),
-    criteres:flatCriteres,exercices:[meta,...existingExercises]
+  const questions=Array.isArray(ev.competences)
+    ? ev.competences
+    : [];
+
+  const flatCriteres=questions.flatMap((question,qi)=>
+    (question.criteres||[]).map((cr,ci)=>({
+      ...cr,
+      competenceId:question.bankId||question.id||`comp${qi+1}`,
+      competenceNom:question.nom||"Compétence non renseignée",
+      questionNumero:Number(question.questionNumero||qi+1),
+      questionId:question.id||`comp${qi+1}`
+    }))
+  );
+
+  const existingExercises=Array.isArray(ev.exercices)
+    ? ev.exercices.filter(x=>!(x&&x.__evaluationMeta))
+    : [];
+
+  const meta={
+    __evaluationMeta:true,
+
+    classes:Array.isArray(ev.assignedClasses)
+      ? [...new Set(
+          ev.assignedClasses
+            .map(v=>String(v||"").trim())
+            .filter(Boolean)
+        )]
+      : (ev.classe
+          ? [String(ev.classe).trim()]
+          : []),
+
+    // Nouvelle structure : on conserve les questions séparément.
+    questions:questions.map((question,qi)=>({
+      id:question.id||`comp${qi+1}`,
+      questionNumero:Number(question.questionNumero||qi+1),
+      bankId:question.bankId||null,
+      nom:question.nom||"Compétence non renseignée"
+    }))
   };
+
+  const payload={
+    titre:ev.titre,
+    classe:ev.classe,
+    total:Number(ev.total||0),
+    criteres:flatCriteres,
+    exercices:[meta,...existingExercises]
+  };
+
   if(ev.id){
-    const {data,error}=await sb.from("Evaluations").update(payload).eq("id",ev.id).select().maybeSingle();
+    const {data,error}=await sb
+      .from("Evaluations")
+      .update(payload)
+      .eq("id",ev.id)
+      .select()
+      .maybeSingle();
+
     if(error)throw new Error(error.message);
     return evalNormalize(data);
   }
-  const {data,error}=await sb.from("Evaluations").insert(payload).select().maybeSingle();
+
+  const {data,error}=await sb
+    .from("Evaluations")
+    .insert(payload)
+    .select()
+    .maybeSingle();
+
   if(error)throw new Error(error.message);
+
   return evalNormalize(data);
 }
 
@@ -1646,31 +1806,77 @@ function addBankCompetency(){
   sel.value="";
 }
 function collectEvaluationEditor(){
-  const competences=[...document.querySelectorAll('#competenciesEditor .competency-editor')].map((box,ci)=>{
-    const id=box.dataset.competencyId||('comp'+(ci+1));
-    const nom=box.querySelector('.competency-name')?.value.trim()||`Compétence ${ci+1}`;
-    const criteres=[...box.querySelectorAll(':scope > .competency-criteria > .criterion-editor')].map((cb,i)=>({
-      id:cb.dataset.criterionId||('c'+ci+'_'+i),nom:cb.querySelector('.criterion-name')?.value.trim()||`Critère ${i+1}`,
-      competenceId:id,competenceNom:nom,
-      indicateurs:[...cb.querySelectorAll('.indicator-row')].map(row=>({nom:row.querySelector('.indicator-name')?.value.trim()||'',points:Number(row.querySelector('.indicator-points')?.value||0)})).filter(x=>x.nom)
-    }));
-    const questionNumero=Number(
-  box.querySelector(".question-number")?.value||ci+1
-);
+  const questions=[...document.querySelectorAll("#competenciesEditor .question-editor")]
+    .map((box,ci)=>{
+      const id=box.dataset.competencyId||("comp"+(ci+1));
 
-return {
-  id,
-  nom,
-  bankId:box.dataset.bankCompetencyId||null,
-  questionNumero,
-  criteres
-};
-  });
-  const criteres=competences.flatMap(c=>c.criteres);
-  const totalAuto=criteres.reduce((s,c)=>s+c.indicateurs.reduce((a,it)=>a+Number(it.points||0),0),0);
-  const total=totalAuto;
-  const assignedClasses=[...document.querySelectorAll('#evClasses .ev-class-check:checked')].map(x=>String(x.value).trim()).filter(Boolean);
-  return {titre:document.getElementById('evTitre').value.trim()||'Nouvelle évaluation',classe:assignedClasses[0]||'',assignedClasses,total,competences,criteres,exercices:[]};
+      const questionNumero=Number(
+        box.querySelector(".question-number")?.value||ci+1
+      );
+
+      const bankId=box.dataset.bankCompetencyId||null;
+
+      const competency=bankId
+        ? competenciesCache.find(c=>String(c.id)===String(bankId))
+        : null;
+
+      const nom=competency?.nom||"Compétence non renseignée";
+
+      const criteres=[
+        ...box.querySelectorAll(
+          ":scope > .competency-criteria > .criterion-editor"
+        )
+      ].map((cb,i)=>({
+        id:cb.dataset.criterionId||("c"+ci+"_"+i),
+        nom:cb.querySelector(".criterion-name")?.value.trim()
+          ||`Critère ${i+1}`,
+        competenceId:id,
+        competenceNom:nom,
+        indicateurs:[
+          ...cb.querySelectorAll(".indicator-row")
+        ].map(row=>({
+          nom:row.querySelector(".indicator-name")?.value.trim()||"",
+          points:Number(
+            row.querySelector(".indicator-points")?.value||0
+          )
+        })).filter(x=>x.nom)
+      }));
+
+      return {
+        id,
+        nom,
+        bankId,
+        questionNumero,
+        criteres
+      };
+    });
+
+  const criteres=questions.flatMap(q=>q.criteres);
+
+  const totalAuto=criteres.reduce(
+    (s,c)=>s+c.indicateurs.reduce(
+      (a,it)=>a+Number(it.points||0),0
+    ),0
+  );
+
+  const assignedClasses=[
+    ...document.querySelectorAll(
+      "#evClasses .ev-class-check:checked"
+    )
+  ]
+  .map(x=>String(x.value).trim())
+  .filter(Boolean);
+
+  return {
+    titre:document.getElementById("evTitre").value.trim()
+      ||"Nouvelle évaluation",
+    classe:assignedClasses[0]||"",
+    assignedClasses,
+    total:totalAuto,
+    competences:questions,
+    criteres,
+    exercices:[]
+  };
 }
 async function saveEvaluationFromEditor(id){
   if(window.__savingEvaluation)return;
