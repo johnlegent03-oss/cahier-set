@@ -1840,27 +1840,7 @@ function editEvaluationObject(ev){
     <div class="editbox" style="margin-top:18px"><strong>💡 Principe</strong><p class="muted" style="margin-bottom:0">Chaque compétence possède ses propres critères et indicateurs. Lors de la correction, tu coches les indicateurs réussis puis tu valides les critères. La maîtrise est calculée séparément pour chaque compétence.</p></div>
     <div class="row"><button type="button" class="primary" onclick="event.preventDefault();saveEvaluationFromEditor('${esc(e.id||"")}')">💾 Enregistrer l'évaluation</button><span id="evalSaveStatus" class="status"></span></div>
   </section>`;
-  const evType=document.getElementById("evType");
-const evCoefficient=document.getElementById("evCoefficient");
-const evCoefficientInfo=document.getElementById("evCoefficientInfo");
 
-function updateEvaluationType(){
-  const isActivite=evType?.value==="activite";
-
-  if(evCoefficient){
-    evCoefficient.value=isActivite?"0.5":"1";
-  }
-
-  if(evCoefficientInfo){
-    evCoefficientInfo.textContent=
-      isActivite
-        ?"Coefficient : 0,5"
-        :"Coefficient : 1";
-  }
-}
-
-evType?.addEventListener("change",updateEvaluationType);
-updateEvaluationType();
   loadBanks().then(()=>{
   populateQuestionCompetencyPickers();
 });
