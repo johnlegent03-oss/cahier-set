@@ -3157,17 +3157,101 @@ async function generateEvaluationSummaryPDF(evalId){
 async function printAllCorrectionGrids(evalId){
   try{
     const ev=await getEvaluationById(evalId);
-    if(!ev){alert("Évaluation introuvable.");return;}
-    const q=await sb.from("EvaluationCorrections").select("id,eleve,eleve_id,resultat").eq("evaluation_id",evalId).order("created_at",{ascending:true});
-    if(q.error)throw new Error(q.error.message);
-    const corrections=q.data||[];
-    if(!corrections.length){alert("Aucune correction enregistrée pour cette évaluation.");return;}
-    const pages=corrections.map(c=>correctionGridHtml(ev,c)).join("");
-    printHtmlInCurrentWindow(ev.titre||"Grilles",pages);
-  }catch(e){alert("Impression impossible : "+e.message);}
+
+    if(!ev){
+      alert("Évaluation introuvable.");
+      return;
+    }
+
+    /*
+     * Classe actuellement sélectionnée dans le module Évaluations.
+     */
+    const nav=loadEvalNav();
+
+    const selectedClass=String(
+      nav.classe ||
+      localStorage.getItem("EVAL_SELECTED_CLASS") ||
+      ""
+    ).trim();
+
+    if(!selectedClass){
+      alert("Sélectionne d'abord une classe.");
+      return;
+    }
+
+    /*
+     * On récupère les élèves appartenant réellement
+     * à cette classe.
+     */
+    const studentsQ=await sb
+      .from("Eleves")
+      .select("id,classe")
+      .eq("classe",selectedClass);
+
+    if(studentsQ.error){
+      throw new Error(studentsQ.error.message);
+    }
+
+    const studentIds=new Set(
+      (studentsQ.data||[])
+        .map(s=>String(s.id))
+    );
+
+    /*
+     * Toutes les corrections de cette évaluation...
+     */
+    const q=await sb
+      .from("EvaluationCorrections")
+      .select(
+        "id,eleve,eleve_id,resultat,created_at"
+      )
+      .eq("evaluation_id",evalId)
+      .order("created_at",{ascending:true});
+
+    if(q.error){
+      throw new Error(q.error.message);
+    }
+
+    /*
+     * ...mais uniquement celles des élèves
+     * de la classe sélectionnée.
+     */
+    const corrections=(q.data||[]).filter(c=>
+      c.eleve_id &&
+      studentIds.has(String(c.eleve_id))
+    );
+
+    if(!corrections.length){
+      alert(
+        `Aucune correction enregistrée pour ${selectedClass}.`
+      );
+      return;
+    }
+
+    const pages=corrections
+      .map(c=>
+        correctionGridHtml(
+          ev,
+          c,
+          selectedClass
+        )
+      )
+      .join("");
+
+    printHtmlInCurrentWindow(
+      `${ev.titre||"Grilles"} — ${selectedClass}`,
+      pages
+    );
+
+  }catch(e){
+    alert(
+      "Impression impossible : "+
+      e.message
+    );
+  }
 }
 
-function correctionGridHtml(ev,c){
+function correctionGridHtml(ev,c,selectedClass=""){
   const r=c?.resultat||{};
   const crits=criteriaFromLegacy(ev);
 
@@ -3406,7 +3490,7 @@ function correctionGridHtml(ev,c){
           ${escPrint(c.eleve||"Élève")}
         </strong>
         —
-        ${escPrint(ev.classe||"Classe")}
+        ${escPrint(selectedClass||ev.classe||"Classe")}
       </p>
 
       <div
