@@ -1463,12 +1463,52 @@ function renderCriterionEditor(c,i){
 }
 function renderCompetencyEditor(comp,ci){
   const cs=Array.isArray(comp.criteres)?comp.criteres:[];
-  return `<div class="eval-card competency-editor" data-competency-id="${esc(comp.id||('comp'+Date.now()+ci))}" data-bank-competency-id="${esc(comp.bankId||"")}">
-    <div class="row" style="justify-content:space-between;align-items:center"><strong>🎯 Compétence ${ci+1}</strong><button class="danger" onclick="this.closest('.competency-editor').remove()">Supprimer</button></div>
-    <label>Nom de la compétence</label><input class="competency-name" value="${esc(comp.nom||'')}" placeholder="Ex. Pratiquer des langages">
-    <label>Critères de cette compétence</label>
-    <div class="competency-criteria">${cs.map(renderCriterionEditor).join("")}</div>
-    <button type="button" class="entry-add" onclick="addCriterionToCompetency(this)">＋ Ajouter un critère</button>
+  const questionNumero=Number(comp.questionNumero||ci+1);
+
+  return `<div class="eval-card competency-editor question-editor"
+    data-competency-id="${esc(comp.id||('comp'+Date.now()+ci))}"
+    data-bank-competency-id="${esc(comp.bankId||"")}">
+
+    <div class="row" style="justify-content:space-between;align-items:center">
+      <strong>📝 Question ${questionNumero}</strong>
+      <button class="danger" type="button"
+        onclick="this.closest('.question-editor').remove();renumberEvaluationQuestions()">
+        Supprimer
+      </button>
+    </div>
+
+    <label>Numéro de la question</label>
+    <input class="question-number"
+      type="number"
+      min="1"
+      step="1"
+      value="${questionNumero}"
+      onchange="renumberEvaluationQuestions()">
+
+    <label>Compétence évaluée</label>
+
+    <select class="question-bank-select"
+      onchange="selectQuestionCompetency(this)">
+      <option value="">Choisir une compétence dans la banque…</option>
+    </select>
+
+    <label>Nom de la compétence</label>
+    <input class="competency-name"
+      value="${esc(comp.nom||'')}"
+      placeholder="Ex. Argumenter scientifiquement">
+
+    <label>Critères de cette question</label>
+
+    <div class="competency-criteria">
+      ${cs.map(renderCriterionEditor).join("")}
+    </div>
+
+    <button type="button"
+      class="entry-add"
+      onclick="addCriterionToCompetency(this)">
+      ＋ Ajouter un critère
+    </button>
+
   </div>`;
 }
 function addCriterionToCompetency(btn){
@@ -1476,9 +1516,63 @@ function addCriterionToCompetency(btn){
   box.insertAdjacentHTML('beforeend',renderCriterionEditor({id:'c'+Date.now()+n,nom:'',indicateurs:[]},n));
 }
 function addCompetencyEditor(){
-  const box=document.getElementById('competenciesEditor');if(!box)return;
-  const n=box.querySelectorAll('.competency-editor').length;
-  box.insertAdjacentHTML('beforeend',renderCompetencyEditor({id:'comp'+Date.now(),nom:'',criteres:[]},n));
+  const box=document.getElementById("competenciesEditor");
+  if(!box)return;
+
+  const n=box.querySelectorAll(".question-editor").length;
+
+  box.insertAdjacentHTML(
+    "beforeend",
+    renderCompetencyEditor({
+      id:"comp"+Date.now(),
+      nom:"",
+      bankId:"",
+      questionNumero:n+1,
+      criteres:[]
+    },n)
+  );
+
+  populateQuestionCompetencyPickers();
+}
+  function populateQuestionCompetencyPickers(){
+  const options='<option value="">Choisir une compétence dans la banque…</option>'+
+    competenciesCache.map(c=>
+      `<option value="${esc(c.id)}">${esc(c.niveau||"Tous niveaux")} · ${esc(c.nom)}</option>`
+    ).join("");
+
+  document.querySelectorAll(".question-bank-select").forEach(sel=>{
+    const current=sel.closest(".question-editor")?.dataset.bankCompetencyId||"";
+    sel.innerHTML=options;
+    if(current)sel.value=String(current);
+  });
+}
+
+function selectQuestionCompetency(select){
+  const box=select.closest(".question-editor");
+  if(!box)return;
+
+  const c=competenciesCache.find(
+    x=>String(x.id)===String(select.value)
+  );
+
+  box.dataset.bankCompetencyId=c?.id||"";
+
+  const input=box.querySelector(".competency-name");
+  if(input && c){
+    input.value=c.nom||"";
+  }
+}
+
+function renumberEvaluationQuestions(){
+  document.querySelectorAll("#competenciesEditor .question-editor")
+    .forEach((box,i)=>{
+      const input=box.querySelector(".question-number");
+      if(input && !input.value)input.value=i+1;
+
+      const number=Number(input?.value||i+1);
+      const title=box.querySelector("strong");
+      if(title)title.textContent=`📝 Question ${number}`;
+    });
 }
 function indicatorEditor(item={}){
   return `<div class="eval-card indicator-row" style="margin:8px 0;padding:11px">
@@ -1522,15 +1616,21 @@ function editEvaluationObject(ev){
       <p class="small-note">La même grille peut être attribuée à plusieurs classes.</p>
       <label>Barème total</label><input id="evTotal" type="number" min="0" step="0.5" value="${esc(totalAuto)}" readonly><p class="small-note">Le barème total est calculé automatiquement à partir de la somme des points des indicateurs.</p>
     </div>
-    <div class="section-heading"><h2>🎯 Compétences évaluées</h2><span class="status">Une évaluation peut porter sur plusieurs compétences.</span></div>
-    <div class="competency-picker"><div><label>Ajouter depuis la banque</label><select id="bankCompetencySelect"><option value="">Choisir une compétence…</option></select></div><button type="button" onclick="addBankCompetency()">＋ Ajouter</button></div>
+    <div class="section-heading">
+  <h2>📝 Questions de l'évaluation</h2>
+  <span class="status">Chaque question peut évaluer une compétence différente.</span>
+</div>
+    
     <div id="competenciesEditor">${comps.map(renderCompetencyEditor).join("")}</div>
     <button class="entry-add" onclick="addCompetencyEditor()">＋ Ajouter une compétence</button>
     <div class="editbox" style="margin-top:18px"><strong>💡 Principe</strong><p class="muted" style="margin-bottom:0">Chaque compétence possède ses propres critères et indicateurs. Lors de la correction, tu coches les indicateurs réussis puis tu valides les critères. La maîtrise est calculée séparément pour chaque compétence.</p></div>
     <div class="row"><button type="button" class="primary" onclick="event.preventDefault();saveEvaluationFromEditor('${esc(e.id||"")}')">💾 Enregistrer l'évaluation</button><span id="evalSaveStatus" class="status"></span></div>
   </section>`;
-  loadCompetencyPicker();
-  updateEvaluationTotal();
+  loadBanks().then(()=>{
+  populateQuestionCompetencyPickers();
+});
+
+updateEvaluationTotal();
   const editor=document.getElementById("competenciesEditor");
   if(editor){
     const observer=new MutationObserver(()=>updateEvaluationTotal());
@@ -1559,7 +1659,17 @@ function collectEvaluationEditor(){
       competenceId:id,competenceNom:nom,
       indicateurs:[...cb.querySelectorAll('.indicator-row')].map(row=>({nom:row.querySelector('.indicator-name')?.value.trim()||'',points:Number(row.querySelector('.indicator-points')?.value||0)})).filter(x=>x.nom)
     }));
-    return {id,nom,bankId:box.dataset.bankCompetencyId||null,criteres};
+    const questionNumero=Number(
+  box.querySelector(".question-number")?.value||ci+1
+);
+
+return {
+  id,
+  nom,
+  bankId:box.dataset.bankCompetencyId||null,
+  questionNumero,
+  criteres
+};
   });
   const criteres=competences.flatMap(c=>c.criteres);
   const totalAuto=criteres.reduce((s,c)=>s+c.indicateurs.reduce((a,it)=>a+Number(it.points||0),0),0);
