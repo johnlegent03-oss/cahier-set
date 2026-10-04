@@ -625,12 +625,25 @@ function criterionDefaults(){
 function normalizeCriteria(ev){
   let crits=Array.isArray(ev.criteres)?ev.criteres:[];
   if(!crits.length) crits=criterionDefaults();
+
   return crits.map((c,i)=>({
     id:safe(c.id)||`c${i+1}`,
     nom:safe(c.nom)||`Critère ${i+1}`,
+
+    /*
+     * Informations permettant de rattacher
+     * le critère à sa question.
+     */
+    questionId:safe(c.questionId||""),
+    questionNumero:Number(c.questionNumero||0),
+
     competenceId:safe(c.competenceId||"comp1"),
     competenceNom:safe(c.competenceNom||""),
-    indicateurs:Array.isArray(c.indicateurs)?c.indicateurs:[]
+
+    indicateurs:
+      Array.isArray(c.indicateurs)
+        ?c.indicateurs
+        :[]
   }));
 }
 
