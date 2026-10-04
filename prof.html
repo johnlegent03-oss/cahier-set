@@ -2264,14 +2264,50 @@ async function renderCorrectionEditor(evalId,correctionId,corr,groupIds=[]){
   const ev=evalNormalize(data); currentCorrectionEvaluation=ev;
   const correctionClass=String(loadEvalNav().classe||ev.classe||"").trim();
   evalRememberFromEvaluation(ev,"studentCorrection",{evaluationId:ev.id,correctionId:correctionId||null,classe:loadEvalNav().classe||ev.classe});
-  const result=corr.resultat||{points:{},note:0,commentaire:"",criteriaStats:{}};
-  const crits=criteriaFromLegacy(ev); const groups={};
-  crits.forEach(c=>{const gid=c.competenceId||"comp1";if(!groups[gid])groups[gid]={id:gid,nom:c.competenceNom||"Compétence évaluée",criteres:[]};groups[gid].criteres.push(c)});
-  const comps=Object.values(groups); const savedValidated=result.criteriaStats||{};
+  const result=corr.resultat||{
+  points:{},
+  note:0,
+  commentaire:"",
+  criteriaStats:{}
+};
+
+const crits=criteriaFromLegacy(ev);
+const groups={};
+
+/*
+ * Nouvelle structure :
+ * une question = un bloc de correction.
+ * Même si deux questions évaluent la même compétence,
+ * elles restent séparées ici.
+ */
+crits.forEach((c,i)=>{
+  const questionId=String(
+    c.questionId ||
+    c.questionNumero ||
+    `q${i+1}`
+  );
+
+  if(!groups[questionId]){
+    groups[questionId]={
+      id:questionId,
+      questionNumero:Number(c.questionNumero||i+1),
+      nom:c.competenceNom||"Compétence évaluée",
+      criteres:[]
+    };
+  }
+
+  groups[questionId].criteres.push(c);
+});
+
+const comps=Object.values(groups).sort(
+  (a,b)=>a.questionNumero-b.questionNumero
+);
+
+const savedValidated=result.criteriaStats||{};
   content.innerHTML=`<button onclick="openCorrection('${esc(evalId)}')">← Retour aux copies</button>
   <section class="hero teacher" style="margin-top:14px">
 <span class="eyebrow">${esc(correctionClass||"Classe")}</span>    <div class="row"><span class="score-pill" id="liveScore">0 / ${Number(ev.total||0)}</span><span id="livePercent" class="status"></span></div>
-    <div id="correctionCriteria">${comps.map((comp,co)=>`<div class="eval-card"><h3>🎯 Compétence ${co+1} — ${esc(comp.nom)}</h3>${comp.criteres.map((cr,ci)=>`<div class="criteria-box"><h4 style="margin:0 0 8px">Critère ${ci+1} — ${esc(cr.nom)}</h4><div class="criterion-auto-status" data-criterion-status="${esc(cr.id)}"><span class="small-note">Validation automatique : au moins 2/3 des indicateurs cochés (≥ 66,7 %).</span></div>${(cr.indicateurs||[]).map((it,ii)=>{const key=`${cr.id}_${ii}`,checked=!!result.points?.[key]||!!result.points?.[`${cr.id}_${ii}`];return `<div class="check-row"><label><input type="checkbox" class="correction-check" data-key="${key}" data-points="${Number(it.points||0)}" data-criterion="${esc(cr.id)}" ${checked?"checked":""} onchange="refreshCorrectionScore('${esc(ev.id)}')"> ${esc(it.nom)}</label><span class="small-note">${Number(it.points||0)} pt</span></div>`}).join("")||`<p class="muted">Aucun indicateur pour ce critère.</p>`}</div>`).join("")}</div>`).join("")}</div>
+    <div id="correctionCriteria">${comps.map((comp,co)=>`<div class="eval-card"><h3>📝 Question ${comp.questionNumero} — ${esc(comp.nom)}</h3>${comp.criteres.map((cr,ci)=>`<div class="criteria-box"><h4 style="margin:0 0 8px">Critère ${ci+1} — ${esc(cr.nom)}</h4><div class="criterion-auto-status" data-criterion-status="${esc(cr.id)}"><span class="small-note">Validation automatique : au moins 2/3 des indicateurs cochés (≥ 66,7 %).</span></div>${(cr.indicateurs||[]).map((it,ii)=>{const key=`${cr.id}_${ii}`,checked=!!result.points?.[key]||!!result.points?.[`${cr.id}_${ii}`];return `<div class="check-row"><label><input type="checkbox" class="correction-check" data-key="${key}" data-points="${Number(it.points||0)}" data-criterion="${esc(cr.id)}" ${checked?"checked":""} onchange="refreshCorrectionScore('${esc(ev.id)}')"> ${esc(it.nom)}</label><span class="small-note">${Number(it.points||0)} pt</span></div>`}).join("")||`<p class="muted">Aucun indicateur pour ce critère.</p>`}</div>`).join("")}</div>`).join("")}</div>
     <div class="editbox"><label>Appréciation / remarque</label><textarea id="corrComment" style="width:100%;min-height:90px;border:1px solid var(--b);border-radius:10px;padding:10px;font:inherit">${esc(result.commentaire||"")}</textarea></div>
     <div id="masteryPreview"></div>
     <div class="row"><button type="button" class="primary" onclick="event.preventDefault();saveCorrection(${jsArg(evalId)},${jsArg(correctionId||"")},${jsArg(corr.eleve||"")},${jsArg(corr.eleve_id||"")})">💾 Enregistrer la correction</button><button type="button" onclick="event.preventDefault();generateCorrectionPDF('${esc(evalId)}')">📥 Exporter cette grille en PDF</button><button type="button" onclick="event.preventDefault();printAllCorrectionGrids('${esc(evalId)}')">📥 Exporter toutes les grilles de la classe en PDF</button></div>
@@ -2390,20 +2426,90 @@ async function generateEvaluationSummaryPDF(evalId){
 
     rows.sort((a,b)=>a.student.sortKey.localeCompare(b.student.sortKey,"fr"));
 
-    const crits=criteriaFromLegacy(ev),groups={};
-    crits.forEach(cr=>{
-      const gid=cr.competenceId||"comp1";
-      if(!groups[gid])groups[gid]={nom:cr.competenceNom||"Compétence évaluée",criteres:[]};
-      groups[gid].criteres.push(cr);
-    });
-    const competencies=Object.values(groups);
+    const crits=criteriaFromLegacy(ev);
+const groups={};
+
+/*
+ * Pour le récapitulatif :
+ * les questions restent séparées pendant la correction,
+ * mais les mêmes compétences sont regroupées ici.
+ */
+crits.forEach((cr,i)=>{
+  const nom=String(
+    cr.competenceNom||"Compétence évaluée"
+  ).trim();
+
+  const key=normalizeName(nom)||`competence-${i}`;
+
+  if(!groups[key]){
+    groups[key]={
+      nom,
+      criteres:[],
+      questionIds:[]
+    };
+  }
+
+  groups[key].criteres.push(cr);
+
+  const qid=cr.questionId||cr.questionNumero||"";
+  if(qid && !groups[key].questionIds.includes(String(qid))){
+    groups[key].questionIds.push(String(qid));
+  }
+});
+
+const competencies=Object.values(groups);
 
     // Pour chaque compétence, la maîtrise est calculée uniquement à partir des critères validés.
     const masteryFor=(r,comp)=>{
-      if(isHistoricalEvaluation(ev))return r.masteryCode||"—";
-      const validated=comp.criteres.filter(cr=>!!r.criteriaStats?.[cr.id]?.validated).length;
-      return r.criteriaStats ? getMasteryFromValidatedCriteria(validated).code : "—";
-    };
+  if(isHistoricalEvaluation(ev))return r.masteryCode||"—";
+
+  if(!r.criteriaStats)return "—";
+
+  const masteryValues={
+    TBM:4,
+    MS:3,
+    MF:2,
+    MI:1
+  };
+
+  const masteryResults=[];
+
+  /*
+   * On calcule la maîtrise séparément pour chaque question
+   * appartenant à cette compétence.
+   */
+  comp.questionIds.forEach(questionId=>{
+    const questionCriteria=comp.criteres.filter(cr=>{
+      const qid=String(
+        cr.questionId||cr.questionNumero||""
+      );
+      return qid===String(questionId);
+    });
+
+    if(!questionCriteria.length)return;
+
+    const validated=questionCriteria.filter(
+      cr=>!!r.criteriaStats?.[cr.id]?.validated
+    ).length;
+
+    const mastery=getMasteryFromValidatedCriteria(validated);
+
+    if(masteryValues[mastery.code]){
+      masteryResults.push(masteryValues[mastery.code]);
+    }
+  });
+
+  if(!masteryResults.length)return "—";
+
+  const average=
+    masteryResults.reduce((a,b)=>a+b,0)/
+    masteryResults.length;
+
+  if(average>=3.5)return "TBM";
+  if(average>=2.5)return "MS";
+  if(average>=1.5)return "MF";
+  return "MI";
+};
 
     const headers=competencies.length
       ? competencies.map(comp=>`<th style="width:${Math.max(14,Math.floor(58/competencies.length))}%">${escPrint(comp.nom)}</th>`).join("")
