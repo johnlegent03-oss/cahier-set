@@ -2477,179 +2477,621 @@ function refreshCorrectionScore(evalId){
 async function generateEvaluationSummaryPDF(evalId){
   try{
     const ev=await getEvaluationById(evalId);
-    if(!ev){alert("Évaluation introuvable.");return;}
+    if(!ev){
+      alert("Évaluation introuvable.");
+      return;
+    }
 
-    const escPrint=v=>String(v??"").replace(/[&<>]/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[m]));
-    const normalizeName=v=>String(v??"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLocaleLowerCase("fr").replace(/[^a-z0-9]+/g," ").trim();
+    /*
+     * Le récapitulatif est construit à partir :
+     * - de la classe actuellement sélectionnée ;
+     * - du chapitre de l'évaluation ;
+     * - des évaluations de chapitre du même chapitre.
+     *
+     * Les activités restent volontairement exclues.
+     */
 
-    const corrQ=await sb.from("EvaluationCorrections")
-      .select("id,eleve,eleve_id,resultat")
-      .eq("evaluation_id",evalId);
-    if(corrQ.error)throw new Error(corrQ.error.message);
+    const nav=loadEvalNav();
 
-    // Le récapitulatif repose sur la banque Eleves : une seule source pour la liste de classe.
+    const selectedClass=String(
+      nav.classe ||
+      localStorage.getItem("EVAL_SELECTED_CLASS") ||
+      ev.classe ||
+      ""
+    ).trim();
+
+    if(!selectedClass){
+      alert("Sélectionne d'abord une classe.");
+      return;
+    }
+
+    const chapitre=Number(ev.chapitre||0);
+
+    if(!chapitre){
+      alert(
+        "Cette évaluation n'a pas de numéro de chapitre. " +
+        "Impossible de construire le récapitulatif du chapitre."
+      );
+      return;
+    }
+
+    /*
+     * Toutes les évaluations correspondant :
+     * - à la classe ;
+     * - au même chapitre ;
+     * - au type Évaluation de chapitre.
+     */
+    const chapterEvaluations=evaluationsCache
+      .filter(e=>{
+        const classes=Array.isArray(e.assignedClasses)
+          ?e.assignedClasses
+          :String(e.classe||"")
+            .split(",")
+            .map(x=>x.trim())
+            .filter(Boolean);
+
+        return classes.includes(selectedClass)
+          && Number(e.chapitre||0)===chapitre
+          && String(e.typeEvaluation||"evaluation")==="evaluation";
+      })
+      .sort((a,b)=>{
+        return String(a.titre||"")
+          .localeCompare(
+            String(b.titre||""),
+            "fr",
+            {numeric:true,sensitivity:"base"}
+          );
+      });
+
+    if(!chapterEvaluations.length){
+      alert(
+        `Aucune évaluation de chapitre trouvée pour ${selectedClass}, chapitre ${chapitre}.`
+      );
+      return;
+    }
+
+    const escPrint=v=>String(v??"")
+      .replace(/[&<>]/g,m=>({
+        "&":"&amp;",
+        "<":"&lt;",
+        ">":"&gt;"
+      }[m]));
+
+    const normalizeName=v=>String(v??"")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g,"")
+      .toLocaleLowerCase("fr")
+      .replace(/[^a-z0-9]+/g," ")
+      .trim();
+
+    /*
+     * ---------------------------------------------------------
+     * 1. Récupération des élèves de la classe
+     * ---------------------------------------------------------
+     */
+
     const elevesQ=await sb.from("Eleves")
       .select("id,classe,nom,prenom")
-      .eq("classe",String(ev.classe||"").trim())
+      .eq("classe",selectedClass)
       .order("nom")
       .order("prenom");
-    if(elevesQ.error)throw new Error(elevesQ.error.message);
 
-    const students=(elevesQ.data||[]).map(s=>(
-      {id:String(s.id),name:studentDisplayName(s),sortKey:normalizeName(`${s.nom||""} ${s.prenom||""}`)}
-    ));
+    if(elevesQ.error){
+      throw new Error(elevesQ.error.message);
+    }
 
-    const correctionsById=new Map();
-    const correctionsByName=new Map();
-    (corrQ.data||[]).forEach(c=>{
-      if(c.eleve_id)correctionsById.set(String(c.eleve_id),c);
-      const key=normalizeName(c.eleve||"");
-      if(key)correctionsByName.set(key,c);
-    });
+    const students=(elevesQ.data||[]).map(s=>({
+      id:String(s.id),
+      name:studentDisplayName(s),
+      sortKey:normalizeName(
+        `${s.nom||""} ${s.prenom||""}`
+      )
+    }));
 
-    // Les corrections historiques sans eleve_id restent récupérables par leur nom.
-    const rows=students.map(s=>{
-      const c=correctionsById.get(s.id)||correctionsByName.get(s.sortKey)||null;
-      return {student:s,correction:c,resultat:c?.resultat||{}};
-    });
+    /*
+     * ---------------------------------------------------------
+     * 2. Récupération des corrections de TOUS les sujets
+     * ---------------------------------------------------------
+     */
 
-    // Si une ancienne correction n'est plus présente dans Eleves, on la conserve dans le récapitulatif.
-    const knownIds=new Set(students.map(s=>s.id));
-    const knownNames=new Set(students.map(s=>s.sortKey));
-    (corrQ.data||[]).forEach(c=>{
-      const key=normalizeName(c.eleve||"");
-      if((c.eleve_id && knownIds.has(String(c.eleve_id))) || (key && knownNames.has(key)))return;
-      rows.push({
-        student:{id:String(c.eleve_id||""),name:String(c.eleve||"Élève"),sortKey:key},
-        correction:c,
-        resultat:c.resultat||{}
+    const correctionsByEvaluation=new Map();
+
+    for(const evaluation of chapterEvaluations){
+
+      const q=await sb.from("EvaluationCorrections")
+        .select("id,eleve,eleve_id,resultat")
+        .eq("evaluation_id",evaluation.id);
+
+      if(q.error){
+        throw new Error(q.error.message);
+      }
+
+      correctionsByEvaluation.set(
+        String(evaluation.id),
+        q.data||[]
+      );
+    }
+
+    /*
+     * ---------------------------------------------------------
+     * 3. Construction des compétences du chapitre
+     * ---------------------------------------------------------
+     *
+     * Une même compétence peut apparaître :
+     * - dans plusieurs questions ;
+     * - dans plusieurs sujets.
+     *
+     * Elle n'apparaîtra donc qu'une seule fois dans le PDF.
+     */
+
+    const competencyMap=new Map();
+
+    chapterEvaluations.forEach(evaluation=>{
+
+      const crits=criteriaFromLegacy(evaluation);
+
+      crits.forEach((cr,i)=>{
+
+        const nom=String(
+          cr.competenceNom ||
+          "Compétence évaluée"
+        ).trim();
+
+        const key=normalizeName(nom)||`competence-${i}`;
+
+        if(!competencyMap.has(key)){
+          competencyMap.set(key,{
+            nom,
+            evaluations:[]
+          });
+        }
+
+        const group=competencyMap.get(key);
+
+        let evaluationGroup=group.evaluations
+          .find(x=>String(x.evaluationId)===String(evaluation.id));
+
+        if(!evaluationGroup){
+          evaluationGroup={
+            evaluationId:evaluation.id,
+            criteres:[],
+            questionIds:[]
+          };
+
+          group.evaluations.push(evaluationGroup);
+        }
+
+        evaluationGroup.criteres.push(cr);
+
+        const qid=cr.questionId||cr.questionNumero||"";
+
+        if(
+          qid &&
+          !evaluationGroup.questionIds.includes(String(qid))
+        ){
+          evaluationGroup.questionIds.push(String(qid));
+        }
       });
     });
 
-    rows.sort((a,b)=>a.student.sortKey.localeCompare(b.student.sortKey,"fr"));
+    const competencies=[...competencyMap.values()];
 
-    const crits=criteriaFromLegacy(ev);
-const groups={};
+    /*
+     * ---------------------------------------------------------
+     * 4. Fonction de calcul de maîtrise
+     * ---------------------------------------------------------
+     */
 
-/*
- * Pour le récapitulatif :
- * les questions restent séparées pendant la correction,
- * mais les mêmes compétences sont regroupées ici.
- */
-crits.forEach((cr,i)=>{
-  const nom=String(
-    cr.competenceNom||"Compétence évaluée"
-  ).trim();
-
-  const key=normalizeName(nom)||`competence-${i}`;
-
-  if(!groups[key]){
-    groups[key]={
-      nom,
-      criteres:[],
-      questionIds:[]
+    const masteryValues={
+      TBM:4,
+      MS:3,
+      MF:2,
+      MI:1
     };
-  }
 
-  groups[key].criteres.push(cr);
+    function masteryForEvaluationStudent(
+      evaluation,
+      correction,
+      competency
+    ){
 
-  const qid=cr.questionId||cr.questionNumero||"";
-  if(qid && !groups[key].questionIds.includes(String(qid))){
-    groups[key].questionIds.push(String(qid));
-  }
-});
+      if(!correction){
+        return [];
+      }
 
-const competencies=Object.values(groups);
+      if(
+        isHistoricalEvaluation(evaluation) &&
+        correction.resultat?.masteryCode
+      ){
+        return [
+          correction.resultat.masteryCode
+        ];
+      }
 
-    // Pour chaque compétence, la maîtrise est calculée uniquement à partir des critères validés.
-    const masteryFor=(r,comp)=>{
-  if(isHistoricalEvaluation(ev))return r.masteryCode||"—";
+      const resultat=correction.resultat||{};
 
-  if(!r.criteriaStats)return "—";
+      if(!resultat.criteriaStats){
+        return [];
+      }
 
-  const masteryValues={
-    TBM:4,
-    MS:3,
-    MF:2,
-    MI:1
-  };
+      /*
+       * On conserve la logique existante :
+       * la maîtrise est calculée question par question.
+       */
+      const evaluationGroups=competency.evaluations
+        .filter(g=>
+          String(g.evaluationId)===String(evaluation.id)
+        );
 
-  const masteryResults=[];
+      const values=[];
 
-  /*
-   * On calcule la maîtrise séparément pour chaque question
-   * appartenant à cette compétence.
-   */
-  comp.questionIds.forEach(questionId=>{
-    const questionCriteria=comp.criteres.filter(cr=>{
-      const qid=String(
-        cr.questionId||cr.questionNumero||""
+      evaluationGroups.forEach(group=>{
+
+        group.questionIds.forEach(questionId=>{
+
+          const questionCriteria=
+            group.criteres.filter(cr=>{
+
+              const qid=String(
+                cr.questionId ||
+                cr.questionNumero ||
+                ""
+              );
+
+              return qid===String(questionId);
+            });
+
+          if(!questionCriteria.length){
+            return;
+          }
+
+          const validated=questionCriteria.filter(cr=>
+            !!resultat.criteriaStats?.[cr.id]?.validated
+          ).length;
+
+          const mastery=
+            getMasteryFromValidatedCriteria(validated);
+
+          if(masteryValues[mastery.code]){
+            values.push(
+              masteryValues[mastery.code]
+            );
+          }
+        });
+      });
+
+      return values;
+    }
+
+    function masteryFromValues(values){
+
+      if(!values.length){
+        return "—";
+      }
+
+      const average=
+        values.reduce((a,b)=>a+b,0)/
+        values.length;
+
+      if(average>=3.5)return "TBM";
+      if(average>=2.5)return "MS";
+      if(average>=1.5)return "MF";
+      return "MI";
+    }
+
+    /*
+     * ---------------------------------------------------------
+     * 5. Recherche d'une correction pour un élève
+     * ---------------------------------------------------------
+     */
+
+    function findCorrection(evaluation,student){
+
+      const corrections=
+        correctionsByEvaluation.get(
+          String(evaluation.id)
+        )||[];
+
+      const byId=corrections.find(c=>
+        c.eleve_id &&
+        String(c.eleve_id)===String(student.id)
       );
-      return qid===String(questionId);
+
+      if(byId){
+        return byId;
+      }
+
+      const studentKey=normalizeName(
+        student.name
+      );
+
+      return corrections.find(c=>
+        normalizeName(c.eleve||"")===studentKey
+      )||null;
+    }
+
+    /*
+     * ---------------------------------------------------------
+     * 6. Lignes du tableau
+     * ---------------------------------------------------------
+     */
+
+    const rows=students.map(student=>{
+
+      let weightedTotal=0;
+      let weightedCoefficient=0;
+
+      competencies.forEach(comp=>{
+        // Calcul des compétences plus bas.
+      });
+
+      chapterEvaluations.forEach(evaluation=>{
+
+        const correction=
+          findCorrection(evaluation,student);
+
+        if(!correction){
+          return;
+        }
+
+        const resultat=correction.resultat||{};
+
+        const noteValue=
+          resultat.note!==undefined
+            ?Number(resultat.note)
+            :resultat.score!==undefined
+              ?Number(resultat.score)
+              :null;
+
+        const total=Number(evaluation.total||0);
+        const coefficient=Number(
+          evaluation.coefficient ??
+          (evaluation.typeEvaluation==="activite"
+            ?0.5
+            :1)
+        );
+
+        if(
+          noteValue!==null &&
+          Number.isFinite(noteValue) &&
+          total>0
+        ){
+          const note20=
+            noteValue/total*20;
+
+          weightedTotal+=
+            note20*coefficient;
+
+          weightedCoefficient+=coefficient;
+        }
+      });
+
+      const moyenne=
+        weightedCoefficient>0
+          ?(weightedTotal/weightedCoefficient).toFixed(1)
+          :null;
+
+      return {
+        student,
+        moyenne,
+        competencies
+      };
     });
 
-    if(!questionCriteria.length)return;
-
-    const validated=questionCriteria.filter(
-      cr=>!!r.criteriaStats?.[cr.id]?.validated
-    ).length;
-
-    const mastery=getMasteryFromValidatedCriteria(validated);
-
-    if(masteryValues[mastery.code]){
-      masteryResults.push(masteryValues[mastery.code]);
-    }
-  });
-
-  if(!masteryResults.length)return "—";
-
-  const average=
-    masteryResults.reduce((a,b)=>a+b,0)/
-    masteryResults.length;
-
-  if(average>=3.5)return "TBM";
-  if(average>=2.5)return "MS";
-  if(average>=1.5)return "MF";
-  return "MI";
-};
-
-    const headers=competencies.length
-      ? competencies.map(comp=>`<th style="width:${Math.max(14,Math.floor(58/competencies.length))}%">${escPrint(comp.nom)}</th>`).join("")
-      : `<th>Maîtrise</th>`;
+    /*
+     * ---------------------------------------------------------
+     * 7. Calcul des maîtrises par compétence
+     * ---------------------------------------------------------
+     */
 
     const bodyRows=rows.length
-      ? rows.map(({student,resultat:r})=>{
-          const total=Number(ev.total||0);
-          const note=(r && (r.note!==undefined || r.score!==undefined))
-            ? `${Number(r.note ?? r.score ?? 0)} / ${total} pt`
-            : "—";
-          const masteryCells=competencies.length
-            ? competencies.map(comp=>`<td style="text-align:center"><strong>${escPrint(masteryFor(r,comp))}</strong></td>`).join("")
-            : `<td style="text-align:center">${escPrint(r.masteryCode||"—")}</td>`;
-          return `<tr><td><strong>${escPrint(student.name)}</strong></td><td style="text-align:center">${escPrint(note)}</td>${masteryCells}</tr>`;
-        }).join("")
-      : `<tr><td colspan="${2+Math.max(1,competencies.length)}" style="text-align:center">Aucun élève enregistré.</td></tr>`;
+      ?rows.map(row=>{
 
-    const body=`<div class="print-page evaluation-summary-page">
-      <h1>📊 Récapitulatif — ${escPrint(ev.titre||"Évaluation")}</h1>
-      <p><strong>Classe :</strong> ${escPrint(ev.classe||"—")} &nbsp; · &nbsp; <strong>Barème :</strong> ${Number(ev.total||0)} pt</p>
-      <table class="summary-table">
-        <thead><tr><th style="width:30%">Élève</th><th style="width:14%">Note</th>${headers}</tr></thead>
-        <tbody>${bodyRows}</tbody>
-      </table>
-      <p class="small-note" style="margin-top:10px">Récapitulatif sans détail des critères ni des indicateurs. Classement alphabétique par nom.</p>
-    </div>`;
+          const masteryCells=competencies.length
+            ?competencies.map(comp=>{
+
+                const values=[];
+
+                chapterEvaluations.forEach(evaluation=>{
+
+                  const correction=
+                    findCorrection(
+                      evaluation,
+                      row.student
+                    );
+
+                  if(!correction){
+                    return;
+                  }
+
+                  const result=
+                    masteryForEvaluationStudent(
+                      evaluation,
+                      correction,
+                      comp
+                    );
+
+                  values.push(...result);
+                });
+
+                const mastery=
+                  masteryFromValues(values);
+
+                return `
+                  <td style="text-align:center">
+                    <strong>${escPrint(mastery)}</strong>
+                  </td>
+                `;
+              }).join("")
+            :`<td style="text-align:center">—</td>`;
+
+          return `
+            <tr>
+              <td>
+                <strong>${escPrint(row.student.name)}</strong>
+              </td>
+
+              <td style="text-align:center">
+                ${
+                  row.moyenne!==null
+                    ?escPrint(row.moyenne)+" / 20"
+                    :"—"
+                }
+              </td>
+
+              ${masteryCells}
+            </tr>
+          `;
+        }).join("")
+      :`
+        <tr>
+          <td
+            colspan="${2+Math.max(1,competencies.length)}"
+            style="text-align:center"
+          >
+            Aucun élève enregistré.
+          </td>
+        </tr>
+      `;
+
+    /*
+     * ---------------------------------------------------------
+     * 8. En-têtes des compétences
+     * ---------------------------------------------------------
+     */
+
+    const headers=competencies.length
+      ?competencies.map(comp=>`
+          <th style="
+            width:${Math.max(
+              14,
+              Math.floor(58/competencies.length)
+            )}%;
+          ">
+            ${escPrint(comp.nom)}
+          </th>
+        `).join("")
+      :`<th>Maîtrise</th>`;
+
+    /*
+     * ---------------------------------------------------------
+     * 9. Liste des sujets utilisés
+     * ---------------------------------------------------------
+     */
+
+    const sujets=chapterEvaluations
+      .map(e=>escPrint(e.titre))
+      .join(" · ");
+
+    /*
+     * ---------------------------------------------------------
+     * 10. PDF final
+     * ---------------------------------------------------------
+     */
+
+    const body=`
+      <div class="print-page evaluation-summary-page">
+
+        <h1>
+          📊 Récapitulatif — Chapitre ${escPrint(chapitre)}
+        </h1>
+
+        <p>
+          <strong>Classe :</strong>
+          ${escPrint(selectedClass)}
+          &nbsp; · &nbsp;
+
+          <strong>Type :</strong>
+          Évaluation de chapitre
+        </p>
+
+        <p class="small-note">
+          <strong>Sujets pris en compte :</strong>
+          ${sujets}
+        </p>
+
+        <table class="summary-table">
+
+          <thead>
+            <tr>
+              <th style="width:30%">
+                Élève
+              </th>
+
+              <th style="width:14%">
+                Moyenne /20
+              </th>
+
+              ${headers}
+            </tr>
+          </thead>
+
+          <tbody>
+            ${bodyRows}
+          </tbody>
+
+        </table>
+
+        <p
+          class="small-note"
+          style="margin-top:10px"
+        >
+          Récapitulatif du chapitre — les compétences
+          identiques entre les différents sujets sont regroupées.
+          Les maîtrises sont moyennées entre les questions et les sujets.
+        </p>
+
+      </div>
+    `;
 
     const extraCss=`
-      .evaluation-summary-page h1{margin-bottom:10px!important}
-      .evaluation-summary-page .summary-table th,.evaluation-summary-page .summary-table td{padding:7px!important;font-size:11px!important}
-      .evaluation-summary-page .summary-table th{text-align:center!important;background:#f0f0f0!important}
-      .evaluation-summary-page .summary-table th:first-child{text-align:left!important}
-      .evaluation-summary-page .summary-table td:first-child{text-align:left!important}
-      .evaluation-summary-page .small-note{font-size:9px!important;color:#666}
+      .evaluation-summary-page h1{
+        margin-bottom:10px!important
+      }
+
+      .evaluation-summary-page
+      .summary-table th,
+      .evaluation-summary-page
+      .summary-table td{
+        padding:7px!important;
+        font-size:11px!important
+      }
+
+      .evaluation-summary-page
+      .summary-table th{
+        text-align:center!important;
+        background:#f0f0f0!important
+      }
+
+      .evaluation-summary-page
+      .summary-table th:first-child{
+        text-align:left!important
+      }
+
+      .evaluation-summary-page
+      .summary-table td:first-child{
+        text-align:left!important
+      }
+
+      .evaluation-summary-page
+      .small-note{
+        font-size:9px!important;
+        color:#666
+      }
     `;
-    printHtmlInCurrentWindow(`Récapitulatif — ${ev.titre||"Évaluation"}`,body,extraCss);
-  }catch(e){alert("Génération du récapitulatif impossible : "+e.message);}
+
+    printHtmlInCurrentWindow(
+      `Récapitulatif — Chapitre ${chapitre} — ${selectedClass}`,
+      body,
+      extraCss
+    );
+
+  }catch(e){
+    alert(
+      "Génération du récapitulatif impossible : "+
+      e.message
+    );
+  }
 }
 
 async function printAllCorrectionGrids(evalId){
