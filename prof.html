@@ -2056,6 +2056,7 @@ async function renderCorrectionEditor(evalId,correctionId,corr,groupIds=[]){
   const {data,error}=await sb.from("Evaluations").select("*").eq("id",evalId).maybeSingle();
   if(error)throw new Error(error.message); if(!data)throw new Error("Évaluation introuvable.");
   const ev=evalNormalize(data); currentCorrectionEvaluation=ev;
+  const correctionClass=String(loadEvalNav().classe||ev.classe||"").trim();
   evalRememberFromEvaluation(ev,"studentCorrection",{evaluationId:ev.id,correctionId:correctionId||null,classe:loadEvalNav().classe||ev.classe});
   const result=corr.resultat||{points:{},note:0,commentaire:"",criteriaStats:{}};
   const crits=criteriaFromLegacy(ev); const groups={};
@@ -2063,8 +2064,7 @@ async function renderCorrectionEditor(evalId,correctionId,corr,groupIds=[]){
   const comps=Object.values(groups); const savedValidated=result.criteriaStats||{};
   content.innerHTML=`<button onclick="openCorrection('${esc(evalId)}')">← Retour aux copies</button>
   <section class="hero teacher" style="margin-top:14px">
-    <span class="eyebrow">${esc(ev.classe||"Classe")}</span><h2>${currentCorrectionGroupIds.length>1?"👥":"👤"} ${esc(corr.eleve||"Élève")}</h2>
-    <div class="row"><span class="score-pill" id="liveScore">0 / ${Number(ev.total||0)}</span><span id="livePercent" class="status"></span></div>
+<span class="eyebrow">${esc(correctionClass||"Classe")}</span>    <div class="row"><span class="score-pill" id="liveScore">0 / ${Number(ev.total||0)}</span><span id="livePercent" class="status"></span></div>
     <div id="correctionCriteria">${comps.map((comp,co)=>`<div class="eval-card"><h3>🎯 Compétence ${co+1} — ${esc(comp.nom)}</h3>${comp.criteres.map((cr,ci)=>`<div class="criteria-box"><h4 style="margin:0 0 8px">Critère ${ci+1} — ${esc(cr.nom)}</h4><div class="criterion-auto-status" data-criterion-status="${esc(cr.id)}"><span class="small-note">Validation automatique : au moins 2/3 des indicateurs cochés (≥ 66,7 %).</span></div>${(cr.indicateurs||[]).map((it,ii)=>{const key=`${cr.id}_${ii}`,checked=!!result.points?.[key]||!!result.points?.[`${cr.id}_${ii}`];return `<div class="check-row"><label><input type="checkbox" class="correction-check" data-key="${key}" data-points="${Number(it.points||0)}" data-criterion="${esc(cr.id)}" ${checked?"checked":""} onchange="refreshCorrectionScore('${esc(ev.id)}')"> ${esc(it.nom)}</label><span class="small-note">${Number(it.points||0)} pt</span></div>`}).join("")||`<p class="muted">Aucun indicateur pour ce critère.</p>`}</div>`).join("")}</div>`).join("")}</div>
     <div class="editbox"><label>Appréciation / remarque</label><textarea id="corrComment" style="width:100%;min-height:90px;border:1px solid var(--b);border-radius:10px;padding:10px;font:inherit">${esc(result.commentaire||"")}</textarea></div>
     <div id="masteryPreview"></div>
