@@ -30,6 +30,10 @@ button:disabled{opacity:.55;cursor:not-allowed;transform:none;box-shadow:none}
 .teacher{background:radial-gradient(circle at 100% 0%,#fff0c5aa,transparent 30%),rgba(255,250,235,.96);border-color:#ead6a8}
 .editbox label{display:block;font-size:12px;font-weight:850;margin:10px 0 6px;color:#425552}
 input,select{width:100%;border:1px solid var(--b);border-radius:10px;padding:10px 11px;font:inherit;background:#fff;color:var(--text);outline:none;transition:.15s ease}
+  .ev-class-check{
+  width:auto!important;
+  flex:0 0 auto;
+}
 input:focus,select:focus{border-color:#79ad9d;box-shadow:0 0 0 3px #dff0e988}
 .row{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}.hidden{display:none!important}
 .error{background:#fff0ef;border:1px solid #efc0ba}.login{max-width:460px;margin:55px auto}.status{font-size:12px;color:var(--muted)}
@@ -1826,7 +1830,7 @@ function editEvaluationObject(ev){
 >
 <p id="evCoefficientInfo" class="small-note"></p>
       <label>Classes concernées</label>
-      <div id="evClasses" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">${Object.values(CLASSES).flat().map(c=>{const checked=(e.assignedClasses||[]).includes(c);return `<label style="display:inline-flex;align-items:center;gap:5px;padding:5px 8px;border:1px solid var(--b);border-radius:8px;background:#fff;cursor:pointer;white-space:nowrap;width:auto">><input type="checkbox" class="ev-class-check" value="${esc(c)}" ${checked?'checked':''}> <span>${esc(c)}</span></label>`}).join("")}</div>
+      <div id="evClasses" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">${Object.values(CLASSES).flat().map(c=>{const checked=(e.assignedClasses||[]).includes(c);return `<label style="display:inline-flex;align-items:center;gap:5px;padding:5px 8px;border:1px solid var(--b);border-radius:8px;background:#fff;cursor:pointer;white-space:nowrap;width:auto"><input type="checkbox" class="ev-class-check" style="width:auto" value="${esc(c)}" ${checked?'checked':''}> <span>${esc(c)}</span></label>`}).join("")}</div>
       <p class="small-note">La même grille peut être attribuée à plusieurs classes.</p>
       <label>Barème total</label><input id="evTotal" type="number" min="0" step="0.5" value="${esc(totalAuto)}" readonly><p class="small-note">Le barème total est calculé automatiquement à partir de la somme des points des indicateurs.</p>
     </div>
