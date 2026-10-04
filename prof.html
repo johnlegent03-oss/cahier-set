@@ -2606,25 +2606,218 @@ async function generateCorrectionPDF(evalId){
     if(!ev || String(ev.id)!==String(evalId)) throw new Error("Évaluation introuvable.");
     currentCorrectionEvaluation=ev;
     const c=computeCorrection(ev);
-    const crits=criteriaFromLegacy(ev), groups={};
-    crits.forEach(cr=>{const gid=cr.competenceId||"comp1";if(!groups[gid])groups[gid]={nom:cr.competenceNom||"Compétence évaluée",criteres:[]};groups[gid].criteres.push(cr)});
-    const student=(document.querySelector('h2')?.textContent||"👤 Élève").replace(/^👤\s*/,"").trim();
-    const comment=document.getElementById("corrComment")?.value||"";
-    const total=Number(ev.total||0),pct=total?Math.round(c.score/total*100):0;
-    const escPrint=v=>String(v??"").replace(/[&<>]/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[m]));
-    const masteryForComp=comp=>{const validated=comp.criteres.filter(cr=>!!c.criteriaStats[cr.id]?.validated).length;return {validated,mastery:getMasteryFromValidatedCriteria(validated)}};
-    const compHtml=Object.values(groups).map((comp,ci)=>{
-      const m=masteryForComp(comp);
-      const criteriaHtml=comp.criteres.map((cr,i)=>{
-        const st=c.criteriaStats[cr.id]||{checked:0,count:0,percent:0,validated:false};
-        const indicators=(cr.indicateurs||[]).map((it,ii)=>{const key=`${cr.id}_${ii}`,checked=!!c.points[key];return `<li class="${checked?"checked":"unchecked"}">${checked?"✓":"✗"} ${escPrint(it.nom)} <span>${Number(it.points||0)} pt</span></li>`}).join("");
-        const earned=(cr.indicateurs||[]).reduce((sum,it,ii)=>sum+(c.points[`${cr.id}_${ii}`]?Number(it.points||0):0),0);
-        const possible=(cr.indicateurs||[]).reduce((sum,it)=>sum+Number(it.points||0),0);
-        return `<div class="criterion"><h4>Critère ${i+1} — ${escPrint(cr.nom)} <span style="float:right">${earned} / ${possible} pt</span></h4><p class="status">${st.checked} / ${st.count} indicateur(s) coché(s) — ${st.percent}% — <strong>${st.validated?"Critère validé":"Critère non validé"}</strong></p><ul>${indicators||"<li>Aucun indicateur.</li>"}</ul></div>`;
-      }).join("");
-      return `<section><h3>🎯 Compétence ${ci+1} — ${escPrint(comp.nom)}</h3>${criteriaHtml}<div class="mastery">Maîtrise : <strong>${m.mastery.code} — ${escPrint(m.mastery.label)}</strong> (${m.validated} / ${comp.criteres.length} critère(s) validé(s))</div></section>`;
+    const crits=criteriaFromLegacy(ev);
+
+/*
+ * 1. GRILLE DÉTAILLÉE
+ * Les questions restent complètement séparées.
+ */
+const questionGroups={};
+
+crits.forEach((cr,i)=>{
+  const questionNumero=Number(
+    cr.questionNumero||i+1
+  );
+
+  const questionId=String(
+    cr.questionId||`q${questionNumero}`
+  );
+
+  if(!questionGroups[questionId]){
+    questionGroups[questionId]={
+      id:questionId,
+      questionNumero,
+      nom:cr.competenceNom||"Compétence évaluée",
+      criteres:[]
+    };
+  }
+
+  questionGroups[questionId].criteres.push(cr);
+});
+
+const questionComps=Object.values(questionGroups).sort(
+  (a,b)=>a.questionNumero-b.questionNumero
+);
+
+
+/*
+ * Maîtrise d'une question.
+ */
+const masteryForQuestion=question=>{
+  const validated=question.criteres.filter(
+    cr=>!!c.criteriaStats[cr.id]?.validated
+  ).length;
+
+  return {
+    validated,
+    mastery:getMasteryFromValidatedCriteria(validated)
+  };
+};
+
+
+/*
+ * 2. RÉCAPITULATIF
+ * Les questions évaluant la même compétence sont regroupées.
+ */
+const competenceGroups={};
+
+questionComps.forEach(question=>{
+  const nom=String(
+    question.nom||"Compétence évaluée"
+  ).trim();
+
+  const key=nom
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g,"")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g," ")
+    .trim();
+
+  if(!competenceGroups[key]){
+    competenceGroups[key]={
+      nom,
+      questions:[]
+    };
+  }
+
+  competenceGroups[key].questions.push(question);
+});
+
+
+/*
+ * Maîtrise finale d'une compétence :
+ * moyenne des maîtrises obtenues aux différentes questions.
+ */
+const masteryForCompetence=competence=>{
+  const values={
+    TBM:4,
+    MS:3,
+    MF:2,
+    MI:1
+  };
+
+  const results=competence.questions
+    .map(q=>masteryForQuestion(q).mastery.code)
+    .filter(code=>values[code]);
+
+  if(!results.length){
+    return getMasteryFromValidatedCriteria(0);
+  }
+
+  const average=
+    results.reduce((sum,code)=>sum+values[code],0)
+    /results.length;
+
+  let code;
+
+  if(average>=3.5)code="TBM";
+  else if(average>=2.5)code="MS";
+  else if(average>=1.5)code="MF";
+  else code="MI";
+
+  return getMasteryByCode(code);
+};
+
+
+/*
+ * Construction de la grille détaillée.
+ */
+const compHtml=questionComps.map(question=>{
+  const m=masteryForQuestion(question);
+
+  const criteriaHtml=question.criteres.map((cr,i)=>{
+    const st=c.criteriaStats[cr.id]||{
+      checked:0,
+      count:0,
+      percent:0,
+      validated:false
+    };
+
+    const indicators=(cr.indicateurs||[]).map((it,ii)=>{
+      const key=`${cr.id}_${ii}`;
+      const checked=!!c.points[key];
+
+      return `<li class="${checked?"checked":"unchecked"}">
+        ${checked?"✓":"✗"} ${escPrint(it.nom)}
+        <span>${Number(it.points||0)} pt</span>
+      </li>`;
     }).join("");
-    const masterySummary=Object.values(groups).map(comp=>{
+
+    const earned=(cr.indicateurs||[]).reduce(
+      (sum,it,ii)=>
+        sum+(c.points[`${cr.id}_${ii}`]
+          ?Number(it.points||0)
+          :0),
+      0
+    );
+
+    const possible=(cr.indicateurs||[]).reduce(
+      (sum,it)=>sum+Number(it.points||0),
+      0
+    );
+
+    return `<div class="criterion">
+      <h4>
+        Critère ${i+1} — ${escPrint(cr.nom)}
+        <span style="float:right">
+          ${earned} / ${possible} pt
+        </span>
+      </h4>
+
+      <p class="status">
+        ${st.checked} / ${st.count} indicateur(s) coché(s)
+        — ${st.percent}%
+        — <strong>
+          ${st.validated
+            ?"Critère validé"
+            :"Critère non validé"}
+        </strong>
+      </p>
+
+      <ul>
+        ${indicators||"<li>Aucun indicateur.</li>"}
+      </ul>
+    </div>`;
+  }).join("");
+
+  return `<section>
+    <h3>
+      📝 Question ${question.questionNumero}
+      — ${escPrint(question.nom)}
+    </h3>
+
+    ${criteriaHtml}
+
+    <div class="mastery">
+      Maîtrise de la question :
+      <strong>
+        ${m.mastery.code}
+        — ${escPrint(m.mastery.label)}
+      </strong>
+      (${m.validated} / ${question.criteres.length}
+      critère(s) validé(s))
+    </div>
+  </section>`;
+}).join("");
+
+
+/*
+ * Récapitulatif global des compétences.
+ */
+const masterySummary=Object.values(competenceGroups).map(comp=>{
+  const m=masteryForCompetence(comp);
+
+  return `<tr>
+    <td>
+      <strong>${escPrint(comp.nom)}</strong>
+    </td>
+
+    <td style="text-align:center">
+      <strong>${m.code}</strong>
+      — ${escPrint(m.label)}
+    </td>
+  </tr>`;
+}).join("");
   const m=masteryForComp(comp);
   return `<tr>
     <td><strong>${escPrint(comp.nom)}</strong></td>
