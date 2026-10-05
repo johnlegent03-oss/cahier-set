@@ -228,10 +228,15 @@ function sanitizeRichHtml(value){
   const doc=new DOMParser().parseFromString(`<div>${html}</div>`,"text/html");
   const root=doc.body.firstElementChild;
   if(!root)return "";
-  const allowedTags=new Set(["B","I","U","BR","P","DIV","SPAN","STRONG","EM","MARK","SMALL","SUB","SUP","UL","OL","LI","H1","H2","H3","H4","H5","H6","TABLE","THEAD","TBODY","TR","TH","TD","A"]);
+  const allowedTags=new Set(["B","I","U","BR","P","DIV","SPAN","STRONG","EM","MARK","SMALL","SUB","SUP","UL","OL","LI","H1","H2","H3","H4","H5","H6","TABLE","THEAD","TBODY","TR","TH","TD","A","FONT"]);
   const allowedStyle=new Set(["color","background-color","font-family","font-size","font-weight","font-style","text-decoration","text-align"]);
   [...root.querySelectorAll("*")].forEach(el=>{
     if(!allowedTags.has(el.tagName)){el.replaceWith(...[...el.childNodes]);return;}
+    if(el.tagName==="FONT" && el.getAttribute("color")){
+  const color=el.getAttribute("color");
+  el.style.color=color;
+  el.removeAttribute("color");
+}
     [...el.attributes].forEach(attr=>{
       const name=attr.name.toLowerCase();
       if(name==="style"){
