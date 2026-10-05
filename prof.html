@@ -3168,9 +3168,6 @@ async function printAllCorrectionGrids(evalId){
       return;
     }
 
-    /*
-     * Classe actuellement sélectionnée dans le module Évaluations.
-     */
     const nav=loadEvalNav();
 
     const selectedClass=String(
@@ -3184,27 +3181,32 @@ async function printAllCorrectionGrids(evalId){
       return;
     }
 
-    /*
-     * On récupère les élèves appartenant réellement
-     * à cette classe.
-     */
+    // Récupération des élèves de la classe sélectionnée
     const studentsQ=await sb
       .from("Eleves")
-      .select("id,classe")
-      .eq("classe",selectedClass);
+      .select("id,classe,nom,prenom")
+      .eq("classe",selectedClass)
+      .order("nom")
+      .order("prenom");
 
     if(studentsQ.error){
       throw new Error(studentsQ.error.message);
     }
 
-    const studentIds=new Set(
-      (studentsQ.data||[])
-        .map(s=>String(s.id))
+    const students=studentsQ.data||[];
+
+    const studentById=new Map(
+      students.map(s=>[
+        String(s.id),
+        s
+      ])
     );
 
-    /*
-     * Toutes les corrections de cette évaluation...
-     */
+    const studentIds=new Set(
+      students.map(s=>String(s.id))
+    );
+
+    // Récupération des corrections de l'évaluation
     const q=await sb
       .from("EvaluationCorrections")
       .select(
@@ -3217,14 +3219,28 @@ async function printAllCorrectionGrids(evalId){
       throw new Error(q.error.message);
     }
 
-    /*
-     * ...mais uniquement celles des élèves
-     * de la classe sélectionnée.
-     */
-    const corrections=(q.data||[]).filter(c=>
-      c.eleve_id &&
-      studentIds.has(String(c.eleve_id))
-    );
+    // On garde uniquement les corrections des élèves
+    // appartenant à la classe sélectionnée
+    const corrections=(q.data||[])
+      .filter(c=>
+        c.eleve_id &&
+        studentIds.has(String(c.eleve_id))
+      )
+      .map(c=>{
+
+        const student=
+          studentById.get(String(c.eleve_id));
+
+        const nomComplet=student
+          ?studentDisplayName(student)
+          :String(c.eleve||"Élève");
+
+        return {
+          ...c,
+          eleve:nomComplet,
+          classe:selectedClass
+        };
+      });
 
     if(!corrections.length){
       alert(
@@ -3255,7 +3271,6 @@ async function printAllCorrectionGrids(evalId){
     );
   }
 }
-
 function correctionGridHtml(ev,c,selectedClass=""){
   const r=c?.resultat||{};
   const crits=criteriaFromLegacy(ev);
