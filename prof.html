@@ -3498,20 +3498,7 @@ function correctionGridHtml(ev,c,selectedClass=""){
    * =========================================================
    */
 
-  let body=`
-    <div class="print-page">
-
-      <h1>
-        Correction — ${escPrint(ev.titre||"Évaluation")}
-      </h1>
-
-      <p>
-        <strong>
-          ${escPrint(c.eleve||"Élève")}
-        </strong>
-        —
-        ${escPrint(selectedClass||ev.classe||"Classe")}
-      </p>
+ let body=`<div class="print-page"><h1>Correction — ${escPrint(ev.titre||"Évaluation")}</h1><p><strong>${escPrint(c.eleve||"Élève")}</strong> — ${escPrint(c.classe||ev.classe||"Classe")}</p>
 
       <div
         class="result"
