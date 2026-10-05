@@ -3781,10 +3781,45 @@ async function generateCorrectionPDF(evalId){
     const c=computeCorrection(ev);
     const crits=criteriaFromLegacy(ev);
 
-    const student=
-      (document.querySelector('h2')?.textContent||"👤 Élève")
-        .replace(/^👤\s*/,"")
-        .trim();
+    const nav=loadEvalNav();
+const correctionId=nav.correctionId||"";
+
+let student="Élève";
+let studentClass=String(
+  nav.classe ||
+  ev.classe ||
+  "Classe"
+).trim();
+
+if(correctionId){
+  const cq=await sb
+    .from("EvaluationCorrections")
+    .select("eleve,eleve_id")
+    .eq("id",correctionId)
+    .maybeSingle();
+
+  if(cq.error)throw new Error(cq.error.message);
+
+  if(cq.data?.eleve_id){
+    const sq=await sb
+      .from("Eleves")
+      .select("id,classe,nom,prenom")
+      .eq("id",cq.data.eleve_id)
+      .maybeSingle();
+
+    if(sq.error)throw new Error(sq.error.message);
+
+    if(sq.data){
+      student=studentDisplayName(sq.data);
+      studentClass=String(
+        sq.data.classe ||
+        studentClass
+      ).trim();
+    }
+  }else if(cq.data?.eleve){
+    student=String(cq.data.eleve);
+  }
+}
 
     const comment=
       document.getElementById("corrComment")?.value||"";
@@ -4115,8 +4150,7 @@ async function generateCorrectionPDF(evalId){
         </h1>
 
         <p>
-          <strong>${escPrint(student)}</strong>
-          — ${escPrint(ev.classe||"Classe")}
+          <strong>${escPrint(student)}</strong> — ${escPrint(studentClass)}
         </p>
 
         <div
