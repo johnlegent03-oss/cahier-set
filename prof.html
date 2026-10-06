@@ -3120,6 +3120,19 @@ function renderEvaluationChapter(chapter, classe){
         >
           📊 Récapitulatif
         </button>
+                <button
+          type="button"
+          onclick="
+            event.preventDefault();
+            event.stopPropagation();
+            generateChapterBilanPDF(
+              ${chapter.numero},
+              '${esc(classe)}'
+            );
+          "
+        >
+          🧠 Bilan du chapitre
+        </button>
       `
       : ""
   }
