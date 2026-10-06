@@ -3089,38 +3089,46 @@ function renderEvaluationChapter(chapter, classe){
   "
 >
 
-  ${
-    evaluations.length
+    ${
+    (evaluations.length || activities.length)
       ? `
-        <button
-          type="button"
-          onclick="
-            event.preventDefault();
-            event.stopPropagation();
-            printAllBlankChapterGrids(
-              ${chapter.numero},
-              '${esc(classe)}'
-            );
-          "
-        >
-          📥 Toutes les grilles
-        </button>
+
+        ${
+          evaluations.length
+            ? `
+              <button
+                type="button"
+                onclick="
+                  event.preventDefault();
+                  event.stopPropagation();
+                  printAllBlankChapterGrids(
+                    ${chapter.numero},
+                    '${esc(classe)}'
+                  );
+                "
+              >
+                📥 Toutes les grilles
+              </button>
+
+              <button
+                type="button"
+                class="primary"
+                onclick="
+                  event.preventDefault();
+                  event.stopPropagation();
+                  generateChapterSummaryPDF(
+                    ${chapter.numero},
+                    '${esc(classe)}'
+                  );
+                "
+              >
+                📊 Récapitulatif
+              </button>
+            `
+            : ""
+        }
 
         <button
-          type="button"
-          class="primary"
-          onclick="
-            event.preventDefault();
-            event.stopPropagation();
-            generateChapterSummaryPDF(
-              ${chapter.numero},
-              '${esc(classe)}'
-            );
-          "
-        >
-          📊 Récapitulatif
-        </button>
-                <button
           type="button"
           onclick="
             event.preventDefault();
@@ -3133,6 +3141,7 @@ function renderEvaluationChapter(chapter, classe){
         >
           🧠 Bilan du chapitre
         </button>
+
       `
       : ""
   }
