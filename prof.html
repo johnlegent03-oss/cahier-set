@@ -1787,31 +1787,384 @@ async function loadEvaluationStatistics(evaluations, classe){
 
   return result;
 }
+function evaluationChapterSummaryCard(chapterEvaluations, classe, chapitre){
+
+  const statsList = chapterEvaluations
+    .map(e => evaluationStatisticsCache[String(e.id)])
+    .filter(Boolean);
+
+  /*
+   * =========================================================
+   * Moyenne de l'évaluation de chapitre
+   * = moyenne des moyennes de chaque sujet
+   * =========================================================
+   */
+
+  const averages = statsList
+    .map(s => Number(s.average))
+    .filter(Number.isFinite);
+
+  const chapterAverage = averages.length
+    ? averages.reduce((a,b)=>a+b,0) / averages.length
+    : null;
+
+  /*
+   * =========================================================
+   * Nombre total de copies corrigées
+   * =========================================================
+   */
+
+  const correctedCopies = statsList
+    .reduce(
+      (total,s) => total + Number(s.corrected || 0),
+      0
+    );
+
+  /*
+   * =========================================================
+   * Regroupement des compétences
+   *
+   * Une compétence peut apparaître dans plusieurs sujets.
+   * On fait ici la moyenne des pourcentages de réussite
+   * disponibles pour cette compétence.
+   * =========================================================
+   */
+
+  const competencyMap = {};
+
+  statsList.forEach(stats => {
+
+    Object.values(stats.competencies || {}).forEach(comp => {
+
+      if(comp.percentage === null ||
+         !Number.isFinite(Number(comp.percentage))){
+        return;
+      }
+
+      const key = String(comp.nom || "Compétence évaluée")
+        .trim()
+        .toLowerCase();
+
+      if(!competencyMap[key]){
+        competencyMap[key] = {
+          nom: comp.nom || "Compétence évaluée",
+          percentages: []
+        };
+      }
+
+      competencyMap[key].percentages.push(
+        Number(comp.percentage)
+      );
+
+    });
+
+  });
+
+  const competencyHtml =
+    Object.values(competencyMap).length
+
+      ? Object.values(competencyMap)
+          .map(comp => {
+
+            const percentages = comp.percentages;
+
+            const percentage = percentages.length
+              ? percentages.reduce((a,b)=>a+b,0)
+                / percentages.length
+              : null;
+
+            return `
+              <span class="tag">
+                ${esc(comp.nom)} :
+                ${percentage !== null
+                  ? Math.round(percentage) + " %"
+                  : "—"}
+              </span>
+            `;
+
+          })
+          .join(" ")
+
+      : `<span class="small-note">
+           Aucune compétence corrigée
+         </span>`;
+
+  const averageText =
+    chapterAverage !== null
+      ? chapterAverage.toFixed(2).replace(".",",") + " /20"
+      : "—";
+
+  return `
+    <section
+      class="eval-card"
+      style="
+        margin-bottom:18px;
+        border:2px solid var(--accent,#2b8a78);
+      "
+    >
+
+      <div class="entry-head">
+
+        <div>
+
+          <span class="tag">
+            ${esc(classe)}
+          </span>
+
+          <h3 style="margin-top:7px">
+            📊 Évaluation de chapitre ${chapitre}
+          </h3>
+
+          <p class="small-note">
+            ${chapterEvaluations.length}
+            sujet${chapterEvaluations.length>1 ? "s" : ""}
+            ·
+            ${correctedCopies}
+            copie${correctedCopies>1 ? "s" : ""}
+            corrigée${correctedCopies>1 ? "s" : ""}
+          </p>
+
+        </div>
+
+      </div>
+
+      <div
+        class="small-note"
+        style="
+          margin-top:12px;
+          padding:10px 12px;
+          background:var(--surface,#f7faf9);
+          border-radius:10px;
+        "
+      >
+
+        <strong>📊 Résultats de l'évaluation</strong>
+
+        · Moyenne :
+        <strong>${averageText}</strong>
+
+        ·
+        ${correctedCopies}
+        copie${correctedCopies>1 ? "s" : ""}
+        corrigée${correctedCopies>1 ? "s" : ""}
+
+      </div>
+
+      <div
+        class="row"
+        style="
+          margin-top:10px;
+          gap:6px;
+          flex-wrap:wrap;
+        "
+      >
+
+        ${competencyHtml}
+
+      </div>
+
+      <details open style="margin-top:16px">
+
+        <summary
+          style="
+            cursor:pointer;
+            font-weight:800;
+            padding:8px 0;
+          "
+        >
+          📝 Sujets de l'évaluation
+          (${chapterEvaluations.length})
+        </summary>
+
+        <div style="margin-top:10px">
+
+          ${chapterEvaluations
+            .map(evaluationCard)
+            .join("")}
+
+        </div>
+
+      </details>
+
+    </section>
+  `;
+}
+
+
 function renderEvaluationClass(selectedClass){
-  const target=document.getElementById("evaluationList");
+
+  const target =
+    document.getElementById("evaluationList");
+
   if(!target)return;
 
   if(!selectedClass){
-    target.innerHTML='<section class="hero"><p class="muted" style="margin:0">Sélectionne une classe pour afficher les évaluations.</p></section>';
+
+    target.innerHTML = `
+      <section class="hero">
+
+        <p class="muted" style="margin:0">
+          Sélectionne une classe pour afficher les évaluations.
+        </p>
+
+      </section>
+    `;
+
     return;
   }
 
-  const cls=String(selectedClass).trim();
+  const cls =
+    String(selectedClass).trim();
 
-  const classEvaluations=evaluationsCache.filter(e =>
-    Array.isArray(e.assignedClasses) &&
-    e.assignedClasses.includes(cls)
-  );
+  /*
+   * =========================================================
+   * Toutes les évaluations attribuées à cette classe
+   * =========================================================
+   */
 
-  target.innerHTML=classEvaluations.length
-    ?classEvaluations.map(evaluationCard).join("")
-    :`<section class="hero">
-        <h3>Aucune évaluation pour ${esc(cls)}</h3>
-        <p class="muted">Crée une nouvelle évaluation et attribue-la à cette classe.</p>
-        <button class="primary" onclick="newEvaluation()">＋ Nouvelle évaluation</button>
-      </section>`;
+  const classEvaluations =
+    evaluationsCache.filter(e =>
+      Array.isArray(e.assignedClasses) &&
+      e.assignedClasses.includes(cls)
+    );
+
+  if(!classEvaluations.length){
+
+    target.innerHTML = `
+      <section class="hero">
+
+        <h3>
+          Aucune évaluation pour ${esc(cls)}
+        </h3>
+
+        <p class="muted">
+          Crée une nouvelle évaluation et
+          attribue-la à cette classe.
+        </p>
+
+        <button
+          class="primary"
+          onclick="newEvaluation()"
+        >
+          ＋ Nouvelle évaluation
+        </button>
+
+      </section>
+    `;
+
+    return;
+  }
+
+  /*
+   * =========================================================
+   * Construction des groupes
+   *
+   * Même :
+   *   - classe
+   *   - chapitre
+   *   - typeEvaluation
+   *
+   * = une seule évaluation de chapitre.
+   * =========================================================
+   */
+
+  const chapterGroups = {};
+  const standalone = [];
+
+  classEvaluations.forEach(e => {
+
+    /*
+     * Les évaluations antérieures restent indépendantes.
+     */
+
+    if(isHistoricalEvaluation(e)){
+
+      standalone.push(e);
+
+      return;
+    }
+
+    /*
+     * Les activités restent indépendantes.
+     */
+
+    if(String(e.typeEvaluation || "") !== "evaluation"){
+
+      standalone.push(e);
+
+      return;
+    }
+
+    const chapitre =
+      Number(e.chapitre || 0);
+
+    /*
+     * Une évaluation sans chapitre reste indépendante.
+     */
+
+    if(chapitre <= 0){
+
+      standalone.push(e);
+
+      return;
+    }
+
+    const key =
+      `${cls}__chapitre_${chapitre}__evaluation`;
+
+    if(!chapterGroups[key]){
+
+      chapterGroups[key] = {
+        chapitre,
+        evaluations:[]
+      };
+
+    }
+
+    chapterGroups[key].evaluations.push(e);
+
+  });
+
+  /*
+   * =========================================================
+   * Affichage
+   * =========================================================
+   */
+
+  let html = "";
+
+  /*
+   * D'abord les évaluations de chapitre
+   */
+
+  Object.values(chapterGroups)
+    .sort((a,b) =>
+      a.chapitre - b.chapitre
+    )
+    .forEach(group => {
+
+      html += evaluationChapterSummaryCard(
+        group.evaluations,
+        cls,
+        group.chapitre
+      );
+
+    });
+
+  /*
+   * Puis les évaluations qui ne peuvent pas
+   * être regroupées.
+   */
+
+  standalone.forEach(e => {
+
+    html += evaluationCard(e);
+
+  });
+
+  target.innerHTML = html;
+
 }
-
 async function getEvaluationById(evalId){
   const cached=evaluationsCache.find(x=>String(x.id)===String(evalId));
   if(cached)return cached;
