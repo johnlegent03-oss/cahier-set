@@ -1723,7 +1723,6 @@ function evaluationCard(e){
   }
   const {crits,items}=flattenIndicators(e);
   const count=items.filter(i=>i.nom).length;
-    const stats=evaluationStatisticsCache[String(e.id)]||null;
 
   let statsHtml="";
 
