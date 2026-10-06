@@ -2002,10 +2002,9 @@ async function printAllBlankChapterGrids(chapitre, classe){
     }
 
     /*
-     * Uniquement les sujets :
-     * - attribués à la classe sélectionnée
-     * - du chapitre demandé
-     * - de type évaluation
+     * =========================================================
+     * 1. Récupérer les sujets du chapitre pour cette classe
+     * =========================================================
      */
 
     const chapterEvaluations = evaluationsCache
@@ -2048,246 +2047,161 @@ async function printAllBlankChapterGrids(chapitre, classe){
     }
 
     /*
-     * Même logique que la grille vierge individuelle.
+     * =========================================================
+     * 2. Élèves de la classe sélectionnée
+     * =========================================================
      */
 
-    const escPrint = v =>
-      String(v ?? "").replace(
-        /[&<>]/g,
-        m => ({
-          "&":"&amp;",
-          "<":"&lt;",
-          ">":"&gt;"
-        }[m])
-      );
+    const studentsQ = await sb
+      .from("Eleves")
+      .select("id,classe,nom,prenom")
+      .eq("classe",selectedClass)
+      .order("nom")
+      .order("prenom");
 
-    const pages = chapterEvaluations
-      .map(ev => {
+    if(studentsQ.error){
+      throw new Error(studentsQ.error.message);
+    }
 
-        const crits = criteriaFromLegacy(ev);
-        const groups = {};
+    const students = studentsQ.data || [];
 
-        crits.forEach(cr => {
+    const studentById = new Map(
+      students.map(s => [
+        String(s.id),
+        s
+      ])
+    );
 
-          const gid =
-            cr.competenceId || "comp1";
+    const studentIds = new Set(
+      students.map(s => String(s.id))
+    );
 
-          if(!groups[gid]){
+    /*
+     * =========================================================
+     * 3. Récupérer toutes les corrections des sujets
+     * =========================================================
+     */
 
-            groups[gid] = {
-              nom:
-                cr.competenceNom ||
-                "Compétence évaluée",
+    const evaluationIds =
+      chapterEvaluations.map(e => e.id);
 
-              criteres:[]
-            };
+    const correctionsQ = await sb
+      .from("EvaluationCorrections")
+      .select(
+        "id,evaluation_id,eleve,eleve_id,resultat,created_at"
+      )
+      .in("evaluation_id",evaluationIds)
+      .order("created_at",{ascending:true});
 
-          }
+    if(correctionsQ.error){
+      throw new Error(correctionsQ.error.message);
+    }
 
-          groups[gid].criteres.push(cr);
+    /*
+     * UNIQUEMENT les corrections des élèves
+     * de la classe sélectionnée.
+     */
+
+    const corrections =
+      (correctionsQ.data || [])
+        .filter(c =>
+          c.eleve_id &&
+          studentIds.has(String(c.eleve_id))
+        )
+        .map(c => {
+
+          const student =
+            studentById.get(String(c.eleve_id));
+
+          return {
+            ...c,
+            eleve:
+              student
+                ? studentDisplayName(student)
+                : String(c.eleve || "Élève"),
+
+            classe:selectedClass
+          };
 
         });
 
-        const compHtml =
-          Object.values(groups)
-            .map((comp,ci) => {
+    if(!corrections.length){
 
-              return `
-                <section>
+      alert(
+        `Aucune grille corrigée pour ${selectedClass} dans le chapitre ${chapterNumber}.`
+      );
 
-                  <h2>
-                    🎯 Compétence ${ci+1}
-                    — ${escPrint(comp.nom)}
-                  </h2>
+      return;
+    }
 
-                  <table>
+    /*
+     * =========================================================
+     * 4. Construire les grilles corrigées
+     * =========================================================
+     */
 
-                    <thead>
-                      <tr>
+    const pages = [];
 
-                        <th style="width:22%">
-                          Critère
-                        </th>
+    chapterEvaluations.forEach(ev => {
 
-                        <th>
-                          Indicateurs
-                        </th>
+      const evaluationCorrections =
+        corrections.filter(c =>
+          String(c.evaluation_id) ===
+          String(ev.id)
+        );
 
-                        <th style="width:20%">
-                          Résultat du critère
-                        </th>
+      /*
+       * Rien de corrigé pour ce sujet :
+       * on ne met pas de page vide.
+       */
 
-                      </tr>
-                    </thead>
+      if(!evaluationCorrections.length){
+        return;
+      }
 
-                    <tbody>
+      evaluationCorrections.forEach(c => {
 
-                      ${comp.criteres
-                        .map((cr,i) => {
+        pages.push(
+          correctionGridHtml(
+            ev,
+            c,
+            selectedClass
+          )
+        );
 
-                          const inds =
-                            (cr.indicateurs || [])
-                              .filter(x =>
-                                x && x.nom
-                              );
+      });
 
-                          const pts =
-                            inds.reduce(
-                              (a,x) =>
-                                a + Number(x.points || 0),
-                              0
-                            );
+    });
 
-                          return `
-                            <tr>
+    if(!pages.length){
 
-                              <td>
-                                <strong>
-                                  Critère ${i+1}
-                                </strong>
-                                <br>
+      alert(
+        `Aucune grille corrigée trouvée pour ${selectedClass} dans le chapitre ${chapterNumber}.`
+      );
 
-                                ${escPrint(cr.nom)}
+      return;
+    }
 
-                                <br>
-
-                                <span class="points">
-                                  Barème : / ${pts} pt
-                                </span>
-                              </td>
-
-                              <td>
-                                ${
-                                  inds.map(x =>
-                                    `☐ ${escPrint(x.nom)}
-                                     <span class="ipt">
-                                       ${Number(x.points || 0)} pt
-                                     </span>`
-                                  ).join("<br>") || "—"
-                                }
-                              </td>
-
-                              <td>
-
-                                <div class="scoreline">
-                                  Points : ______ / ${pts}
-                                </div>
-
-                                <div>
-                                  ☐ Critère validé
-                                </div>
-
-                              </td>
-
-                            </tr>
-                          `;
-
-                        })
-                        .join("")}
-
-                    </tbody>
-
-                  </table>
-
-                </section>
-              `;
-
-            })
-            .join("");
-
-        return `
-          <div class="print-page">
-
-            <h1>
-              📝 ${escPrint(ev.titre)}
-            </h1>
-
-            <p>
-              <strong>Chapitre :</strong>
-              ${chapterNumber}
-              &nbsp; · &nbsp;
-
-              <strong>Classe :</strong>
-              ${escPrint(selectedClass)}
-            </p>
-
-            <div
-              class="meta"
-              style="
-                display:grid;
-                grid-template-columns:1fr 1fr;
-                gap:8px;
-                margin:10px 0
-              "
-            >
-
-              <div
-                style="
-                  border-bottom:1px solid #555;
-                  padding:5px 2px
-                "
-              >
-                <strong>
-                  Nom / Prénom :
-                </strong>
-              </div>
-
-              <div
-                style="
-                  border-bottom:1px solid #555;
-                  padding:5px 2px
-                "
-              >
-                <strong>
-                  Classe :
-                </strong>
-
-                ${escPrint(selectedClass)}
-
-              </div>
-
-            </div>
-
-            ${compHtml}
-
-            <div class="total">
-
-              Résultat final :
-              __________ /
-              ${Number(ev.total || 0)} pt
-
-            </div>
-
-            <div class="blank">
-
-              <strong>
-                Appréciation / remarque :
-              </strong>
-
-            </div>
-
-          </div>
-        `;
-
-      })
-      .join("");
+    /*
+     * =========================================================
+     * 5. Un seul PDF contenant toutes les corrections
+     * =========================================================
+     */
 
     printHtmlInCurrentWindow(
-      `Grilles — Chapitre ${chapterNumber} — ${selectedClass}`,
-      pages
+      `Grilles corrigées — Chapitre ${chapterNumber} — ${selectedClass}`,
+      pages.join("")
     );
 
   }catch(e){
 
     alert(
-      "Génération des grilles impossible : " +
+      "Génération des grilles corrigées impossible : " +
       e.message
     );
 
   }
 }
-
-
 async function generateChapterSummaryPDF(chapitre, classe){
 
   const selectedClass =
