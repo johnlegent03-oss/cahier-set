@@ -1719,7 +1719,8 @@ function evaluationCard(e){
   const currentEvalClass=String(loadEvalNav().classe||e.classe||"").trim();
   if(isHistoricalEvaluation(e)){
     const meta=historicalMeta(e);
-    return `<article class="eval-card"><div class="entry-head"><div><span class="tag">${esc(currentEvalClass||"Classe")}</span><h3>🕘 ${esc(e.titre)}</h3><p class="small-note">Évaluation antérieure · ${meta.date?esc(trackingDate(meta.date)):"date non renseignée"}${meta.competence?` · ${esc(meta.competence)}`:""}</p></div><div class="row" style="margin:0"><button type="button" class="primary" onclick="event.stopPropagation();openHistoricalCorrection('${esc(e.id)}')">📊 Renseigner les résultats</button><button type="button" class="danger" onclick="event.stopPropagation();deleteEvaluation('${esc(e.id)}')">🗑️ Supprimer</button></div></div></article>`;
+    return `<article class="eval-card"><div class="entry-head"><div><span class="tag">${esc(currentEvalClass||"Classe")}</span><h3>🕘 ${esc(e.titre)}</h3><p class="small-note">Évaluation antérieure · ${meta.date?esc(trackingDate(meta.date)):"date non renseignée"}${meta.competence?` · ${esc(meta.competence)}`:""}</p></div><div class="row" style="margin:0"><button type="button" class="primary" onclick="event.stopPropagation();openHistoricalCorrection('${esc(e.id)}')">📊 Renseigner les résultats</button><button type="button" class="danger" onclick="event.stopPropagation();deleteEvaluation('${esc(e.id)}')">🗑️ Supprimer</button></div></div>${statsHtml}
+</article>`;
   }
   const {crits,items}=flattenIndicators(e);
   const count=items.filter(i=>i.nom).length;
