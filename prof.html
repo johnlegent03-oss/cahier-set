@@ -1550,40 +1550,119 @@ async function openEvaluations(options={}){
   }catch(e){showError(e.message)}
 }
 async function loadEvaluationStatistics(evaluations, classe){
+
+  const selectedClass = String(classe || "").trim();
+
+  if(!selectedClass){
+    return {};
+  }
+
+  /*
+   * =========================================================
+   * 1. Récupérer uniquement les élèves de la classe sélectionnée
+   * =========================================================
+   */
+
+  const studentsQ = await sb
+    .from("Eleves")
+    .select("id,classe,nom,prenom")
+    .eq("classe", selectedClass);
+
+  if(studentsQ.error){
+    throw new Error(studentsQ.error.message);
+  }
+
+  const students = studentsQ.data || [];
+
+  const studentIds = new Set(
+    students.map(s => String(s.id))
+  );
+
+  /*
+   * =========================================================
+   * 2. Garder uniquement les évaluations de chapitre
+   * =========================================================
+   */
+
   const normalEvaluations = evaluations.filter(e =>
     !isHistoricalEvaluation(e) &&
+    Array.isArray(e.assignedClasses) &&
+    e.assignedClasses.includes(selectedClass) &&
     String(e.typeEvaluation || "") === "evaluation" &&
     Number(e.chapitre || 0) > 0
   );
 
-  if(!normalEvaluations.length) return {};
+  if(!normalEvaluations.length){
+    return {};
+  }
 
   const ids = normalEvaluations.map(e => e.id);
 
+  /*
+   * =========================================================
+   * 3. Récupérer toutes les corrections de ces évaluations
+   * =========================================================
+   */
+
   const {data,error} = await sb
     .from("EvaluationCorrections")
-    .select("id,evaluation_id,eleve,eleve_id,resultat,created_at")
+    .select(
+      "id,evaluation_id,eleve,eleve_id,resultat,created_at"
+    )
     .in("evaluation_id", ids);
 
-  if(error) throw new Error(error.message);
+  if(error){
+    throw new Error(error.message);
+  }
+
+  /*
+   * =========================================================
+   * 4. FILTRE ESSENTIEL :
+   *    on ne garde que les copies des élèves de la classe
+   * =========================================================
+   */
 
   const correctionsByEval = {};
 
   (data || []).forEach(c => {
-    const id = String(c.evaluation_id);
 
-    if(!correctionsByEval[id]){
-      correctionsByEval[id] = [];
+    if(!c.eleve_id){
+      return;
     }
 
-    correctionsByEval[id].push(c);
+    const studentId = String(c.eleve_id);
+
+    if(!studentIds.has(studentId)){
+      return;
+    }
+
+    const evaluationId = String(c.evaluation_id);
+
+    if(!correctionsByEval[evaluationId]){
+      correctionsByEval[evaluationId] = [];
+    }
+
+    correctionsByEval[evaluationId].push(c);
   });
+
+  /*
+   * =========================================================
+   * 5. Calcul des statistiques
+   * =========================================================
+   */
 
   const result = {};
 
   normalEvaluations.forEach(ev => {
+
     const corrections =
       correctionsByEval[String(ev.id)] || [];
+
+    /*
+     * -----------------------------
+     * Moyenne de la classe
+     * -----------------------------
+     */
 
     const scores = corrections
       .map(c =>
@@ -1598,10 +1677,18 @@ async function loadEvaluationStatistics(evaluations, classe){
       ? scores.reduce((a,b)=>a+b,0) / scores.length
       : null;
 
+    /*
+     * -----------------------------
+     * Regroupement des critères
+     * par compétence
+     * -----------------------------
+     */
+
     const criteria = criteriaFromLegacy(ev);
     const groups = {};
 
     criteria.forEach(cr => {
+
       const gid = cr.competenceId || "comp1";
 
       if(!groups[gid]){
@@ -1614,6 +1701,13 @@ async function loadEvaluationStatistics(evaluations, classe){
       groups[gid].criteres.push(cr);
     });
 
+    /*
+     * -----------------------------
+     * Pourcentage de réussite
+     * par compétence
+     * -----------------------------
+     */
+
     const competencies = {};
 
     Object.entries(groups).forEach(([gid,comp]) => {
@@ -1621,7 +1715,9 @@ async function loadEvaluationStatistics(evaluations, classe){
       const values = [];
 
       corrections.forEach(c => {
-        const stats = c.resultat?.criteriaStats || {};
+
+        const stats =
+          c.resultat?.criteriaStats || {};
 
         const r = masteryForCompetencyQuestions(
           comp.criteres,
@@ -1629,15 +1725,24 @@ async function loadEvaluationStatistics(evaluations, classe){
         );
 
         if(r.mastery){
+
           values.push({
             studentId: c.eleve_id
               ? String(c.eleve_id)
               : String(c.eleve || ""),
+
             value: masteryValue(r.mastery.code),
+
             mastery: r.mastery
           });
+
         }
+
       });
+
+      /*
+       * Réussite = MS ou TBM
+       */
 
       const success = values.filter(x =>
         x.mastery.code === "TBM" ||
@@ -1645,21 +1750,39 @@ async function loadEvaluationStatistics(evaluations, classe){
       ).length;
 
       competencies[gid] = {
+
         nom: comp.nom,
+
         total: values.length,
+
         success,
+
         percentage: values.length
           ? success / values.length * 100
           : null
+
       };
+
     });
 
+    /*
+     * -----------------------------
+     * Résultat final du sujet
+     * -----------------------------
+     */
+
     result[String(ev.id)] = {
+
       evaluation: ev,
+
       corrected: corrections.length,
+
       average,
+
       competencies
+
     };
+
   });
 
   return result;
