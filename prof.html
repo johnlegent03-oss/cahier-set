@@ -1497,12 +1497,33 @@ async function openEvaluations(options={}){
     select.innerHTML='<option value="">Choisir une classe…</option>'+classes.map(c=>`<option value="${esc(c)}">${esc(c)}</option>`).join("");
     const nav=loadEvalNav();
     const savedClass=String(options.classe!==undefined?options.classe:(nav.classe||localStorage.getItem("EVAL_SELECTED_CLASS")||"")).trim();
-    if(savedClass && classes.includes(savedClass)){
-      select.value=savedClass;
-      saveEvalNav({view:"list",classe:savedClass,evaluationId:null,correctionId:null});
-      try{localStorage.setItem("EVAL_SELECTED_CLASS",savedClass);}catch(e){}
-      renderEvaluationClass(savedClass);
-    }
+   if(savedClass && classes.includes(savedClass)){
+  select.value=savedClass;
+
+  saveEvalNav({
+    view:"list",
+    classe:savedClass,
+    evaluationId:null,
+    correctionId:null
+  });
+
+  try{
+    localStorage.setItem("EVAL_SELECTED_CLASS",savedClass);
+  }catch(e){}
+
+  try{
+    evaluationStatisticsCache =
+      await loadEvaluationStatistics(
+        evaluationsCache,
+        savedClass
+      );
+  }catch(e){
+    console.error("Erreur statistiques évaluations :",e);
+    evaluationStatisticsCache={};
+  }
+
+  renderEvaluationClass(savedClass);
+}
  select.addEventListener("change",async ()=>{
   const selected=select.value||"";
 
