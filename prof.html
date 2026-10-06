@@ -1497,7 +1497,7 @@ async function openEvaluations(options={}){
     select.innerHTML='<option value="">Choisir une classe…</option>'+classes.map(c=>`<option value="${esc(c)}">${esc(c)}</option>`).join("");
     const nav=loadEvalNav();
     const savedClass=String(options.classe!==undefined?options.classe:(nav.classe||localStorage.getItem("EVAL_SELECTED_CLASS")||"")).trim();
-   if(savedClass && classes.includes(savedClass)){
+  if(savedClass && classes.includes(savedClass)){
   select.value=savedClass;
 
   saveEvalNav({
@@ -1511,16 +1511,11 @@ async function openEvaluations(options={}){
     localStorage.setItem("EVAL_SELECTED_CLASS",savedClass);
   }catch(e){}
 
-  try{
-    evaluationStatisticsCache =
-      await loadEvaluationStatistics(
-        evaluationsCache,
-        savedClass
-      );
-  }catch(e){
-    console.error("Erreur statistiques évaluations :",e);
-    evaluationStatisticsCache={};
-  }
+  evaluationStatisticsCache =
+    await loadEvaluationStatistics(
+      evaluationsCache,
+      savedClass
+    );
 
   renderEvaluationClass(savedClass);
 }
@@ -1733,46 +1728,83 @@ async function generateBlankEvaluationGrid(evalId){
   }catch(e){alert("Impression impossible : "+e.message)}
 }
 let evaluationStatisticsCache = {};
+
 function evaluationCard(e){
-    const stats = evaluationStatisticsCache
-    ? evaluationStatisticsCache[String(e.id)]
-    : null;
-  const currentEvalClass=String(loadEvalNav().classe||e.classe||"").trim();
+  const stats = evaluationStatisticsCache[String(e.id)] || null;
+
+  const currentEvalClass =
+    String(loadEvalNav().classe || e.classe || "").trim();
+
   if(isHistoricalEvaluation(e)){
     const meta=historicalMeta(e);
-    return `<article class="eval-card"><div class="entry-head"><div><span class="tag">${esc(currentEvalClass||"Classe")}</span><h3>🕘 ${esc(e.titre)}</h3><p class="small-note">Évaluation antérieure · ${meta.date?esc(trackingDate(meta.date)):"date non renseignée"}${meta.competence?` · ${esc(meta.competence)}`:""}</p></div><div class="row" style="margin:0"><button type="button" class="primary" onclick="event.stopPropagation();openHistoricalCorrection('${esc(e.id)}')">📊 Renseigner les résultats</button><button type="button" class="danger" onclick="event.stopPropagation();deleteEvaluation('${esc(e.id)}')">🗑️ Supprimer</button></div></div>${statsHtml}
-</article>`;
+
+    return `<article class="eval-card">
+      <div class="entry-head">
+        <div>
+          <span class="tag">${esc(currentEvalClass||"Classe")}</span>
+          <h3>🕘 ${esc(e.titre)}</h3>
+          <p class="small-note">
+            Évaluation antérieure ·
+            ${meta.date ? esc(trackingDate(meta.date)) : "date non renseignée"}
+            ${meta.competence ? ` · ${esc(meta.competence)}` : ""}
+          </p>
+        </div>
+
+        <div class="row" style="margin:0">
+          <button type="button"
+            class="primary"
+            onclick="event.stopPropagation();openHistoricalCorrection('${esc(e.id)}')">
+            📊 Renseigner les résultats
+          </button>
+
+          <button type="button"
+            class="danger"
+            onclick="event.stopPropagation();deleteEvaluation('${esc(e.id)}')">
+            🗑️ Supprimer
+          </button>
+        </div>
+      </div>
+    </article>`;
   }
+
   const {crits,items}=flattenIndicators(e);
   const count=items.filter(i=>i.nom).length;
 
   let statsHtml="";
 
   if(stats){
-    const averageText=stats.average!==null
-      ?stats.average.toFixed(2).replace(".",",")+" /20"
-      :"—";
+    const averageText =
+      stats.average !== null
+        ? stats.average.toFixed(2).replace(".",",")+" /20"
+        : "—";
 
-    const competencyEntries=Object.values(stats.competencies||{});
+    const competencyEntries =
+      Object.values(stats.competencies || {});
 
-    const competencyHtml=competencyEntries.length
-      ?competencyEntries.map(comp=>{
-          const percentage=comp.percentage!==null
-            ?Math.round(comp.percentage)+" %"
-            :"—";
+    const competencyHtml =
+      competencyEntries.length
+        ? competencyEntries.map(comp=>{
+            const percentage =
+              comp.percentage !== null
+                ? Math.round(comp.percentage)+" %"
+                : "—";
 
-          return `
-            <span class="tag">
-              ${esc(comp.nom)} : ${percentage}
-            </span>`;
-        }).join(" ")
-      :`<span class="small-note">Aucune compétence corrigée</span>`;
+            return `
+              <span class="tag">
+                ${esc(comp.nom)} : ${percentage}
+              </span>
+            `;
+          }).join(" ")
+        : `<span class="small-note">
+             Aucune compétence corrigée
+           </span>`;
 
     statsHtml=`
       <div class="small-note" style="margin-top:10px">
         <strong>📊 Résultats</strong> ·
         ${stats.corrected} copie(s) corrigée(s) ·
-        Moyenne : <strong>${averageText}</strong>
+        Moyenne :
+        <strong>${averageText}</strong>
       </div>
 
       <div class="row" style="margin-top:8px;gap:6px">
@@ -1780,7 +1812,71 @@ function evaluationCard(e){
       </div>
     `;
   }
-  return `<article class="eval-card"><div class="entry-head"><div><span class="tag">${esc(currentEvalClass||"Classe")}</span><h3>${esc(e.titre)}</h3><p class="small-note">${crits.length} critère(s) · ${count} indicateur(s) · ${Number(e.total||0)} point(s)</p></div><div class="row" style="margin:0"><button type="button" style="pointer-events:auto;position:relative;z-index:5" onclick="event.stopPropagation();editEvaluation('${esc(e.id)}')">✏️ Modifier</button><button type="button" style="pointer-events:auto;position:relative;z-index:5" onclick="event.stopPropagation();duplicateEvaluation('${esc(e.id)}')">📋 Dupliquer</button><button type="button" style="pointer-events:auto;position:relative;z-index:5" onclick="event.stopPropagation();generateBlankEvaluationGrid('${esc(e.id)}')">📥 Grille vierge PDF</button><button type="button" style="pointer-events:auto;position:relative;z-index:5" onclick="event.stopPropagation();generateEvaluationSummaryPDF('${esc(e.id)}')">📊 Récapitulatif PDF</button><button type="button" class="primary" style="pointer-events:auto;position:relative;z-index:5" onclick="event.stopPropagation();openCorrection('${esc(e.id)}')">📝 Corriger</button><button type="button" class="danger" style="pointer-events:auto;position:relative;z-index:5" onclick="event.stopPropagation();deleteEvaluation('${esc(e.id)}')">🗑️ Supprimer</button></div></div></article>`;
+
+  return `<article class="eval-card">
+
+    <div class="entry-head">
+
+      <div>
+        <span class="tag">
+          ${esc(currentEvalClass||"Classe")}
+        </span>
+
+        <h3>${esc(e.titre)}</h3>
+
+        <p class="small-note">
+          ${crits.length} critère(s) ·
+          ${count} indicateur(s) ·
+          ${Number(e.total||0)} point(s)
+        </p>
+      </div>
+
+      <div class="row" style="margin:0">
+
+        <button type="button"
+          style="pointer-events:auto;position:relative;z-index:5"
+          onclick="event.stopPropagation();editEvaluation('${esc(e.id)}')">
+          ✏️ Modifier
+        </button>
+
+        <button type="button"
+          style="pointer-events:auto;position:relative;z-index:5"
+          onclick="event.stopPropagation();duplicateEvaluation('${esc(e.id)}')">
+          📋 Dupliquer
+        </button>
+
+        <button type="button"
+          style="pointer-events:auto;position:relative;z-index:5"
+          onclick="event.stopPropagation();generateBlankEvaluationGrid('${esc(e.id)}')">
+          📥 Grille vierge PDF
+        </button>
+
+        <button type="button"
+          style="pointer-events:auto;position:relative;z-index:5"
+          onclick="event.stopPropagation();generateEvaluationSummaryPDF('${esc(e.id)}')">
+          📊 Récapitulatif PDF
+        </button>
+
+        <button type="button"
+          class="primary"
+          style="pointer-events:auto;position:relative;z-index:5"
+          onclick="event.stopPropagation();openCorrection('${esc(e.id)}')">
+          📝 Corriger
+        </button>
+
+        <button type="button"
+          class="danger"
+          style="pointer-events:auto;position:relative;z-index:5"
+          onclick="event.stopPropagation();deleteEvaluation('${esc(e.id)}')">
+          🗑️ Supprimer
+        </button>
+
+      </div>
+    </div>
+
+    ${statsHtml}
+
+  </article>`;
 }
 
 function newHistoricalEvaluation(){
