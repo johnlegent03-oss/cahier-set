@@ -2531,10 +2531,10 @@ const savedValidated=result.criteriaStats||{};
 }
 function getMasteryByCode(code){
   const map={
-    TBM:{code:"TBM",label:"Très bonne maîtrise",cls:"mastery-tbm"},
-    MS:{code:"MS",label:"Maîtrise satisfaisante",cls:"mastery-ms"},
-    MF:{code:"MF",label:"Maîtrise fragile",cls:"mastery-mf"},
-    MI:{code:"MI",label:"Maîtrise insuffisante",cls:"mastery-mi"}
+    TBM:{code:"TBM",label:"Très bonne maîtrise",cls:"tbm"},
+    MS:{code:"MS",label:"Maîtrise satisfaisante",cls:"ms"},
+    MF:{code:"MF",label:"Maîtrise fragile",cls:"mf"},
+    MI:{code:"MI",label:"Maîtrise insuffisante",cls:"mi"}
   };
   return map[code]||null;
 }
