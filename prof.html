@@ -216,6 +216,54 @@ let currentCorrectionEvaluation=null;
   }
   return true;
 }
+  function masteryForCompetencyQuestions(criteria, criteriaStats){
+  const questions={};
+
+  (criteria||[]).forEach(cr=>{
+    const questionKey=String(
+      cr.questionId ||
+      `q${cr.questionNumero||1}`
+    );
+
+    if(!questions[questionKey]){
+      questions[questionKey]={
+        questionNumero:Number(cr.questionNumero||1),
+        criteres:[]
+      };
+    }
+
+    questions[questionKey].criteres.push(cr);
+  });
+
+  const occurrences=Object.values(questions).map(q=>{
+    const validated=q.criteres.filter(cr=>
+      !!criteriaStats?.[cr.id]?.validated
+    ).length;
+
+    const mastery=getMasteryFromValidatedCriteria(validated);
+
+    return {
+      questionNumero:q.questionNumero,
+      validated,
+      total:q.criteres.length,
+      mastery
+    };
+  });
+
+  const values=occurrences
+    .map(x=>masteryValue(x.mastery.code))
+    .filter(Number.isFinite);
+
+  const average=values.length
+    ?values.reduce((a,b)=>a+b,0)/values.length
+    :null;
+
+  return {
+    occurrences,
+    average,
+    mastery:masteryFromAverage(average)
+  };
+}
 const richRanges={};
 const NAV_KEY="cahierSVT.prof.navigation.v2";
 const EVAL_NAV_KEY="cahierSVT.prof.evaluations.navigation.v1";
@@ -2524,10 +2572,32 @@ function refreshCorrectionScore(evalId){
   const crits=criteriaFromLegacy(ev), groups={};
   crits.forEach(cr=>{const gid=cr.competenceId||"comp1";if(!groups[gid])groups[gid]={nom:cr.competenceNom||"Compétence évaluée",criteres:[]};groups[gid].criteres.push(cr)});
   const compRows=Object.values(groups).map(comp=>{
-    const validated=comp.criteres.filter(cr=>!!c.criteriaStats[cr.id]?.validated).length;
-    const mastery=masteryLabelFromCount(validated);
-    return `<tr><td><strong>${esc(comp.nom)}</strong></td><td>${validated} / ${comp.criteres.length}</td><td><span class="mastery-result ${mastery.cls}">${mastery.code} — ${mastery.label}</span></td></tr>`;
-  }).join("");
+  const result=masteryForCompetencyQuestions(
+    comp.criteres,
+    c.criteriaStats
+  );
+
+  const mastery=result.mastery;
+
+  const detail=result.occurrences
+    .map(q=>`Q${q.questionNumero} : ${q.validated} / ${q.total} → ${q.mastery.code}`)
+    .join(" · ");
+
+  return `<tr>
+    <td>
+      <strong>${esc(comp.nom)}</strong>
+      <div class="small-note">${detail}</div>
+    </td>
+    <td>${result.average!==null
+      ?result.average.toFixed(2).replace(".",",")
+      :"—"}</td>
+    <td>
+      ${mastery
+        ?`<span class="mastery-result ${mastery.cls}">${mastery.code} — ${mastery.label}</span>`
+        :"—"}
+    </td>
+  </tr>`;
+}).join("");
   const box=document.getElementById("masteryPreview");
   if(box)box.innerHTML=`<div class="criteria-box"><strong>📊 Maîtrise par compétence</strong><p class="small-note">La maîtrise est calculée séparément pour chaque compétence, selon le nombre de critères validés.</p><table class="mastery-table"><thead><tr><th>Compétence</th><th>Critères validés</th><th>Maîtrise</th></tr></thead><tbody>${compRows}</tbody></table></div>`;
   document.querySelectorAll(".criterion-auto-status").forEach(el=>{
