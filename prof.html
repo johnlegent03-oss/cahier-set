@@ -1991,6 +1991,159 @@ function evaluationChapterSummaryCard(chapterEvaluations, classe, chapitre){
 }
 
 
+function renderEvaluationChapter(chapter, classe){
+
+  const evaluations = chapter.evaluations || [];
+  const activities = chapter.activities || [];
+
+  let html = "";
+
+  /*
+   * =========================================================
+   * ÉVALUATIONS
+   * =========================================================
+   */
+
+  if(evaluations.length){
+
+    html += `
+      <div style="margin-top:14px">
+
+        <h4 style="
+          margin:0 0 10px;
+          font-size:15px;
+        ">
+          📝 Évaluations
+        </h4>
+
+        ${renderChapterEvaluationGroup(
+          evaluations,
+          classe,
+          chapter.numero
+        )}
+
+      </div>
+    `;
+  }
+
+  /*
+   * =========================================================
+   * ACTIVITÉS
+   * =========================================================
+   */
+
+  if(activities.length){
+
+    html += `
+      <div style="margin-top:18px">
+
+        <h4 style="
+          margin:0 0 10px;
+          font-size:15px;
+        ">
+          🧪 Activités
+        </h4>
+
+        <div>
+          ${activities
+            .map(evaluationCard)
+            .join("")}
+        </div>
+
+      </div>
+    `;
+  }
+
+  /*
+   * Si le chapitre ne contient rien
+   */
+
+  if(!html){
+
+    html = `
+      <p class="small-note">
+        Aucun élément enregistré dans ce chapitre.
+      </p>
+    `;
+
+  }
+
+  return `
+    <details
+      class="eval-card"
+      style="
+        margin-bottom:16px;
+        padding:0;
+        overflow:hidden;
+      "
+      open
+    >
+
+      <summary
+        style="
+          cursor:pointer;
+          list-style:none;
+          padding:18px;
+          font-size:17px;
+          font-weight:900;
+        "
+      >
+
+        📖 Chapitre ${chapter.numero}
+
+        <span
+          class="small-note"
+          style="font-weight:600;margin-left:8px"
+        >
+          ${evaluations.length
+            ? `${evaluations.length} évaluation${evaluations.length>1?"s":""}`
+            : ""}
+          ${evaluations.length && activities.length
+            ? " · "
+            : ""}
+          ${activities.length
+            ? `${activities.length} activité${activities.length>1?"s":""}`
+            : ""}
+        </span>
+
+      </summary>
+
+      <div
+        style="
+          padding:0 18px 18px;
+          border-top:1px solid var(--b);
+        "
+      >
+
+        ${html}
+
+      </div>
+
+    </details>
+  `;
+}
+
+
+function renderChapterEvaluationGroup(
+  evaluations,
+  classe,
+  chapitre
+){
+
+  /*
+   * On garde le regroupement des différents sujets
+   * dans une seule "Évaluation de chapitre".
+   */
+
+  return evaluationChapterSummaryCard(
+    evaluations,
+    classe,
+    chapitre
+  );
+
+}
+
+
 function renderEvaluationClass(selectedClass){
 
   const target =
@@ -2018,17 +2171,17 @@ function renderEvaluationClass(selectedClass){
 
   /*
    * =========================================================
-   * Toutes les évaluations attribuées à cette classe
+   * Toutes les évaluations/activités de la classe
    * =========================================================
    */
 
-  const classEvaluations =
+  const classItems =
     evaluationsCache.filter(e =>
       Array.isArray(e.assignedClasses) &&
       e.assignedClasses.includes(cls)
     );
 
-  if(!classEvaluations.length){
+  if(!classItems.length){
 
     target.innerHTML = `
       <section class="hero">
@@ -2057,110 +2210,153 @@ function renderEvaluationClass(selectedClass){
 
   /*
    * =========================================================
-   * Construction des groupes
-   *
-   * Même :
-   *   - classe
-   *   - chapitre
-   *   - typeEvaluation
-   *
-   * = une seule évaluation de chapitre.
+   * ORGANISATION PAR CHAPITRE
    * =========================================================
    */
 
-  const chapterGroups = {};
-  const standalone = [];
+  const chapters = {};
+  const withoutChapter = [];
 
-  classEvaluations.forEach(e => {
-
-    /*
-     * Les évaluations antérieures restent indépendantes.
-     */
-
-    if(isHistoricalEvaluation(e)){
-
-      standalone.push(e);
-
-      return;
-    }
-
-    /*
-     * Les activités restent indépendantes.
-     */
-
-    if(String(e.typeEvaluation || "") !== "evaluation"){
-
-      standalone.push(e);
-
-      return;
-    }
+  classItems.forEach(e => {
 
     const chapitre =
       Number(e.chapitre || 0);
 
     /*
-     * Une évaluation sans chapitre reste indépendante.
+     * Les éléments sans numéro de chapitre
+     * restent en dehors des chapitres.
      */
 
     if(chapitre <= 0){
 
-      standalone.push(e);
+      withoutChapter.push(e);
 
       return;
     }
 
     const key =
-      `${cls}__chapitre_${chapitre}__evaluation`;
+      String(chapitre);
 
-    if(!chapterGroups[key]){
+    if(!chapters[key]){
 
-      chapterGroups[key] = {
-        chapitre,
-        evaluations:[]
+      chapters[key] = {
+        numero: chapitre,
+        evaluations: [],
+        activities: []
       };
 
     }
 
-    chapterGroups[key].evaluations.push(e);
+    /*
+     * =======================================================
+     * ÉVALUATION DE CHAPITRE
+     * =======================================================
+     */
+
+    if(
+      String(e.typeEvaluation || "") === "evaluation" &&
+      !isHistoricalEvaluation(e)
+    ){
+
+      chapters[key].evaluations.push(e);
+
+      return;
+    }
+
+    /*
+     * =======================================================
+     * ACTIVITÉ
+     * =======================================================
+     */
+
+    if(
+      String(e.typeEvaluation || "") === "activite"
+    ){
+
+      chapters[key].activities.push(e);
+
+      return;
+    }
+
+    /*
+     * Les évaluations antérieures ou autres éléments
+     * restent dans le chapitre mais dans les activités/
+     * éléments disponibles.
+     */
+
+    chapters[key].activities.push(e);
 
   });
 
   /*
    * =========================================================
-   * Affichage
+   * AFFICHAGE DES CHAPITRES
    * =========================================================
    */
 
   let html = "";
 
-  /*
-   * D'abord les évaluations de chapitre
-   */
-
-  Object.values(chapterGroups)
+  Object.values(chapters)
     .sort((a,b) =>
-      a.chapitre - b.chapitre
+      a.numero - b.numero
     )
-    .forEach(group => {
+    .forEach(chapter => {
 
-      html += evaluationChapterSummaryCard(
-        group.evaluations,
-        cls,
-        group.chapitre
+      html += renderEvaluationChapter(
+        chapter,
+        cls
       );
 
     });
 
   /*
-   * Puis les évaluations qui ne peuvent pas
-   * être regroupées.
+   * =========================================================
+   * ÉLÉMENTS SANS CHAPITRE
+   * =========================================================
    */
 
-  standalone.forEach(e => {
+  if(withoutChapter.length){
 
-    html += evaluationCard(e);
+    html += `
+      <details
+        class="eval-card"
+        style="
+          margin-bottom:16px;
+          padding:0;
+          overflow:hidden;
+        "
+        open
+      >
 
-  });
+        <summary
+          style="
+            cursor:pointer;
+            list-style:none;
+            padding:18px;
+            font-size:17px;
+            font-weight:900;
+          "
+        >
+          📁 Sans chapitre
+        </summary>
+
+        <div
+          style="
+            padding:0 18px 18px;
+            border-top:1px solid var(--b);
+          "
+        >
+
+          ${withoutChapter
+            .map(evaluationCard)
+            .join("")}
+
+        </div>
+
+      </details>
+    `;
+
+  }
 
   target.innerHTML = html;
 
