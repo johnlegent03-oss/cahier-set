@@ -2202,6 +2202,713 @@ async function printAllBlankChapterGrids(chapitre, classe){
 
   }
 }
+async function generateChapterBilanPDF(chapitre, classe){
+
+  try{
+
+    const selectedClass = String(classe || "").trim();
+    const chapterNumber = Number(chapitre || 0);
+
+    if(!selectedClass || !chapterNumber){
+      alert("Classe ou chapitre introuvable.");
+      return;
+    }
+
+    /* =====================================================
+       1. Récupération des évaluations + activités du chapitre
+       ===================================================== */
+
+    const chapterItems = evaluationsCache
+      .filter(e => {
+
+        const classes =
+          Array.isArray(e.assignedClasses)
+            ? e.assignedClasses
+            : String(e.classe || "")
+                .split(",")
+                .map(x => x.trim())
+                .filter(Boolean);
+
+        return (
+          classes.includes(selectedClass) &&
+          Number(e.chapitre || 0) === chapterNumber &&
+          ["evaluation","activite"].includes(
+            String(e.typeEvaluation || "")
+          ) &&
+          !isHistoricalEvaluation(e)
+        );
+
+      })
+      .sort((a,b) =>
+        String(a.titre || "").localeCompare(
+          String(b.titre || ""),
+          "fr",
+          {numeric:true,sensitivity:"base"}
+        )
+      );
+
+    if(!chapterItems.length){
+      alert(
+        `Aucune évaluation ou activité trouvée pour ${selectedClass}, chapitre ${chapterNumber}.`
+      );
+      return;
+    }
+
+    /* =====================================================
+       2. Élèves de la classe
+       ===================================================== */
+
+    const studentsQ = await sb
+      .from("Eleves")
+      .select("id,classe,nom,prenom")
+      .eq("classe",selectedClass)
+      .order("nom")
+      .order("prenom");
+
+    if(studentsQ.error){
+      throw new Error(studentsQ.error.message);
+    }
+
+    const students = studentsQ.data || [];
+
+    const studentById =
+      new Map(
+        students.map(s => [String(s.id),s])
+      );
+
+    const studentIds =
+      new Set(
+        students.map(s => String(s.id))
+      );
+
+    /* =====================================================
+       3. Corrections de toutes les activités / évaluations
+       ===================================================== */
+
+    const evaluationIds =
+      chapterItems.map(e => e.id);
+
+    const correctionsQ = await sb
+      .from("EvaluationCorrections")
+      .select(
+        "id,evaluation_id,eleve,eleve_id,resultat,created_at"
+      )
+      .in("evaluation_id",evaluationIds)
+      .order("created_at",{ascending:true});
+
+    if(correctionsQ.error){
+      throw new Error(correctionsQ.error.message);
+    }
+
+    const corrections =
+      (correctionsQ.data || [])
+        .filter(c =>
+          c.eleve_id &&
+          studentIds.has(String(c.eleve_id))
+        )
+        .map(c => {
+
+          const student =
+            studentById.get(
+              String(c.eleve_id)
+            );
+
+          return {
+            ...c,
+            student,
+            classe:selectedClass
+          };
+
+        });
+
+    /* =====================================================
+       4. Moyennes des activités / évaluations
+       ===================================================== */
+
+    const itemStats =
+      chapterItems.map(ev => {
+
+        const rows =
+          corrections.filter(
+            c =>
+              String(c.evaluation_id) ===
+              String(ev.id)
+          );
+
+        const notes =
+          rows
+            .map(c => trackingScore20({
+              resultat:c.resultat,
+              evaluation:ev
+            }))
+            .filter(Number.isFinite);
+
+        const average =
+          notes.length
+            ? notes.reduce((a,b)=>a+b,0) /
+              notes.length
+            : null;
+
+        return {
+          ev,
+          rows,
+          notes,
+          average
+        };
+
+      });
+
+    /* =====================================================
+       5. Moyenne générale du chapitre
+          Activité = coefficient 0,5
+          Évaluation = coefficient 1
+       ===================================================== */
+
+    let weightedTotal = 0;
+    let weightedCoefficient = 0;
+
+    itemStats.forEach(item => {
+
+      if(!Number.isFinite(item.average)){
+        return;
+      }
+
+      const coefficient =
+        Number(item.ev.coefficient) ||
+        (
+          item.ev.typeEvaluation === "activite"
+            ? 0.5
+            : 1
+        );
+
+      weightedTotal +=
+        item.average * coefficient;
+
+      weightedCoefficient +=
+        coefficient;
+
+    });
+
+    const chapterAverage =
+      weightedCoefficient > 0
+        ? weightedTotal / weightedCoefficient
+        : null;
+
+    /* =====================================================
+       6. Bilan des compétences
+       ===================================================== */
+
+    const competencyMap = {};
+
+    chapterItems.forEach(ev => {
+
+      const rows =
+        corrections.filter(
+          c =>
+            String(c.evaluation_id) ===
+            String(ev.id)
+        );
+
+      let competences =
+        Array.isArray(ev.competences) &&
+        ev.competences.length
+          ? ev.competences
+          : [];
+
+      /*
+       * Compatibilité avec les anciennes évaluations.
+       */
+      if(!competences.length){
+        competences = [
+          {
+            id:"legacy",
+            nom:"Compétence évaluée",
+            criteres:criteriaFromLegacy(ev)
+          }
+        ];
+      }
+
+      competences.forEach(comp => {
+
+        const key =
+          String(
+            comp.bankId ||
+            comp.nom ||
+            comp.id ||
+            "competence"
+          )
+            .trim()
+            .toLocaleLowerCase("fr");
+
+        if(!competencyMap[key]){
+
+          competencyMap[key] = {
+            nom:
+              comp.nom ||
+              "Compétence évaluée",
+
+            occurrences:0,
+            evaluations:new Set(),
+            students:{}
+          };
+
+        }
+
+        const entry =
+          competencyMap[key];
+
+        /*
+         * Une occurrence = une activité ou
+         * une évaluation dans laquelle la
+         * compétence est évaluée.
+         */
+        if(!entry.evaluations.has(String(ev.id))){
+
+          entry.evaluations.add(
+            String(ev.id)
+          );
+
+          entry.occurrences++;
+
+        }
+
+        /* ===============================================
+           Maîtrise élève par élève
+           =============================================== */
+
+        rows.forEach(c => {
+
+          const studentId =
+            String(c.eleve_id || "");
+
+          if(!studentId) return;
+
+          const criteriaStats =
+            c.resultat?.criteriaStats || {};
+
+          const result =
+            masteryForCompetencyQuestions(
+              Array.isArray(comp.criteres)
+                ? comp.criteres
+                : [],
+              criteriaStats
+            );
+
+          const value =
+            masteryValue(
+              result?.mastery?.code
+            );
+
+          if(!Number.isFinite(value)){
+            return;
+          }
+
+          if(!entry.students[studentId]){
+            entry.students[studentId] = [];
+          }
+
+          entry.students[studentId].push({
+            value,
+            code:
+              result.mastery.code
+          });
+
+        });
+
+      });
+
+    });
+
+    /* =====================================================
+       7. Synthèse des compétences
+       ===================================================== */
+
+    const competencyRows =
+      Object.values(competencyMap)
+        .map(entry => {
+
+          const studentValues =
+            Object.values(entry.students)
+              .map(values => {
+
+                if(!values.length){
+                  return null;
+                }
+
+                return values.reduce(
+                  (sum,x)=>sum+x.value,
+                  0
+                ) / values.length;
+
+              })
+              .filter(Number.isFinite);
+
+          const average =
+            studentValues.length
+              ? studentValues.reduce(
+                  (a,b)=>a+b,
+                  0
+                ) / studentValues.length
+              : null;
+
+          const mastery =
+            masteryFromAverage(average);
+
+          const distribution = {
+            TBM:0,
+            MS:0,
+            MF:0,
+            MI:0
+          };
+
+          Object.values(entry.students)
+            .forEach(values => {
+
+              if(!values.length) return;
+
+              const avg =
+                values.reduce(
+                  (sum,x)=>sum+x.value,
+                  0
+                ) / values.length;
+
+              const m =
+                masteryFromAverage(avg);
+
+              if(m?.code &&
+                 distribution[m.code] !== undefined){
+
+                distribution[m.code]++;
+
+              }
+
+            });
+
+          const informed =
+            studentValues.length;
+
+          const success =
+            informed
+              ? (
+                  (distribution.TBM +
+                   distribution.MS) /
+                  informed
+                ) * 100
+              : null;
+
+          return {
+            nom:entry.nom,
+            occurrences:entry.occurrences,
+            informed,
+            mastery,
+            average,
+            success,
+            distribution
+          };
+
+        })
+        .sort((a,b) =>
+          String(a.nom).localeCompare(
+            String(b.nom),
+            "fr",
+            {sensitivity:"base"}
+          )
+        );
+
+    /* =====================================================
+       8. HTML du bilan
+       ===================================================== */
+
+    const fmt =
+      value =>
+        Number.isFinite(value)
+          ? value.toFixed(2).replace(".",",")
+          : "—";
+
+    const itemRows =
+      itemStats.map(item => {
+
+        const type =
+          item.ev.typeEvaluation === "activite"
+            ? "🧪 Activité"
+            : "📝 Évaluation";
+
+        const coefficient =
+          Number(item.ev.coefficient) ||
+          (
+            item.ev.typeEvaluation === "activite"
+              ? 0.5
+              : 1
+          );
+
+        return `
+          <tr>
+            <td>${type}</td>
+            <td>${safe(item.ev.titre || "Sans titre")}</td>
+            <td style="text-align:center">
+              ${item.rows.length}
+            </td>
+            <td style="text-align:center">
+              ${
+                Number.isFinite(item.average)
+                  ? `${fmt(item.average)} / 20`
+                  : "—"
+              }
+            </td>
+            <td style="text-align:center">
+              × ${coefficient}
+            </td>
+          </tr>
+        `;
+
+      }).join("");
+
+    const competencyTable =
+      competencyRows.length
+        ? competencyRows.map(c => {
+
+            const m =
+              c.mastery ||
+              {code:"—",label:"—"};
+
+            const d =
+              c.distribution;
+
+            return `
+              <tr>
+                <td>
+                  <strong>${safe(c.nom)}</strong>
+                </td>
+
+                <td style="text-align:center">
+                  ${c.occurrences}
+                </td>
+
+                <td style="text-align:center">
+                  <strong>
+                    ${safe(m.label || m.code || "—")}
+                  </strong>
+                </td>
+
+                <td style="text-align:center">
+                  ${c.informed}
+                </td>
+
+                <td style="text-align:center">
+                  ${
+                    Number.isFinite(c.success)
+                      ? `${fmt(c.success)} %`
+                      : "—"
+                  }
+                </td>
+
+                <td style="text-align:center">
+                  TBM ${d.TBM}
+                  · MS ${d.MS}
+                  · MF ${d.MF}
+                  · MI ${d.MI}
+                </td>
+              </tr>
+            `;
+
+          }).join("")
+        : `
+          <tr>
+            <td colspan="6">
+              Aucune compétence corrigée exploitable.
+            </td>
+          </tr>
+        `;
+
+    /* =====================================================
+       9. PDF
+       ===================================================== */
+
+    const html = `
+      <div class="print-sheet">
+        <div class="print-page">
+
+          <h1>
+            🧠 Bilan du chapitre ${chapterNumber}
+          </h1>
+
+          <p>
+            <strong>Classe :</strong>
+            ${safe(selectedClass)}
+          </p>
+
+          <div style="
+            display:grid;
+            grid-template-columns:repeat(4,1fr);
+            gap:8px;
+            margin:12px 0 18px;
+          ">
+
+            <div style="
+              border:1px solid #d5e4de;
+              border-radius:10px;
+              padding:10px;
+              text-align:center;
+            ">
+              <div style="font-size:11px">
+                Moyenne du chapitre
+              </div>
+              <strong style="font-size:20px">
+                ${
+                  Number.isFinite(chapterAverage)
+                    ? `${fmt(chapterAverage)} / 20`
+                    : "—"
+                }
+              </strong>
+            </div>
+
+            <div style="
+              border:1px solid #d5e4de;
+              border-radius:10px;
+              padding:10px;
+              text-align:center;
+            ">
+              <div style="font-size:11px">
+                Éléments évalués
+              </div>
+              <strong style="font-size:20px">
+                ${chapterItems.length}
+              </strong>
+            </div>
+
+            <div style="
+              border:1px solid #d5e4de;
+              border-radius:10px;
+              padding:10px;
+              text-align:center;
+            ">
+              <div style="font-size:11px">
+                Copies corrigées
+              </div>
+              <strong style="font-size:20px">
+                ${corrections.length}
+              </strong>
+            </div>
+
+            <div style="
+              border:1px solid #d5e4de;
+              border-radius:10px;
+              padding:10px;
+              text-align:center;
+            ">
+              <div style="font-size:11px">
+                Compétences
+              </div>
+              <strong style="font-size:20px">
+                ${competencyRows.length}
+              </strong>
+            </div>
+
+          </div>
+
+          <h2>
+            📊 Moyennes des évaluations et activités
+          </h2>
+
+          <table style="
+            width:100%;
+            border-collapse:collapse;
+            margin-top:8px;
+          ">
+            <thead>
+              <tr>
+                <th style="text-align:left">Type</th>
+                <th style="text-align:left">Sujet</th>
+                <th>Copies</th>
+                <th>Moyenne</th>
+                <th>Coef.</th>
+              </tr>
+            </thead>
+
+            <tbody>
+              ${itemRows}
+            </tbody>
+          </table>
+
+          <h2>
+            🧠 Bilan des compétences
+          </h2>
+
+          <table style="
+            width:100%;
+            border-collapse:collapse;
+            margin-top:8px;
+          ">
+            <thead>
+              <tr>
+                <th style="text-align:left">
+                  Compétence
+                </th>
+                <th>
+                  Nb. évaluations
+                </th>
+                <th>
+                  Maîtrise de la classe
+                </th>
+                <th>
+                  Élèves renseignés
+                </th>
+                <th>
+                  Réussite
+                </th>
+                <th>
+                  Répartition
+                </th>
+              </tr>
+            </thead>
+
+            <tbody>
+              ${competencyTable}
+            </tbody>
+          </table>
+
+          <div style="
+            margin-top:18px;
+            padding:10px;
+            background:#f7fbf9;
+            border:1px solid #dceae4;
+            border-radius:10px;
+            font-size:11px;
+            line-height:1.45;
+          ">
+            <strong>Méthode :</strong>
+            le bilan regroupe les compétences identiques
+            rencontrées dans les différentes activités et
+            évaluations du chapitre.
+            La maîtrise est calculée selon :
+            TBM = 4, MS = 3, MF = 2, MI = 1.
+            Les activités sont prises avec un coefficient
+            de 0,5 et les évaluations de chapitre avec un
+            coefficient de 1 pour le calcul de la moyenne
+            du chapitre.
+          </div>
+
+        </div>
+      </div>
+    `;
+
+    printHtmlInCurrentWindow(
+      `Bilan chapitre ${chapterNumber} — ${selectedClass}`,
+      html
+    );
+
+  }catch(e){
+
+    console.error("Bilan du chapitre :",e);
+
+    alert(
+      "Génération du bilan impossible : " +
+      e.message
+    );
+
+  }
+
+}
 async function generateChapterSummaryPDF(chapitre, classe){
 
   const selectedClass =
