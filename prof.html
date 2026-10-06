@@ -2358,6 +2358,9 @@ function renderEvaluationClass(selectedClass){
   }
 
   target.innerHTML = html;
+  target.querySelectorAll("details").forEach(details => {
+  details.removeAttribute("open");
+});
 
 }
 async function getEvaluationById(evalId){
