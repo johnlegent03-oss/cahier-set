@@ -1503,22 +1503,174 @@ async function openEvaluations(options={}){
       try{localStorage.setItem("EVAL_SELECTED_CLASS",savedClass);}catch(e){}
       renderEvaluationClass(savedClass);
     }
-    select.addEventListener("change",()=>{
-      const selected=select.value||"";
-      saveEvalNav({view:"list",classe:selected,evaluationId:null,correctionId:null});
-      try{localStorage.setItem("EVAL_SELECTED_CLASS",selected);}catch(e){}
-      renderEvaluationClass(selected);
-    });
+ select.addEventListener("change",async ()=>{
+  const selected=select.value||"";
+
+  saveEvalNav({
+    view:"list",
+    classe:selected,
+    evaluationId:null,
+    correctionId:null
+  });
+
+  try{
+    localStorage.setItem("EVAL_SELECTED_CLASS",selected);
+  }catch(e){}
+
+  evaluationStatisticsCache={};
+
+  if(selected){
+    try{
+      evaluationStatisticsCache =
+        await loadEvaluationStatistics(evaluationsCache,selected);
+    }catch(e){
+      console.error("Erreur statistiques évaluations :",e);
+      evaluationStatisticsCache={};
+    }
+  }
+
+  renderEvaluationClass(selected);
+});
   }catch(e){showError(e.message)}
 }
+async function loadEvaluationStatistics(evaluations, classe){
+  const normalEvaluations = evaluations.filter(e =>
+    !isHistoricalEvaluation(e) &&
+    String(e.typeEvaluation || "") === "evaluation" &&
+    Number(e.chapitre || 0) > 0
+  );
 
+  if(!normalEvaluations.length) return {};
+
+  const ids = normalEvaluations.map(e => e.id);
+
+  const {data,error} = await sb
+    .from("EvaluationCorrections")
+    .select("id,evaluation_id,eleve,eleve_id,resultat,created_at")
+    .in("evaluation_id", ids);
+
+  if(error) throw new Error(error.message);
+
+  const correctionsByEval = {};
+
+  (data || []).forEach(c => {
+    const id = String(c.evaluation_id);
+
+    if(!correctionsByEval[id]){
+      correctionsByEval[id] = [];
+    }
+
+    correctionsByEval[id].push(c);
+  });
+
+  const result = {};
+
+  normalEvaluations.forEach(ev => {
+    const corrections =
+      correctionsByEval[String(ev.id)] || [];
+
+    const scores = corrections
+      .map(c =>
+        trackingScore20({
+          evaluation: ev,
+          resultat: c.resultat
+        })
+      )
+      .filter(Number.isFinite);
+
+    const average = scores.length
+      ? scores.reduce((a,b)=>a+b,0) / scores.length
+      : null;
+
+    const criteria = criteriaFromLegacy(ev);
+    const groups = {};
+
+    criteria.forEach(cr => {
+      const gid = cr.competenceId || "comp1";
+
+      if(!groups[gid]){
+        groups[gid] = {
+          nom: cr.competenceNom || "Compétence évaluée",
+          criteres: []
+        };
+      }
+
+      groups[gid].criteres.push(cr);
+    });
+
+    const competencies = {};
+
+    Object.entries(groups).forEach(([gid,comp]) => {
+
+      const values = [];
+
+      corrections.forEach(c => {
+        const stats = c.resultat?.criteriaStats || {};
+
+        const r = masteryForCompetencyQuestions(
+          comp.criteres,
+          stats
+        );
+
+        if(r.mastery){
+          values.push({
+            studentId: c.eleve_id
+              ? String(c.eleve_id)
+              : String(c.eleve || ""),
+            value: masteryValue(r.mastery.code),
+            mastery: r.mastery
+          });
+        }
+      });
+
+      const success = values.filter(x =>
+        x.mastery.code === "TBM" ||
+        x.mastery.code === "MS"
+      ).length;
+
+      competencies[gid] = {
+        nom: comp.nom,
+        total: values.length,
+        success,
+        percentage: values.length
+          ? success / values.length * 100
+          : null
+      };
+    });
+
+    result[String(ev.id)] = {
+      evaluation: ev,
+      corrected: corrections.length,
+      average,
+      competencies
+    };
+  });
+
+  return result;
+}
 function renderEvaluationClass(selectedClass){
   const target=document.getElementById("evaluationList");
   if(!target)return;
-  if(!selectedClass){target.innerHTML='<section class="hero"><p class="muted" style="margin:0">Sélectionne une classe pour afficher ses évaluations.</p></section>';return;}
+
+  if(!selectedClass){
+    target.innerHTML='<section class="hero"><p class="muted" style="margin:0">Sélectionne une classe pour afficher les évaluations.</p></section>';
+    return;
+  }
+
   const cls=String(selectedClass).trim();
-  const classEvaluations=evaluationsCache.filter(e=>Array.isArray(e.assignedClasses)&&e.assignedClasses.includes(cls));
-  target.innerHTML=classEvaluations.length?classEvaluations.map(evaluationCard).join(""):`<section class="hero"><h3>Aucune évaluation pour ${esc(cls)}</h3><p class="muted">Crée une nouvelle évaluation et attribue-la à cette classe.</p><button class="primary" onclick="newEvaluation()">＋ Nouvelle évaluation</button></section>`;
+
+  const classEvaluations=evaluationsCache.filter(e =>
+    Array.isArray(e.assignedClasses) &&
+    e.assignedClasses.includes(cls)
+  );
+
+  target.innerHTML=classEvaluations.length
+    ?classEvaluations.map(evaluationCard).join("")
+    :`<section class="hero">
+        <h3>Aucune évaluation pour ${esc(cls)}</h3>
+        <p class="muted">Crée une nouvelle évaluation et attribue-la à cette classe.</p>
+        <button class="primary" onclick="newEvaluation()">＋ Nouvelle évaluation</button>
+      </section>`;
 }
 
 async function getEvaluationById(evalId){
@@ -1559,8 +1711,11 @@ async function generateBlankEvaluationGrid(evalId){
     printHtmlInCurrentWindow(`Grille vierge — ${ev.titre}`,body);
   }catch(e){alert("Impression impossible : "+e.message)}
 }
-
+let evaluationStatisticsCache = {};
 function evaluationCard(e){
+    const stats = evaluationStatisticsCache
+    ? evaluationStatisticsCache[String(e.id)]
+    : null;
   const currentEvalClass=String(loadEvalNav().classe||e.classe||"").trim();
   if(isHistoricalEvaluation(e)){
     const meta=historicalMeta(e);
@@ -1568,8 +1723,45 @@ function evaluationCard(e){
   }
   const {crits,items}=flattenIndicators(e);
   const count=items.filter(i=>i.nom).length;
+    const stats=evaluationStatisticsCache[String(e.id)]||null;
+
+  let statsHtml="";
+
+  if(stats){
+    const averageText=stats.average!==null
+      ?stats.average.toFixed(2).replace(".",",")+" /20"
+      :"—";
+
+    const competencyEntries=Object.values(stats.competencies||{});
+
+    const competencyHtml=competencyEntries.length
+      ?competencyEntries.map(comp=>{
+          const percentage=comp.percentage!==null
+            ?Math.round(comp.percentage)+" %"
+            :"—";
+
+          return `
+            <span class="tag">
+              ${esc(comp.nom)} : ${percentage}
+            </span>`;
+        }).join(" ")
+      :`<span class="small-note">Aucune compétence corrigée</span>`;
+
+    statsHtml=`
+      <div class="small-note" style="margin-top:10px">
+        <strong>📊 Résultats</strong> ·
+        ${stats.corrected} copie(s) corrigée(s) ·
+        Moyenne : <strong>${averageText}</strong>
+      </div>
+
+      <div class="row" style="margin-top:8px;gap:6px">
+        ${competencyHtml}
+      </div>
+    `;
+  }
   return `<article class="eval-card"><div class="entry-head"><div><span class="tag">${esc(currentEvalClass||"Classe")}</span><h3>${esc(e.titre)}</h3><p class="small-note">${crits.length} critère(s) · ${count} indicateur(s) · ${Number(e.total||0)} point(s)</p></div><div class="row" style="margin:0"><button type="button" style="pointer-events:auto;position:relative;z-index:5" onclick="event.stopPropagation();editEvaluation('${esc(e.id)}')">✏️ Modifier</button><button type="button" style="pointer-events:auto;position:relative;z-index:5" onclick="event.stopPropagation();duplicateEvaluation('${esc(e.id)}')">📋 Dupliquer</button><button type="button" style="pointer-events:auto;position:relative;z-index:5" onclick="event.stopPropagation();generateBlankEvaluationGrid('${esc(e.id)}')">📥 Grille vierge PDF</button><button type="button" style="pointer-events:auto;position:relative;z-index:5" onclick="event.stopPropagation();generateEvaluationSummaryPDF('${esc(e.id)}')">📊 Récapitulatif PDF</button><button type="button" class="primary" style="pointer-events:auto;position:relative;z-index:5" onclick="event.stopPropagation();openCorrection('${esc(e.id)}')">📝 Corriger</button><button type="button" class="danger" style="pointer-events:auto;position:relative;z-index:5" onclick="event.stopPropagation();deleteEvaluation('${esc(e.id)}')">🗑️ Supprimer</button></div></div></article>`;
 }
+  ${statsHtml}
 
 function newHistoricalEvaluation(){
   const titre=prompt("Titre de l'évaluation antérieure :");
