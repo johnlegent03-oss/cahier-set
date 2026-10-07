@@ -2945,6 +2945,319 @@ chapterItems.forEach(ev => {
   }
 
 }
+  async function groupChapterEvaluations(chapitre, classe){
+
+  try{
+
+    const selectedClass = String(classe || "").trim();
+    const chapterNumber = Number(chapitre || 0);
+
+    const items = evaluationsCache
+      .filter(e => {
+
+        const classes =
+          Array.isArray(e.assignedClasses)
+            ? e.assignedClasses
+            : String(e.classe || "")
+                .split(",")
+                .map(x => x.trim())
+                .filter(Boolean);
+
+        return (
+          classes.includes(selectedClass) &&
+          Number(e.chapitre || 0) === chapterNumber &&
+          String(e.typeEvaluation || "") === "evaluation" &&
+          !isHistoricalEvaluation(e)
+        );
+
+      })
+      .sort((a,b) =>
+        String(a.titre || "").localeCompare(
+          String(b.titre || ""),
+          "fr",
+          {numeric:true,sensitivity:"base"}
+        )
+      );
+
+    if(items.length < 2){
+      alert("Il faut au moins deux sujets pour créer un regroupement.");
+      return;
+    }
+
+    const existing =
+      document.getElementById("groupEvaluationsModal");
+
+    if(existing) existing.remove();
+
+    const modal = document.createElement("div");
+
+    modal.id = "groupEvaluationsModal";
+    modal.className = "pp-modal";
+
+    modal.innerHTML = `
+      <div
+        class="pp-modal-card"
+        style="max-width:620px"
+      >
+
+        <div class="section-heading">
+
+          <div>
+            <span class="eyebrow">
+              Évaluation de chapitre
+            </span>
+
+            <h3 style="margin:4px 0 0">
+              🔗 Regrouper les sujets
+            </h3>
+          </div>
+
+          <button
+            type="button"
+            onclick="
+              document
+                .getElementById('groupEvaluationsModal')
+                ?.remove()
+            "
+          >
+            ✕
+          </button>
+
+        </div>
+
+        <p class="muted">
+          Coche les sujets qui appartiennent à la
+          <strong>même évaluation de chapitre</strong>.
+          Leurs corrections seront conservées.
+        </p>
+
+        <div
+          style="
+            display:flex;
+            flex-direction:column;
+            gap:8px;
+            margin:16px 0;
+          "
+        >
+
+          ${items.map((e,i) => `
+
+            <label
+              style="
+                display:flex;
+                align-items:center;
+                gap:10px;
+                padding:11px;
+                border:1px solid var(--b);
+                border-radius:10px;
+                cursor:pointer;
+                background:#fff;
+              "
+            >
+
+              <input
+                type="checkbox"
+                class="group-evaluation-check"
+                value="${esc(e.id)}"
+                checked
+                style="
+                  width:auto;
+                  flex:0 0 auto;
+                "
+              >
+
+              <span>
+                <strong>
+                  Sujet ${i+1}
+                </strong>
+                ·
+                ${esc(e.titre || "Sans titre")}
+              </span>
+
+            </label>
+
+          `).join("")}
+
+        </div>
+
+        <div
+          class="row"
+          style="
+            justify-content:flex-end;
+            margin-top:18px;
+          "
+        >
+
+          <button
+            type="button"
+            onclick="
+              document
+                .getElementById('groupEvaluationsModal')
+                ?.remove()
+            "
+          >
+            Annuler
+          </button>
+
+          <button
+            type="button"
+            class="primary"
+            id="confirmGroupEvaluations"
+          >
+            🔗 Regrouper les sujets
+          </button>
+
+        </div>
+
+      </div>
+    `;
+
+    document.body.appendChild(modal);
+
+    document
+      .getElementById("confirmGroupEvaluations")
+      .onclick = async () => {
+
+        const selectedIds = [
+          ...document.querySelectorAll(
+            "#groupEvaluationsModal .group-evaluation-check:checked"
+          )
+        ].map(x => String(x.value));
+
+        if(selectedIds.length < 2){
+
+          alert(
+            "Sélectionne au moins deux sujets."
+          );
+
+          return;
+        }
+
+        const groupId =
+          "evalgroup_" +
+          Date.now() +
+          "_" +
+          Math.random()
+            .toString(36)
+            .slice(2,8);
+
+        try{
+
+          for(const id of selectedIds){
+
+            const q = await sb
+              .from("Evaluations")
+              .select("*")
+              .eq("id",id)
+              .maybeSingle();
+
+            if(q.error){
+              throw new Error(q.error.message);
+            }
+
+            if(!q.data){
+              throw new Error(
+                "Évaluation introuvable."
+              );
+            }
+
+            const row = q.data;
+
+            const exercices =
+              Array.isArray(row.exercices)
+                ? [...row.exercices]
+                : [];
+
+            const metaIndex =
+              exercices.findIndex(
+                x =>
+                  x &&
+                  x.__evaluationMeta === true
+              );
+
+            if(metaIndex >= 0){
+
+              exercices[metaIndex] = {
+                ...exercices[metaIndex],
+                evaluationGroupId:groupId
+              };
+
+            }else{
+
+              exercices.unshift({
+                __evaluationMeta:true,
+                chapitre:chapterNumber,
+                typeEvaluation:"evaluation",
+                coefficient:1,
+                classes:
+                  Array.isArray(
+                    row.assignedClasses
+                  )
+                    ? row.assignedClasses
+                    : [row.classe].filter(Boolean),
+                evaluationGroupId:groupId,
+                questions:[]
+              });
+
+            }
+
+            const updated =
+              await sb
+                .from("Evaluations")
+                .update({
+                  exercices
+                })
+                .eq("id",id);
+
+            if(updated.error){
+              throw new Error(
+                updated.error.message
+              );
+            }
+
+          }
+
+          modal.remove();
+
+          /*
+           * On recharge les évaluations afin que
+           * le bilan utilise immédiatement le groupe.
+           */
+
+          evaluationsCache =
+            await loadEvaluations();
+
+          renderEvaluationClass(
+            selectedClass
+          );
+
+          alert(
+            "Les sujets ont été regroupés ✓\n\n" +
+            "Ils sont maintenant considérés comme " +
+            "une seule évaluation de chapitre."
+          );
+
+        }catch(e){
+
+          alert(
+            "Regroupement impossible : " +
+            e.message
+          );
+
+        }
+
+      };
+
+  }catch(e){
+
+    alert(
+      "Impossible d'ouvrir le regroupement : " +
+      e.message
+    );
+
+  }
+
+}
 async function generateChapterSummaryPDF(chapitre, classe){
 
   const selectedClass =
@@ -3160,6 +3473,19 @@ function renderEvaluationChapter(chapter, classe){
               >
                 📊 Récapitulatif
               </button>
+                      <button
+          type="button"
+          onclick="
+            event.preventDefault();
+            event.stopPropagation();
+            groupChapterEvaluations(
+              ${chapter.numero},
+              '${esc(classe)}'
+            );
+          "
+        >
+          🔗 Regrouper les sujets
+        </button>
             `
             : ""
         }
@@ -3923,7 +4249,107 @@ async function deleteEvaluation(id){
     alert("Suppression impossible : "+e.message);
   }
 }
+async function groupEvaluations(evaluationIds){
 
+  try{
+
+    const ids = [...new Set(
+      (evaluationIds || [])
+        .map(x => String(x).trim())
+        .filter(Boolean)
+    )];
+
+    if(ids.length < 2){
+      alert("Sélectionne au moins deux sujets à regrouper.");
+      return;
+    }
+
+    const groupId =
+      `evalgroup_${Date.now()}`;
+
+    for(const id of ids){
+
+      const ev =
+        evaluationsCache.find(
+          x => String(x.id) === String(id)
+        );
+
+      if(!ev) continue;
+
+      const exercices =
+        Array.isArray(ev.exercices)
+          ? [...ev.exercices]
+          : [];
+
+      const metaIndex =
+        exercices.findIndex(
+          x => x && x.__evaluationMeta
+        );
+
+      if(metaIndex < 0){
+        alert(
+          `Impossible de regrouper « ${ev.titre} » : métadonnées introuvables.`
+        );
+        return;
+      }
+
+      exercices[metaIndex] = {
+        ...exercices[metaIndex],
+        evaluationGroupId:groupId
+      };
+
+      const {data,error} =
+        await sb
+          .from("Evaluations")
+          .update({
+            exercices
+          })
+          .eq("id",id)
+          .select("*")
+          .maybeSingle();
+
+      if(error){
+        throw new Error(error.message);
+      }
+
+      if(data){
+
+        const normalized =
+          evalNormalize(data);
+
+        const index =
+          evaluationsCache.findIndex(
+            x => String(x.id) === String(id)
+          );
+
+        if(index >= 0){
+          evaluationsCache[index] = normalized;
+        }
+
+      }
+
+    }
+
+    alert(
+      `${ids.length} sujets regroupés dans une seule évaluation ✓`
+    );
+
+    const nav = loadEvalNav();
+
+    await openEvaluations({
+      classe:nav.classe || ""
+    });
+
+  }catch(e){
+
+    alert(
+      "Regroupement impossible : " +
+      e.message
+    );
+
+  }
+
+}
 async function duplicateEvaluation(id){
   try{
     const cached=evaluationsCache.find(x=>String(x.id)===String(id));
