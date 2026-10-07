@@ -4939,11 +4939,25 @@ function generateBlankEvaluationGrid(evalId){
        ===================================================== */
 
     const questionHtml =
-      questions.map(question => {
+  questions.map(question => {
 
-        const criteresHtml =
-          question.criteres
-            .map((cr,ci)=>{
+    const totalQuestion =
+      question.criteres.reduce(
+        (sum,cr)=>
+          sum +
+          (Array.isArray(cr.indicateurs)
+            ? cr.indicateurs.reduce(
+                (s,it)=>
+                  s + Number(it.points || 0),
+                0
+              )
+            : 0),
+        0
+      );
+
+    const criteresHtml =
+      question.criteres
+        .map((cr,ci)=>{
 
               const indicateurs =
                 Array.isArray(cr.indicateurs)
@@ -5016,43 +5030,7 @@ function generateBlankEvaluationGrid(evalId){
 
               return `
 
-                <div
-  style="
-    margin-top:8px;
-    border-top:1px solid #555;
-    padding-top:7px;
-    font-weight:700;
-  "
->
-
-  <div style="margin-bottom:6px">
-    Total Question ${question.questionNumero} :
-    ______ / ${question.criteres.reduce(
-      (sum,cr)=>
-        sum +
-        (Array.isArray(cr.indicateurs)
-          ? cr.indicateurs.reduce(
-              (s,it)=>s + Number(it.points || 0),
-              0
-            )
-          : 0),
-      0
-    )} pt
-  </div>
-
-  <div>
-    Maîtrise de la question :
-    ☐ TBM
-    &nbsp;&nbsp;
-    ☐ MS
-    &nbsp;&nbsp;
-    ☐ MF
-    &nbsp;&nbsp;
-    ☐ MI
-  </div>
-
-</div>
-
+               
           </section>
 
         `;
