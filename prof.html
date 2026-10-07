@@ -3258,6 +3258,670 @@ chapterItems.forEach(ev => {
   }
 
 }
+  async function generateChapterBilanPDF(chapitre, classe){
+
+  try{
+
+    const selectedClass = String(classe || "").trim();
+    const chapterNumber = Number(chapitre || 0);
+
+    if(!selectedClass || !chapterNumber){
+      alert("Classe ou chapitre introuvable.");
+      return;
+    }
+
+    /* =========================================================
+       1. Récupération de tous les éléments du chapitre
+       ========================================================= */
+
+    const chapterItems = evaluationsCache
+      .filter(e => {
+
+        const classes =
+          Array.isArray(e.assignedClasses)
+            ? e.assignedClasses
+            : String(e.classe || "")
+                .split(",")
+                .map(x => x.trim())
+                .filter(Boolean);
+
+        return (
+          classes.includes(selectedClass) &&
+          Number(e.chapitre || 0) === chapterNumber &&
+          !isHistoricalEvaluation(e) &&
+          ["evaluation","activite"].includes(
+            String(e.typeEvaluation || "")
+          )
+        );
+
+      });
+
+    if(!chapterItems.length){
+      alert(
+        `Aucune évaluation ou activité trouvée pour ${selectedClass}, chapitre ${chapterNumber}.`
+      );
+      return;
+    }
+
+
+    /* =========================================================
+       2. Fonction permettant de retrouver le groupe
+          d'une évaluation
+       ========================================================= */
+
+    function getEvaluationGroupId(ev){
+
+      if(ev.evaluationGroupId){
+        return String(ev.evaluationGroupId);
+      }
+
+      /*
+       * Le regroupement manuel stocke actuellement
+       * evaluationGroupId dans les métadonnées de exercices.
+       */
+      if(Array.isArray(ev.exercices)){
+
+        const meta = ev.exercices.find(
+          x => x && x.__evaluationMeta
+        );
+
+        if(meta?.evaluationGroupId){
+          return String(meta.evaluationGroupId);
+        }
+      }
+
+      /*
+       * Une activité ou une évaluation non regroupée
+       * constitue son propre élément.
+       */
+      return `single_${ev.id}`;
+    }
+
+
+    /* =========================================================
+       3. Regroupement des sujets appartenant à une même
+          évaluation
+       ========================================================= */
+
+    const groups = {};
+
+    chapterItems.forEach(ev => {
+
+      const groupId =
+        String(ev.typeEvaluation || "") === "activite"
+          ? `activity_${ev.id}`
+          : getEvaluationGroupId(ev);
+
+      if(!groups[groupId]){
+        groups[groupId] = {
+          id:groupId,
+          type:String(ev.typeEvaluation || "evaluation"),
+          items:[]
+        };
+      }
+
+      groups[groupId].items.push(ev);
+    });
+
+    const evaluationGroups =
+      Object.values(groups);
+
+
+    /* =========================================================
+       4. Élèves de la classe
+       ========================================================= */
+
+    const studentsQ = await sb
+      .from("Eleves")
+      .select("id,classe,nom,prenom")
+      .eq("classe",selectedClass)
+      .order("nom")
+      .order("prenom");
+
+    if(studentsQ.error){
+      throw new Error(studentsQ.error.message);
+    }
+
+    const students = studentsQ.data || [];
+
+    const studentById =
+      new Map(
+        students.map(s => [String(s.id),s])
+      );
+
+    const studentIds =
+      new Set(
+        students.map(s => String(s.id))
+      );
+
+
+    /* =========================================================
+       5. Corrections de tous les éléments
+       ========================================================= */
+
+    const evaluationIds =
+      chapterItems.map(e => e.id);
+
+    const correctionsQ = await sb
+      .from("EvaluationCorrections")
+      .select(
+        "id,evaluation_id,eleve,eleve_id,resultat,created_at"
+      )
+      .in("evaluation_id",evaluationIds)
+      .order("created_at",{ascending:true});
+
+    if(correctionsQ.error){
+      throw new Error(correctionsQ.error.message);
+    }
+
+    const corrections =
+      (correctionsQ.data || [])
+        .filter(
+          c =>
+            c.eleve_id &&
+            studentIds.has(String(c.eleve_id))
+        );
+
+
+    /* =========================================================
+       6. Calcul des moyennes par groupe
+       ========================================================= */
+
+    const groupStats =
+      evaluationGroups.map(group => {
+
+        const groupCorrections =
+          corrections.filter(c => {
+
+            return group.items.some(
+              ev =>
+                String(ev.id) ===
+                String(c.evaluation_id)
+            );
+
+          });
+
+        const notes =
+          groupCorrections
+            .map(c => Number(c.resultat?.note))
+            .filter(Number.isFinite);
+
+        const average =
+          notes.length
+            ? notes.reduce((a,b)=>a+b,0) / notes.length
+            : null;
+
+        return {
+          ...group,
+          corrections:groupCorrections,
+          average
+        };
+
+      });
+
+
+    /* =========================================================
+       7. Moyenne générale du chapitre
+          Chaque correction compte pour une copie.
+       ========================================================= */
+
+    const allNotes =
+      corrections
+        .map(c => Number(c.resultat?.note))
+        .filter(Number.isFinite);
+
+    const chapterAverage =
+      allNotes.length
+        ? allNotes.reduce((a,b)=>a+b,0) / allNotes.length
+        : null;
+
+
+    /* =========================================================
+       8. Compétences évaluées
+       ========================================================= */
+
+    const competencyMap = {};
+
+
+    function addCompetencyOccurrence(
+      competency,
+      group,
+      correction,
+      studentId
+    ){
+
+      if(!competency) return;
+
+      const name =
+        String(
+          competency.nom ||
+          competency.titre ||
+          competency.name ||
+          ""
+        ).trim();
+
+      if(!name) return;
+
+      const key =
+        String(
+          competency.id ||
+          competency.bankId ||
+          name
+        );
+
+      if(!competencyMap[key]){
+
+        competencyMap[key] = {
+          id:key,
+          name,
+          groups:new Set(),
+          studentGroups:{},
+          masteryValues:[]
+        };
+
+      }
+
+      const data =
+        competencyMap[key];
+
+      /*
+       * Le nombre de fois évaluée correspond au nombre
+       * de groupes différents, et non au nombre de sujets.
+       */
+      data.groups.add(group.id);
+
+      if(!data.studentGroups[studentId]){
+        data.studentGroups[studentId] = {};
+      }
+
+      if(!data.studentGroups[studentId][group.id]){
+        data.studentGroups[studentId][group.id] = [];
+      }
+
+
+      /*
+       * Recherche des critères de cette compétence
+       * dans la correction.
+       */
+
+      const criteria =
+        Array.isArray(competency.criteres)
+          ? competency.criteres
+          : [];
+
+      const criteriaStats =
+        correction?.resultat?.criteriaStats ||
+        correction?.resultat?.criteres ||
+        {};
+
+      if(!criteria.length) return;
+
+
+      const masteryData =
+        masteryForCompetencyQuestions(
+          criteria,
+          criteriaStats
+        );
+
+      if(masteryData?.mastery?.code){
+
+        const value =
+          masteryValue(
+            masteryData.mastery.code
+          );
+
+        if(Number.isFinite(value)){
+
+          data.studentGroups[studentId][group.id]
+            .push(value);
+
+        }
+
+      }
+
+    }
+
+
+    /* =========================================================
+       9. Parcours des groupes / corrections / compétences
+       ========================================================= */
+
+    evaluationGroups.forEach(group => {
+
+      group.items.forEach(ev => {
+
+        const evCorrections =
+          corrections.filter(
+            c =>
+              String(c.evaluation_id) ===
+              String(ev.id)
+          );
+
+        const competences =
+          Array.isArray(ev.competences)
+            ? ev.competences
+            : [];
+
+        evCorrections.forEach(c => {
+
+          const studentId =
+            String(c.eleve_id);
+
+          competences.forEach(comp => {
+
+            addCompetencyOccurrence(
+              comp,
+              group,
+              c,
+              studentId
+            );
+
+          });
+
+        });
+
+      });
+
+    });
+
+
+    /* =========================================================
+       10. Construction des lignes de compétences
+       ========================================================= */
+
+    const competencyRows =
+      Object.values(competencyMap)
+        .map(comp => {
+
+          const studentMasteries = [];
+
+          Object.values(
+            comp.studentGroups
+          ).forEach(studentGroups => {
+
+            const groupValues =
+              Object.values(studentGroups)
+                .map(values => {
+
+                  if(!values.length) return null;
+
+                  return (
+                    values.reduce(
+                      (a,b)=>a+b,
+                      0
+                    ) / values.length
+                  );
+
+                })
+                .filter(Number.isFinite);
+
+            if(groupValues.length){
+
+              /*
+               * Pour chaque élève :
+               * moyenne de sa maîtrise sur les différents
+               * groupes où la compétence a été évaluée.
+               */
+              const studentAverage =
+                groupValues.reduce(
+                  (a,b)=>a+b,
+                  0
+                ) / groupValues.length;
+
+              studentMasteries.push(
+                studentAverage
+              );
+
+            }
+
+          });
+
+
+          const classMastery =
+            studentMasteries.length
+              ? studentMasteries.reduce(
+                  (a,b)=>a+b,
+                  0
+                ) / studentMasteries.length
+              : null;
+
+
+          const mastery =
+            classMastery === null
+              ? null
+              : masteryFromAverage(
+                  classMastery
+                );
+
+
+          return {
+            name:comp.name,
+            occurrences:comp.groups.size,
+            classMastery,
+            mastery
+          };
+
+        })
+        .sort(
+          (a,b) =>
+            a.name.localeCompare(
+              b.name,
+              "fr",
+              {
+                sensitivity:"base"
+              }
+            )
+        );
+
+
+    /* =========================================================
+       11. HTML du bilan
+       ========================================================= */
+
+    const groupRows =
+      groupStats
+        .map(group => {
+
+          const label =
+            group.type === "activite"
+              ? "🧪 Activité"
+              : "📝 Évaluation";
+
+          const subjects =
+            group.items
+              .map(
+                e => esc(
+                  String(e.titre || "Sans titre")
+                )
+              )
+              .join(" · ");
+
+          const corrected =
+            group.corrections.length;
+
+          const average =
+            group.average === null
+              ? "—"
+              : `${group.average.toFixed(2)}/20`;
+
+          return `
+            <tr>
+              <td>${label}</td>
+              <td>${subjects}</td>
+              <td style="text-align:center">
+                ${corrected}
+              </td>
+              <td style="text-align:center">
+                ${average}
+              </td>
+            </tr>
+          `;
+
+        })
+        .join("");
+
+
+    const competencyTable =
+      competencyRows.length
+        ? competencyRows.map(comp => {
+
+            const masteryText =
+              comp.mastery
+                ? `${comp.mastery.code} — ${comp.classMastery.toFixed(2)}/4`
+                : "—";
+
+            return `
+              <tr>
+                <td>${esc(comp.name)}</td>
+                <td style="text-align:center">
+                  ${comp.occurrences}
+                </td>
+                <td style="text-align:center">
+                  ${masteryText}
+                </td>
+              </tr>
+            `;
+
+          }).join("")
+        : `
+          <tr>
+            <td colspan="3">
+              Aucune compétence exploitable dans les corrections.
+            </td>
+          </tr>
+        `;
+
+
+    /* =========================================================
+       12. PDF
+       ========================================================= */
+
+    const html = `
+
+      <div class="chapter-bilan">
+
+        <h1>
+          🧠 Bilan du chapitre ${chapterNumber}
+        </h1>
+
+        <h2>
+          Classe : ${esc(selectedClass)}
+        </h2>
+
+
+        <div class="eval-kpi-grid">
+
+          <div class="eval-kpi">
+            <strong>
+              ${evaluationGroups.length}
+            </strong>
+            <span>
+              éléments évalués
+            </span>
+          </div>
+
+          <div class="eval-kpi">
+            <strong>
+              ${chapterItems.length}
+            </strong>
+            <span>
+              sujets
+            </span>
+          </div>
+
+          <div class="eval-kpi">
+            <strong>
+              ${allNotes.length}
+            </strong>
+            <span>
+              copies corrigées
+            </span>
+          </div>
+
+          <div class="eval-kpi">
+            <strong>
+              ${
+                chapterAverage === null
+                  ? "—"
+                  : chapterAverage.toFixed(2) + "/20"
+              }
+            </strong>
+            <span>
+              moyenne du chapitre
+            </span>
+          </div>
+
+        </div>
+
+
+        <h2>
+          📊 Résultats des évaluations
+        </h2>
+
+        <table>
+
+          <thead>
+            <tr>
+              <th>Type</th>
+              <th>Évaluation / sujets</th>
+              <th>Copies</th>
+              <th>Moyenne</th>
+            </tr>
+          </thead>
+
+          <tbody>
+            ${groupRows}
+          </tbody>
+
+        </table>
+
+
+        <h2>
+          🧠 Bilan des compétences
+        </h2>
+
+        <table>
+
+          <thead>
+            <tr>
+              <th>Compétence</th>
+              <th>Nombre de fois évaluée</th>
+              <th>Maîtrise de la classe</th>
+            </tr>
+          </thead>
+
+          <tbody>
+            ${competencyTable}
+          </tbody>
+
+        </table>
+
+      </div>
+
+    `;
+
+
+    printHtmlInCurrentWindow(
+      `Bilan du chapitre ${chapterNumber} — ${selectedClass}`,
+      html
+    );
+
+
+  }catch(e){
+
+    console.error(
+      "generateChapterBilanPDF",
+      e
+    );
+
+    alert(
+      "Génération du bilan impossible : " +
+      e.message
+    );
+
+  }
+
+}
 async function generateChapterSummaryPDF(chapitre, classe){
 
   const selectedClass =
