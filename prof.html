@@ -5017,107 +5017,41 @@ function generateBlankEvaluationGrid(evalId){
               return `
 
                 <div
-                  style="
-                    border:1px solid #555;
-                    border-radius:6px;
-                    padding:8px;
-                    margin:8px 0;
-                  "
-                >
+  style="
+    margin-top:8px;
+    border-top:1px solid #555;
+    padding-top:7px;
+    font-weight:700;
+  "
+>
 
-                  <div
-                    style="
-                      display:flex;
-                      justify-content:space-between;
-                      gap:10px;
-                      font-weight:700;
-                    "
-                  >
+  <div style="margin-bottom:6px">
+    Total Question ${question.questionNumero} :
+    ______ / ${question.criteres.reduce(
+      (sum,cr)=>
+        sum +
+        (Array.isArray(cr.indicateurs)
+          ? cr.indicateurs.reduce(
+              (s,it)=>s + Number(it.points || 0),
+              0
+            )
+          : 0),
+      0
+    )} pt
+  </div>
 
-                    <span>
-                      Critère ${ci + 1} —
-                      ${escP(cr.nom)}
-                    </span>
+  <div>
+    Maîtrise de la question :
+    ☐ TBM
+    &nbsp;&nbsp;
+    ☐ MS
+    &nbsp;&nbsp;
+    ☐ MF
+    &nbsp;&nbsp;
+    ☐ MI
+  </div>
 
-                    <span>
-                      ${points} pt
-                    </span>
-
-                  </div>
-
-                  ${indicateursHtml}
-
-                </div>
-
-              `;
-
-            })
-            .join("");
-
-
-        return `
-
-          <section
-            style="
-              border:2px solid #333;
-              border-radius:8px;
-              padding:10px;
-              margin:0 0 14px;
-              break-inside:avoid;
-              page-break-inside:avoid;
-            "
-          >
-
-            <h2
-              style="
-                margin:0 0 8px;
-                font-size:16px;
-                border-bottom:2px solid #333;
-                padding-bottom:5px;
-              "
-            >
-
-              📝 Question
-              ${question.questionNumero}
-
-            </h2>
-
-
-            <div
-              style="
-                margin-bottom:8px;
-                font-weight:700;
-              "
-            >
-
-              Compétence évaluée :
-              ${escP(question.nom)}
-
-            </div>
-
-
-            ${criteresHtml}
-
-
-            <div
-              style="
-                margin-top:8px;
-                border-top:1px solid #555;
-                padding-top:7px;
-                font-weight:700;
-              "
-            >
-
-              Maîtrise de la question :
-              ☐ TBM
-              &nbsp;&nbsp;
-              ☐ MS
-              &nbsp;&nbsp;
-              ☐ MF
-              &nbsp;&nbsp;
-              ☐ MI
-
-            </div>
+</div>
 
           </section>
 
