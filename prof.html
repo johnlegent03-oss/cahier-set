@@ -4842,17 +4842,423 @@ function printHtmlInCurrentWindow(title,bodyHtml,extraCss=""){
 
 }
 
-async function generateBlankEvaluationGrid(evalId){
+function generateBlankEvaluationGrid(evalId){
+
   try{
-    const ev=await getEvaluationById(evalId);
-    if(!ev){alert("Évaluation introuvable.");return;}
-    const crits=criteriaFromLegacy(ev),groups={};
-    crits.forEach(cr=>{const gid=cr.competenceId||"comp1";if(!groups[gid])groups[gid]={nom:cr.competenceNom||"Compétence évaluée",criteres:[]};groups[gid].criteres.push(cr)});
-    const escP=v=>String(v??"").replace(/[&<>]/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[m]));
-    const compHtml=Object.values(groups).map((comp,ci)=>`<section><h2>🎯 Compétence ${ci+1} — ${escP(comp.nom)}</h2><table><thead><tr><th style="width:22%">Critère</th><th>Indicateurs</th><th style="width:20%">Résultat du critère</th></tr></thead><tbody>${comp.criteres.map((cr,i)=>{const inds=(cr.indicateurs||[]).filter(x=>x&&x.nom);const pts=inds.reduce((a,x)=>a+Number(x.points||0),0);return `<tr><td><strong>Critère ${i+1}</strong><br>${escP(cr.nom)}<br><span class="points">Barème : / ${pts} pt</span></td><td>${inds.map(x=>`☐ ${escP(x.nom)} <span class="ipt">${Number(x.points||0)} pt</span>`).join("<br>")||"—"}</td><td><div class="scoreline">Points : ______ / ${pts}</div><div>☐ Critère validé</div></td></tr>`}).join("")}</tbody></table></section>`).join("");
-    const body=`<div class="print-page"><h1>📝 ${escP(ev.titre)}</h1><div class="meta" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:10px 0"><div style="border-bottom:1px solid #555;padding:5px 2px"><strong>Nom / Prénom :</strong></div><div style="border-bottom:1px solid #555;padding:5px 2px"><strong>Classe :</strong> ${escP(ev.classe||"")}</div></div>${compHtml}<div class="total">Résultat final : __________ / ${Number(ev.total||0)} pt</div><div class="blank"><strong>Appréciation / remarque :</strong></div></div>`;
-    printHtmlInCurrentWindow(`Grille vierge — ${ev.titre}`,body);
-  }catch(e){alert("Impression impossible : "+e.message)}
+
+    const ev =
+      evaluationsCache.find(
+        x => String(x.id) === String(evalId)
+      );
+
+    if(!ev){
+      alert("Évaluation introuvable.");
+      return;
+    }
+
+    const crits =
+      criteriaFromLegacy(ev);
+
+    if(!crits.length){
+      alert("Aucun critère trouvé pour cette évaluation.");
+      return;
+    }
+
+
+    /* =====================================================
+       1. REGROUPEMENT PAR QUESTION
+       ===================================================== */
+
+    const questionGroups = {};
+
+    crits.forEach((cr,i)=>{
+
+      const questionNumero =
+        Number(
+          cr.questionNumero || i + 1
+        );
+
+      const questionId =
+        String(
+          cr.questionId ||
+          `q${questionNumero}`
+        );
+
+      if(!questionGroups[questionId]){
+
+        questionGroups[questionId] = {
+
+          id:questionId,
+
+          questionNumero,
+
+          nom:
+            cr.competenceNom ||
+            "Compétence évaluée",
+
+          criteres:[]
+
+        };
+
+      }
+
+      questionGroups[questionId]
+        .criteres
+        .push(cr);
+
+    });
+
+
+    const questions =
+      Object.values(questionGroups)
+        .sort(
+          (a,b)=>
+            a.questionNumero -
+            b.questionNumero
+        );
+
+
+    /* =====================================================
+       2. ÉCHAPPEMENT DU TEXTE
+       ===================================================== */
+
+    const escP = value =>
+      String(value ?? "")
+        .replace(
+          /[&<>]/g,
+          m => ({
+            "&":"&amp;",
+            "<":"&lt;",
+            ">":"&gt;"
+          }[m])
+        );
+
+
+    /* =====================================================
+       3. CONSTRUCTION D'UNE QUESTION
+       ===================================================== */
+
+    const questionHtml =
+      questions.map(question => {
+
+        const criteresHtml =
+          question.criteres
+            .map((cr,ci)=>{
+
+              const indicateurs =
+                Array.isArray(cr.indicateurs)
+                  ? cr.indicateurs
+                  : [];
+
+              const points =
+                indicateurs.reduce(
+                  (sum,it)=>
+                    sum + Number(it.points || 0),
+                  0
+                );
+
+
+              const indicateursHtml =
+                indicateurs.length
+
+                  ? `
+
+                    <ul
+                      style="
+                        list-style:none;
+                        padding:0;
+                        margin:6px 0 0;
+                      "
+                    >
+
+                      ${indicateurs.map(it=>`
+
+                        <li
+                          style="
+                            padding:4px 0;
+                            border-bottom:1px solid #ddd;
+                          "
+                        >
+
+                          <span>
+                            ☐
+                            ${escP(it.nom)}
+                          </span>
+
+                          <span
+                            style="
+                              float:right;
+                              white-space:nowrap;
+                            "
+                          >
+                            ${Number(it.points || 0)} pt
+                          </span>
+
+                        </li>
+
+                      `).join("")}
+
+                    </ul>
+
+                  `
+
+                  : `
+                    <p
+                      style="
+                        margin:6px 0;
+                        color:#666;
+                      "
+                    >
+                      Aucun indicateur renseigné.
+                    </p>
+                  `;
+
+
+              return `
+
+                <div
+                  style="
+                    border:1px solid #555;
+                    border-radius:6px;
+                    padding:8px;
+                    margin:8px 0;
+                  "
+                >
+
+                  <div
+                    style="
+                      display:flex;
+                      justify-content:space-between;
+                      gap:10px;
+                      font-weight:700;
+                    "
+                  >
+
+                    <span>
+                      Critère ${ci + 1} —
+                      ${escP(cr.nom)}
+                    </span>
+
+                    <span>
+                      ${points} pt
+                    </span>
+
+                  </div>
+
+                  ${indicateursHtml}
+
+                </div>
+
+              `;
+
+            })
+            .join("");
+
+
+        return `
+
+          <section
+            style="
+              border:2px solid #333;
+              border-radius:8px;
+              padding:10px;
+              margin:0 0 14px;
+              break-inside:avoid;
+              page-break-inside:avoid;
+            "
+          >
+
+            <h2
+              style="
+                margin:0 0 8px;
+                font-size:16px;
+                border-bottom:2px solid #333;
+                padding-bottom:5px;
+              "
+            >
+
+              📝 Question
+              ${question.questionNumero}
+
+            </h2>
+
+
+            <div
+              style="
+                margin-bottom:8px;
+                font-weight:700;
+              "
+            >
+
+              Compétence évaluée :
+              ${escP(question.nom)}
+
+            </div>
+
+
+            ${criteresHtml}
+
+
+            <div
+              style="
+                margin-top:8px;
+                border-top:1px solid #555;
+                padding-top:7px;
+                font-weight:700;
+              "
+            >
+
+              Maîtrise de la question :
+              ☐ TBM
+              &nbsp;&nbsp;
+              ☐ MS
+              &nbsp;&nbsp;
+              ☐ MF
+              &nbsp;&nbsp;
+              ☐ MI
+
+            </div>
+
+          </section>
+
+        `;
+
+      })
+      .join("");
+
+
+    /* =====================================================
+       4. DOCUMENT COMPLET
+       ===================================================== */
+
+    const body = `
+
+      <div class="print-page">
+
+        <h1>
+          📝 ${escP(ev.titre)}
+        </h1>
+
+
+        <div
+          style="
+            display:grid;
+            grid-template-columns:1fr 1fr;
+            gap:10px;
+            margin:10px 0 15px;
+          "
+        >
+
+          <div
+            style="
+              border-bottom:1px solid #555;
+              padding:5px 2px;
+            "
+          >
+            <strong>
+              Nom / Prénom :
+            </strong>
+          </div>
+
+
+          <div
+            style="
+              border-bottom:1px solid #555;
+              padding:5px 2px;
+            "
+          >
+            <strong>
+              Classe :
+            </strong>
+
+            ${escP(ev.classe || "")}
+
+          </div>
+
+        </div>
+
+
+        ${questionHtml}
+
+
+        <div
+          style="
+            margin-top:12px;
+            border:1px solid #555;
+            padding:9px;
+            font-weight:700;
+          "
+        >
+
+          Résultat final :
+          __________ / ${Number(ev.total || 0)} pt
+
+        </div>
+
+
+        <div
+          style="
+            margin-top:12px;
+            border:1px solid #555;
+            padding:9px;
+            min-height:25mm;
+          "
+        >
+
+          <strong>
+            Appréciation / remarque :
+          </strong>
+
+        </div>
+
+      </div>
+
+    `;
+
+
+    const extraCss = `
+
+      .print-page{
+        font-size:11px;
+      }
+
+      .print-page h1{
+        margin-bottom:10px!important;
+      }
+
+      @media print{
+
+        section{
+          break-inside:avoid;
+          page-break-inside:avoid;
+        }
+
+      }
+
+    `;
+
+
+    printHtmlInCurrentWindow(
+      `Grille vierge — ${ev.titre || "Évaluation"}`,
+      body,
+      extraCss
+    );
+
+
+  }catch(e){
+
+    console.error(
+      "generateBlankEvaluationGrid",
+      e
+    );
+
+    alert(
+      "Génération de la grille vierge impossible : " +
+      e.message
+    );
+
+  }
+
 }
 let evaluationStatisticsCache = {};
 
