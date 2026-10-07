@@ -713,6 +713,14 @@ function evalNormalize(e){
   classe:safe(x.classe||""),
   assignedClasses,
 
+  // Groupe des sujets appartenant à la même évaluation
+  evaluationGroupId:
+    safe(
+      meta?.evaluationGroupId ||
+      ""
+    ),
+
+
   // Informations pédagogiques de l'évaluation
   chapitre:Number(meta?.chapitre||0),
   typeEvaluation:safe(meta?.typeEvaluation||"evaluation"),
@@ -1346,9 +1354,16 @@ async function saveEvaluationObject(ev){
     ? ev.exercices.filter(x=>!(x&&x.__evaluationMeta))
     : [];
 
-  const meta={
-    __evaluationMeta:true,
-    chapitre:Number(ev.chapitre||0),
+ const meta={
+  __evaluationMeta:true,
+
+  // Identifiant commun aux différents sujets
+  // d'une même évaluation.
+  evaluationGroupId:
+    ev.evaluationGroupId ||
+    `evalgroup_${ev.id || Date.now()}`,
+
+  chapitre:Number(ev.chapitre||0),
 
 typeEvaluation:
   ev.typeEvaluation==="activite"
@@ -2324,7 +2339,28 @@ async function generateChapterBilanPDF(chapitre, classe){
     /* =====================================================
        4. Moyennes des activités / évaluations
        ===================================================== */
+/* =====================================================
+   Regroupement des sujets d'une même évaluation
+   ===================================================== */
 
+const evaluationGroups = {};
+
+chapterItems.forEach(ev => {
+
+  const groupId =
+    ev.evaluationGroupId ||
+    `single_${ev.id}`;
+
+  if(!evaluationGroups[groupId]){
+    evaluationGroups[groupId]={
+      id:groupId,
+      items:[]
+    };
+  }
+
+  evaluationGroups[groupId].items.push(ev);
+
+});
     const itemStats =
       chapterItems.map(ev => {
 
@@ -2772,7 +2808,7 @@ async function generateChapterBilanPDF(chapitre, classe){
                 Éléments évalués
               </div>
               <strong style="font-size:20px">
-                ${chapterItems.length}
+                ${Object.keys(evaluationGroups).length}
               </strong>
             </div>
 
@@ -3967,11 +4003,16 @@ async function duplicateEvaluation(id){
     if(destination===null)return;
 
     const copy={
-      titre,
-      classe:destination,
-      assignedClasses:[destination],
-      classe:destination,
-      total:Number(ev.total||0),
+  titre,
+  classe:destination,
+  assignedClasses:[destination],
+
+  // La duplication crée un nouveau sujet
+  // appartenant à la même évaluation.
+  evaluationGroupId:
+    ev.evaluationGroupId ||
+    `evalgroup_${ev.id || Date.now()}`,
+  total:Number(ev.total||0),
       competences:Array.isArray(ev.competences)?JSON.parse(JSON.stringify(ev.competences)):[],
       criteres:Array.isArray(ev.criteres)?JSON.parse(JSON.stringify(ev.criteres)):[],
       exercices:Array.isArray(ev.exercices)?JSON.parse(JSON.stringify(ev.exercices)):[]
