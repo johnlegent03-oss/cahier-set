@@ -4443,47 +4443,78 @@ async function getEvaluationById(evalId){
 
 function printHtmlInCurrentWindow(title,bodyHtml,extraCss=""){
 
-  const overlay=document.getElementById("printOverlay");
+  const overlay =
+    document.getElementById("printOverlay");
 
   if(!overlay){
     alert("Zone d'impression introuvable.");
     return;
   }
 
-  const previousTitle=document.title;
+  const previousTitle = document.title;
 
-  document.title=title||previousTitle;
+  document.title =
+    title || previousTitle;
 
-  overlay.innerHTML=`
 
-    <div class="print-preview-toolbar">
+  overlay.innerHTML = `
 
-      <strong>
-        ${safe(title || "Aperçu du document")}
-      </strong>
+    <div
+      style="
+        position:fixed;
+        inset:0;
+        z-index:999999;
+        background:rgba(0,0,0,.65);
+        overflow:auto;
+      "
+    >
 
-      <div style="
-        display:flex;
-        gap:8px;
-        flex-wrap:wrap;
-      ">
+      <!-- BARRE D'ACTIONS -->
+
+      <div
+        style="
+          position:sticky;
+          top:0;
+          z-index:10;
+          display:flex;
+          justify-content:center;
+          gap:10px;
+          padding:12px;
+          background:#ffffff;
+          border-bottom:1px solid #ddd;
+          box-shadow:0 2px 8px rgba(0,0,0,.15);
+        "
+      >
 
         <button
           type="button"
-          class="primary"
-          onclick="window.print()"
+          id="printOverlayPrintBtn"
+          style="
+            cursor:pointer;
+            padding:10px 18px;
+            border:0;
+            border-radius:8px;
+            background:#111;
+            color:white;
+            font-weight:700;
+            font-size:14px;
+          "
         >
           🖨️ Imprimer / Enregistrer en PDF
         </button>
 
         <button
           type="button"
-          onclick="
-            const o=document.getElementById('printOverlay');
-            o.innerHTML='';
-            o.style.display='none';
-            o.setAttribute('aria-hidden','true');
-            document.title=${JSON.stringify(previousTitle)};
+          id="printOverlayCloseBtn"
+          style="
+            cursor:pointer;
+            padding:10px 18px;
+            border:1px solid #ccc;
+            border-radius:8px;
+            background:white;
+            color:#222;
+            font-weight:700;
+            font-size:14px;
           "
         >
           ✖️ Fermer
@@ -4491,206 +4522,323 @@ function printHtmlInCurrentWindow(title,bodyHtml,extraCss=""){
 
       </div>
 
-    </div>
 
-    <div class="print-preview-document">
+      <!-- DOCUMENT -->
 
-      <style>
-
-        @page{
-          size:A4;
-          margin:5mm;
-        }
-
-        *{
-          box-sizing:border-box;
-        }
-
-        body{
-          margin:0;
-        }
-
-        .print-preview-toolbar{
-          position:sticky;
-          top:0;
-          z-index:10000;
-          display:flex;
-          justify-content:space-between;
-          align-items:center;
-          gap:12px;
-          padding:12px 16px;
-          background:#fff;
-          border-bottom:1px solid #d5e4de;
-          box-shadow:0 3px 12px rgba(0,0,0,.08);
-          font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
-        }
-
-        .print-preview-document{
-          background:#e9eeec;
-          min-height:100vh;
-          padding:24px;
-        }
-
-        .print-sheet{
-          max-width:210mm;
-          margin:0 auto;
-          background:#fff;
+      <div
+        id="printOverlayDocument"
+        style="
+          width:210mm;
+          min-height:297mm;
+          margin:20px auto;
           padding:5mm;
-          font-family:Arial,sans-serif;
-          font-size:12px;
-          line-height:1.34;
-          color:#111;
-          box-shadow:0 4px 20px rgba(0,0,0,.12);
-        }
+          background:white;
+          box-shadow:0 4px 20px rgba(0,0,0,.25);
+        "
+      >
 
-        .print-sheet h1{
-          font-size:24px;
-          margin:0 0 7px;
-        }
+        <div class="print-sheet">
 
-        .print-sheet h2{
-          font-size:17px;
-          margin:10px 0 6px;
-          border-bottom:2px solid #333;
-          padding-bottom:4px;
-        }
+          <style>
 
-        .print-sheet h3{
-          font-size:15px;
-          margin:9px 0 5px;
-        }
+            @page{
+              size:A4;
+              margin:5mm;
+            }
 
-        .print-sheet h4{
-          font-size:14px;
-          margin:0 0 4px;
-        }
+            *{
+              box-sizing:border-box;
+            }
 
-        .print-sheet table{
-          width:100%;
-          border-collapse:collapse;
-          table-layout:fixed;
-        }
+            body{
+              margin:0;
+            }
 
-        .print-sheet th,
-        .print-sheet td{
-          border:1px solid #555;
-          padding:7px;
-          vertical-align:top;
-        }
+            .print-sheet{
+              font-size:12px;
+              line-height:1.34;
+            }
 
-        .print-sheet th{
-          background:#f0f0f0;
-          text-align:left;
-        }
+            .print-sheet h1{
+              font-size:24px;
+              margin:0 0 7px;
+            }
 
-        .print-sheet .points{
-          font-size:10px;
-          color:#555;
-        }
+            .print-sheet h2{
+              font-size:17px;
+              margin:10px 0 6px;
+              border-bottom:2px solid #333;
+              padding-bottom:4px;
+            }
 
-        .print-sheet .ipt{
-          float:right;
-          color:#555;
-          font-size:10px;
-        }
+            .print-sheet h3{
+              font-size:15px;
+              margin:9px 0 5px;
+            }
 
-        .print-sheet .scoreline{
-          margin-bottom:8px;
-        }
+            .print-sheet h4{
+              font-size:14px;
+              margin:0 0 4px;
+            }
 
-        .print-sheet .total{
-          margin-top:10px;
-          border:1px solid #555;
-          padding:8px;
-          font-weight:bold;
-        }
+            .print-sheet table{
+              width:100%;
+              border-collapse:collapse;
+              table-layout:fixed;
+            }
 
-        .print-sheet .blank{
-          margin-top:10px;
-          border:1px solid #555;
-          padding:8px;
-          min-height:25mm;
-        }
+            .print-sheet th,
+            .print-sheet td{
+              border:1px solid #555;
+              padding:7px;
+              vertical-align:top;
+            }
 
-        .print-sheet .footer{
-          margin-top:8px;
-          font-size:9px;
-          color:#666;
-        }
+            .print-sheet th{
+              background:#f0f0f0;
+              text-align:left;
+            }
 
-        .print-sheet .criterion{
-          border:1px solid #d8dfdc;
-          border-radius:7px;
-          padding:9px;
-          margin:8px 0;
-        }
+            .print-sheet .points{
+              font-size:10px;
+              color:#555;
+            }
 
-        .print-sheet .criterion ul{
-          list-style:none;
-          padding:0;
-          margin:5px 0;
-        }
+            .print-sheet .ipt{
+              float:right;
+              color:#555;
+              font-size:10px;
+            }
 
-        .print-sheet .criterion li{
-          padding:3px 0;
-        }
+            .print-sheet .scoreline{
+              margin-bottom:8px;
+            }
 
-        .print-sheet .criterion li span{
-          float:right;
-          color:#667085;
-        }
+            .print-sheet .total{
+              margin-top:10px;
+              border:1px solid #555;
+              padding:8px;
+              font-weight:bold;
+            }
 
-        .print-sheet .checked{
-          font-weight:600;
-        }
+            .print-sheet .blank{
+              margin-top:10px;
+              border:1px solid #555;
+              padding:8px;
+              min-height:25mm;
+            }
 
-        .print-sheet .unchecked{
-          color:#777;
-        }
+            .print-sheet .footer{
+              margin-top:8px;
+              font-size:9px;
+              color:#666;
+            }
 
-        .print-sheet .mastery{
-          background:#f3f6f5;
-          border-radius:7px;
-          padding:9px;
-          margin-top:8px;
-        }
+            .print-sheet .criterion{
+              border:1px solid #d8dfdc;
+              border-radius:7px;
+              padding:9px;
+              margin:8px 0;
+            }
 
-        ${extraCss}
+            .print-sheet .criterion ul{
+              list-style:none;
+              padding:0;
+              margin:5px 0;
+            }
 
-        @media print{
+            .print-sheet .criterion li{
+              padding:3px 0;
+            }
 
-          body{
-            background:#fff!important;
-          }
+            .print-sheet .criterion li span{
+              float:right;
+              color:#667085;
+            }
 
-          .print-preview-toolbar{
-            display:none!important;
-          }
+            .print-sheet .checked{
+              font-weight:600;
+            }
 
-          .print-preview-document{
-            padding:0!important;
-            background:#fff!important;
-            min-height:0!important;
-          }
+            .print-sheet .unchecked{
+              color:#777;
+            }
 
-          .print-sheet{
-            max-width:none!important;
-            margin:0!important;
-            padding:0!important;
-            box-shadow:none!important;
-          }
+            .print-sheet .mastery{
+              background:#f3f6f5;
+              border-radius:7px;
+              padding:9px;
+              margin-top:8px;
+            }
 
-        }
+            ${extraCss}
 
-      </style>
+            @media print{
 
-      ${bodyHtml}
+              body *{
+                visibility:hidden !important;
+              }
+
+              #printOverlayDocument,
+              #printOverlayDocument *{
+                visibility:visible !important;
+              }
+
+              #printOverlayDocument{
+                position:absolute !important;
+                left:0 !important;
+                top:0 !important;
+                width:210mm !important;
+                min-height:297mm !important;
+                margin:0 !important;
+                padding:5mm !important;
+                box-shadow:none !important;
+              }
+
+              #printOverlay{
+                position:static !important;
+                display:block !important;
+                background:white !important;
+              }
+
+            }
+
+          </style>
+
+          ${bodyHtml}
+
+        </div>
+
+      </div>
 
     </div>
+
   `;
 
-  overlay.style.display="block";
-  overlay.setAttribute("aria-hidden","false");
+
+  overlay.style.display = "block";
+
+  overlay.setAttribute(
+    "aria-hidden",
+    "false"
+  );
+
+
+  /* =====================================================
+     FERMETURE PROPRE
+     ===================================================== */
+
+  const closePrintOverlay = () => {
+
+    overlay.innerHTML = "";
+
+    overlay.style.display = "none";
+
+    overlay.setAttribute(
+      "aria-hidden",
+      "true"
+    );
+
+    document.title =
+      previousTitle;
+
+    window.removeEventListener(
+      "afterprint",
+      cleanupAfterPrint
+    );
+
+  };
+
+
+  /* =====================================================
+     APRÈS IMPRESSION
+     ===================================================== */
+
+  const cleanupAfterPrint = () => {
+
+    closePrintOverlay();
+
+  };
+
+
+  /* =====================================================
+     BOUTON FERMER
+     ===================================================== */
+
+  const closeBtn =
+    document.getElementById(
+      "printOverlayCloseBtn"
+    );
+
+  if(closeBtn){
+
+    closeBtn.onclick = function(event){
+
+      event.preventDefault();
+      event.stopPropagation();
+
+      closePrintOverlay();
+
+    };
+
+  }
+
+
+  /* =====================================================
+     BOUTON IMPRIMER / PDF
+     ===================================================== */
+
+  const printBtn =
+    document.getElementById(
+      "printOverlayPrintBtn"
+    );
+
+  if(printBtn){
+
+    printBtn.onclick = function(event){
+
+      event.preventDefault();
+      event.stopPropagation();
+
+      window.addEventListener(
+        "afterprint",
+        cleanupAfterPrint,
+        {once:true}
+      );
+
+      setTimeout(
+        () => window.print(),
+        100
+      );
+
+    };
+
+  }
+
+
+  /* =====================================================
+     ESC POUR FERMER
+     ===================================================== */
+
+  const escapeHandler = event => {
+
+    if(event.key === "Escape"){
+
+      closePrintOverlay();
+
+      document.removeEventListener(
+        "keydown",
+        escapeHandler
+      );
+
+    }
+
+  };
+
+  document.addEventListener(
+    "keydown",
+    escapeHandler
+  );
 
 }
 
