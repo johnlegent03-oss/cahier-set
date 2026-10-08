@@ -3122,7 +3122,94 @@ function printHtmlInCurrentWindow(title,bodyHtml,extraCss=""){
             padding:9px;
             margin-top:8px
           }
+/* =========================================================
+   GRILLES CORRIGÉES — 1 TABLEAU PAR QUESTION
+   2 CRITÈRES PAR LIGNE
+   ========================================================= */
 
+.print-preview-page .correction-student-page
+.question-block{
+  margin:5px 0 7px!important;
+}
+
+.print-preview-page .correction-student-page
+.question-criteria-table{
+  width:100%!important;
+  border-collapse:collapse!important;
+  table-layout:fixed!important;
+  margin:3px 0 4px!important;
+}
+
+.print-preview-page .correction-student-page
+.question-criteria-table td{
+  width:50%!important;
+  border:1px solid #bfc8c5!important;
+  padding:5px!important;
+  vertical-align:top!important;
+}
+
+.print-preview-page .correction-student-page
+.question-criteria-table .criterion-cell{
+  background:#fff!important;
+}
+
+.print-preview-page .correction-student-page
+.question-criteria-table .criterion-empty{
+  background:#fafafa!important;
+}
+
+.print-preview-page .correction-student-page
+.criterion-inner h3{
+  font-size:10.5px!important;
+  line-height:1.2!important;
+  margin:0 0 3px!important;
+  font-weight:700!important;
+}
+
+.print-preview-page .correction-student-page
+.criterion-points{
+  float:right!important;
+  font-weight:600!important;
+  white-space:nowrap!important;
+}
+
+.print-preview-page .correction-student-page
+.criterion-inner .status{
+  font-size:9px!important;
+  line-height:1.2!important;
+  margin:2px 0 3px!important;
+}
+
+.print-preview-page .correction-student-page
+.criterion-inner ul{
+  margin:2px 0 0 0!important;
+  padding:0!important;
+  list-style:none!important;
+}
+
+.print-preview-page .correction-student-page
+.criterion-inner li{
+  font-size:9px!important;
+  line-height:1.2!important;
+  padding:1.5px 0!important;
+  margin:0!important;
+}
+
+.print-preview-page .correction-student-page
+.indicator-mark{
+  display:inline-block!important;
+  width:12px!important;
+  font-weight:700!important;
+}
+
+.print-preview-page .correction-student-page
+.indicator-points{
+  float:right!important;
+  margin-left:4px!important;
+  color:#667085!important;
+  white-space:nowrap!important;
+  font-size:8.5px!important;
+}
           /* Une grille corrigée = une feuille A4 */
           .print-preview-page .correction-student-page{
             width:100%;
@@ -5470,215 +5557,11 @@ function correctionGridHtml(ev,c,selectedClass=""){
 
   const competenceGroups={};
 
-  questions.forEach(question=>{
-
-    const nom=String(
-      question.nom||
-      "Compétence évaluée"
-    ).trim();
-
-    const key=nom
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g,"")
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g," ")
-      .trim();
-
-    if(!competenceGroups[key]){
-      competenceGroups[key]={
-        nom,
-        questions:[]
-      };
-    }
-
-    competenceGroups[key]
-      .questions
-      .push(question);
-  });
-
-
-  /*
-   * =========================================================
-   * 4. MAÎTRISE FINALE D'UNE COMPÉTENCE
-   * =========================================================
-   */
-
-  function masteryForCompetence(comp){
-
-    const values={
-      TBM:4,
-      MS:3,
-      MF:2,
-      MI:1
-    };
-
-    const results=
-      comp.questions
-        .map(q=>
-          masteryForQuestion(q)
-            .mastery
-            .code
-        )
-        .filter(code=>values[code]);
-
-    if(!results.length){
-      return {
-        code:"—",
-        label:"Non évaluée"
-      };
-    }
-
-    const average=
-      results.reduce(
-        (sum,code)=>
-          sum+values[code],
-        0
-      )/results.length;
-
-    if(average>=3.5){
-      return {
-        code:"TBM",
-        label:"Très bonne maîtrise"
-      };
-    }
-
-    if(average>=2.5){
-      return {
-        code:"MS",
-        label:"Maîtrise satisfaisante"
-      };
-    }
-
-    if(average>=1.5){
-      return {
-        code:"MF",
-        label:"Maîtrise fragile"
-      };
-    }
-
-    return {
-      code:"MI",
-      label:"Maîtrise insuffisante"
-    };
-  }
-
-
-  /*
-   * =========================================================
-   * 5. SYNTHÈSE DES COMPÉTENCES
-   * =========================================================
-   */
-
-  const masterySummary=
-    Object.values(competenceGroups)
-      .map(comp=>{
-
-        const m=masteryForCompetence(comp);
-
-        return `
-          <tr>
-            <td style="padding:7px;border-bottom:1px solid #ccd5d1">
-              <strong>
-                ${escPrint(comp.nom)}
-              </strong>
-            </td>
-
-            <td style="
-              text-align:center;
-              padding:7px;
-              border-bottom:1px solid #ccd5d1
-            ">
-              <strong>${m.code}</strong>
-              — ${escPrint(m.label)}
-            </td>
-          </tr>
-        `;
-      })
-      .join("");
-
-
-  /*
-   * =========================================================
-   * 6. GRILLE DÉTAILLÉE :
-   *    UNE QUESTION = UN BLOC
-   * =========================================================
-   */
-
- let body=`<div class="print-page correction-student-page"><div class="correction-page-content"><h1>Correction — ${escPrint(ev.titre||"Évaluation")}</h1><p><strong>${escPrint(c.eleve||"Élève")}</strong> — ${escPrint(c.classe||ev.classe||"Classe")}</p>
-
-      <div
-        class="result"
-        style="
-          border:1px solid #ccd5d1;
-          padding:10px;
-          margin:10px 0;
-          font-size:14px
-        "
-      >
-        <strong>
-          Note : ${score} / ${total} pt
-        </strong>
-        — ${pct}%
-      </div>
-
-
-      <!-- SYNTHÈSE -->
-
-      <section
-        class="mastery-summary"
-        style="
-          border:1px solid #ccd5d1;
-          padding:12px;
-          margin:14px 0
-        "
-      >
-
-        <h2 style="margin:0 0 10px">
-          📊 Récapitulatif de la maîtrise
-        </h2>
-
-        <table
-          style="
-            width:100%;
-            border-collapse:collapse
-          "
-        >
-
-          <thead>
-            <tr>
-
-              <th style="
-                text-align:left;
-                padding:7px;
-                border-bottom:1px solid #ccd5d1
-              ">
-                Compétence
-              </th>
-
-              <th style="
-                text-align:center;
-                padding:7px;
-                border-bottom:1px solid #ccd5d1
-              ">
-                Maîtrise
-              </th>
-
-            </tr>
-          </thead>
-
-          <tbody>
-            ${masterySummary}
-          </tbody>
-
-        </table>
-
-      </section>
-  `;
-
-
-  /*
+   /*
    * =========================================================
    * 7. QUESTIONS
+   *    UNE QUESTION = UN TABLEAU
+   *    CRITÈRES RÉPARTIS EN 2 COLONNES
    * =========================================================
    */
 
@@ -5687,131 +5570,165 @@ function correctionGridHtml(ev,c,selectedClass=""){
     const qm=masteryForQuestion(question);
 
     body+=`
-      <section>
+      <section class="question-block">
 
         <h2>
           📝 Question ${question.questionNumero}
           — ${escPrint(question.nom)}
         </h2>
+
+        <table class="question-criteria-table">
+          <tbody>
     `;
 
-    question.criteres.forEach((cr,i)=>{
+    /*
+     * Deux critères par ligne.
+     * Chaque critère reste dans sa propre cellule.
+     */
 
-      const st=
-        r.criteriaStats?.[cr.id]||{
-          checked:0,
-          count:0,
-          percent:0,
-          validated:false
-        };
+    for(let i=0;i<question.criteres.length;i+=2){
 
-      const indicators=
-        Array.isArray(cr.indicateurs)
-          ?cr.indicateurs
-          :[];
+      const cr1=question.criteres[i];
+      const cr2=question.criteres[i+1];
 
-      const earned=
-        indicators.reduce(
-          (sum,it,ii)=>
-            sum+
-            (
-              r.points?.[`${cr.id}_${ii}`]
-                ?Number(it.points||0)
-                :0
-            ),
-          0
-        );
+      const renderCriterion=(cr)=>{
 
-      const possible=
-        indicators.reduce(
-          (sum,it)=>
-            sum+Number(it.points||0),
-          0
-        );
+        if(!cr){
+          return `<td class="criterion-empty"></td>`;
+        }
 
-      body+=`
-        <div class="criterion">
+        const st=
+          r.criteriaStats?.[cr.id]||{
+            checked:0,
+            count:0,
+            percent:0,
+            validated:false
+          };
 
-          <h3 style="margin:0 0 6px">
-            Critère ${i+1}
-            — ${escPrint(cr.nom)}
+        const indicators=
+          Array.isArray(cr.indicateurs)
+            ?cr.indicateurs
+            :[];
 
-            <span style="float:right">
-              ${earned} / ${possible} pt
-            </span>
-          </h3>
+        const earned=
+          indicators.reduce(
+            (sum,it,ii)=>
+              sum+
+              (
+                r.points?.[`${cr.id}_${ii}`]
+                  ?Number(it.points||0)
+                  :0
+              ),
+            0
+          );
 
-          <p class="status">
+        const possible=
+          indicators.reduce(
+            (sum,it)=>
+              sum+Number(it.points||0),
+            0
+          );
 
-            <strong>
-              ${
-                st.validated
-                  ?"✅ Critère validé"
-                  :"❌ Critère non validé"
-              }
-            </strong>
+        let html=`
+          <td class="criterion-cell">
 
-            · ${st.checked||0}
-            / ${st.count||0}
-            indicateur(s) coché(s)
+            <div class="criterion-inner">
 
-            — ${st.percent||0}%
+              <h3>
+                Critère ${question.criteres.indexOf(cr)+1}
+                — ${escPrint(cr.nom)}
 
-          </p>
+                <span class="criterion-points">
+                  ${earned} / ${possible} pt
+                </span>
+              </h3>
 
-          <ul>
-      `;
+              <p class="status">
+                <strong>
+                  ${
+                    st.validated
+                      ?"✅ Critère validé"
+                      :"❌ Critère non validé"
+                  }
+                </strong>
 
-      if(indicators.length){
+                · ${st.checked||0}
+                / ${st.count||0}
+                indicateur(s) coché(s)
 
-        indicators.forEach((it,ii)=>{
+                — ${st.percent||0}%
+              </p>
 
-          const checked=
-            !!r.points?.[
-              `${cr.id}_${ii}`
-            ];
+              <ul>
+        `;
 
-          body+=`
-            <li
-              class="${
+        if(indicators.length){
+
+          indicators.forEach((it,ii)=>{
+
+            const checked=
+              !!r.points?.[
+                `${cr.id}_${ii}`
+              ];
+
+            html+=`
+              <li class="${
                 checked
                   ?"checked"
                   :"unchecked"
-              }"
-            >
-              ${checked?"✓":"✗"}
-              ${escPrint(it.nom)}
+              }">
 
-              <span>
-                ${Number(it.points||0)} pt
-              </span>
+                <span class="indicator-mark">
+                  ${checked?"✓":"✗"}
+                </span>
+
+                <span class="indicator-name">
+                  ${escPrint(it.nom)}
+                </span>
+
+                <span class="indicator-points">
+                  ${Number(it.points||0)} pt
+                </span>
+
+              </li>
+            `;
+          });
+
+        }else{
+
+          html+=`
+            <li>
+              Aucun indicateur.
             </li>
           `;
-        });
 
-      }else{
+        }
 
-        body+=`
-          <li>
-            Aucun indicateur.
-          </li>
+        html+=`
+              </ul>
+
+            </div>
+
+          </td>
         `;
 
-      }
+        return html;
+      };
 
       body+=`
-          </ul>
-
-        </div>
+        <tr>
+          ${renderCriterion(cr1)}
+          ${renderCriterion(cr2)}
+        </tr>
       `;
-    });
-
+    }
 
     body+=`
+          </tbody>
+        </table>
+
         <div class="mastery">
-
           Maîtrise de la question :
-
           <strong>
             ${qm.mastery.code}
             — ${escPrint(qm.mastery.label)}
@@ -5823,13 +5740,11 @@ function correctionGridHtml(ev,c,selectedClass=""){
           ${qm.total}
           critère(s) validé(s)
           )
-
         </div>
 
       </section>
     `;
   });
-
 
   /*
    * =========================================================
