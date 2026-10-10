@@ -370,43 +370,70 @@ function saveNav(){
 }
 function loadNav(){try{return JSON.parse(localStorage.getItem(NAV_KEY)||"null")}catch(e){return null}}
 function clearNav(){try{localStorage.removeItem(NAV_KEY)}catch(e){}}
+
 function buildQuickNav(){
-  const q=document.getElementById("quickNav");if(!q)return;
-  const opts=['<option value="home">🏠 Accueil</option>','<option value="evaluations">📝 Évaluations</option>','<option value="pp">👨‍🏫 Suivi PP · 6e3</option>'];
-  Object.keys(CLASSES).forEach(n=>{
-    opts.push(`<option value="level:${esc(n)}">🧪 ${esc(n)} — toutes les classes</option>`);
-    CLASSES[n].forEach(c=>opts.push(`<option value="class:${esc(c)}">&nbsp;&nbsp;↳ ${esc(c)}</option>`));
-  });
-  q.innerHTML=opts.join("");
+  const q=document.getElementById("quickNav");
+  if(!q)return;
+  q.innerHTML =
+    '<option value="home">🏠 Accueil</option>' +
+    '<option value="evaluations">📝 Évaluations</option>' +
+    '<option value="qcu">🧠 QCU – Mémorisation</option>' +
+    '<option value="pp">👨‍🏫 Suivi PP</option>';
   updateQuickNav();
 }
+
 function updateQuickNav(){
-  const q=document.getElementById("quickNav");if(!q)return;
+  const q=document.getElementById("quickNav");
+  if(!q)return;
+
   let value="home";
-  try{
-    const en=typeof EVAL_NAV_KEY!=="undefined"?JSON.parse(localStorage.getItem(EVAL_NAV_KEY)||"null"):null;
-    const inPP=(typeof ppStudentId!=="undefined" && ppStudentId && document.getElementById("ppStudentBody")) || (typeof ppClass!=="undefined" && document.getElementById("ppDashboard"));
-    if(inPP)value="pp";
-    else if((typeof currentCorrectionEvaluation!=="undefined" && currentCorrectionEvaluation) || en?.view)value="evaluations";
-    else if(classe)value=`class:${classe}`;
-    else if(niveau)value=`level:${niveau}`;
-  }catch(e){
-    if(classe)value=`class:${classe}`;else if(niveau)value=`level:${niveau}`;
+  const currentLabel=label?.textContent||"";
+
+  if(currentLabel.includes("QCU")){
+    value="qcu";
+  }else if(
+    currentLabel==="Suivi PP" ||
+    document.getElementById("ppDashboard") ||
+    document.getElementById("ppStudentBody")
+  ){
+    value="pp";
+  }else{
+    try{
+      const en=JSON.parse(localStorage.getItem(EVAL_NAV_KEY)||"null");
+      if(en?.view)value="evaluations";
+    }catch(e){}
   }
+
   q.value=value;
 }
+
 async function quickNavigate(value){
   if(!value)return;
-  if(currentChapterIndex>=0){
-    try{clearTimeout(autosaveTimer);await runAutosave();}catch(e){}
-  }
-  if(value==="home"){home();return;}
-  if(value==="evaluations"){await openEvaluations();return;}
-  if(value==="pp"){await openPP();return;}
-  if(value.startsWith("level:")){await openNiveau(value.slice(6));return;}
-  if(value.startsWith("class:")){const c=value.slice(6);const n=Object.keys(CLASSES).find(k=>CLASSES[k].includes(c));if(n){niveau=n;await openClasse(c);return;}}
-}
 
+  if(currentChapterIndex>=0){
+    try{
+      clearTimeout(autosaveTimer);
+      await runAutosave();
+    }catch(e){}
+  }
+
+  if(value==="home"){
+    home();
+    return;
+  }
+  if(value==="evaluations"){
+    await openEvaluations();
+    return;
+  }
+  if(value==="qcu"){
+    await openQCU();
+    return;
+  }
+  if(value==="pp"){
+    await openPP();
+    return;
+  }
+}
 
 function showError(msg){content.innerHTML='<section class="hero error"><h2>⚠️ Une erreur est survenue</h2><p>'+esc(msg)+'</p><button onclick="restoreLastPosition()">Retour</button></section>'}
 async function flushPendingAutosave(){
