@@ -7275,6 +7275,353 @@ async function doLogin(){
 async function logout(){clearTimeout(autosaveTimer);await sb.auth.signOut()}
 
 async function home(){
+  
+function qcuEsc(v){
+  return String(v ?? "").replace(/[&<>"']/g, c => ({
+    "&":"&amp;", "<":"&lt;", ">":"&gt;",
+    '"':"&quot;", "'":"&#39;"
+  }[c]));
+}
+
+function qcuNote(correct, total){
+  return Math.round(Number(correct) / Number(total) * 2000) / 100;
+}
+
+async function openQCU(){
+  await flushPendingAutosave();
+  clearTimeout(autosaveTimer);
+  niveau = null;
+  classe = null;
+  label.textContent = "QCU – Mémorisation";
+  updateQuickNav();
+
+  content.innerHTML = `
+    <button onclick="home()">← Accueil</button>
+    <section class="hero" style="margin-top:14px">
+      <span class="eyebrow">Mémorisation active</span>
+      <h2>🧠 QCU – Mémorisation</h2>
+      <p class="muted">
+        Saisis le nombre de bonnes réponses.
+        Le pourcentage et la note sur 20 sont calculés automatiquement.
+      </p>
+    </section>
+
+    <section class="hero">
+      <h3>Créer un QCU</h3>
+      <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr))">
+        <label>Classe
+          <select id="qcuClasse">
+            ${Object.values(CLASSES).flat().map(c =>
+              `<option>${qcuEsc(c)}</option>`).join("")}
+          </select>
+        </label>
+        <label>Trimestre
+          <select id="qcuTrim">
+            <option value="1">Trimestre 1</option>
+            <option value="2">Trimestre 2</option>
+            <option value="3">Trimestre 3</option>
+          </select>
+        </label>
+        <label>Titre du QCU
+          <input id="qcuTitre" placeholder="Ex. Mémo 1 + 2">
+        </label>
+        <label>Nombre de questions
+          <input id="qcuTotal" type="number" min="1" step="1" value="20">
+        </label>
+        <label>Date
+          <input id="qcuDate" type="date" value="${new Date().toISOString().slice(0,10)}">
+        </label>
+      </div>
+      <button class="primary" onclick="qcuCreate()">＋ Créer le QCU</button>
+    </section>
+
+    <div id="qcuList">Chargement…</div>
+    <div id="qcuDetail"></div>
+    <div id="qcuAverages"></div>
+  `;
+
+  await qcuLoad();
+}
+
+async function qcuLoad(){
+  const host = document.getElementById("qcuList");
+  if(!host) return;
+
+  const {data, error} = await sb
+    .from("qcu_memorisation")
+    .select("*")
+    .order("date_qcu", {ascending:false});
+
+  if(error){
+    host.innerHTML = `<section class="hero">
+      <h3>Erreur de chargement</h3>
+      <p>${qcuEsc(error.message)}</p>
+      <p>Vérifie la table qcu_memorisation dans Supabase.</p>
+    </section>`;
+    return;
+  }
+
+  window.qcuItems = data || [];
+
+  const {data:eleves, error:elevesError} = await sb
+    .from("Eleves")
+    .select("id,classe,nom,prenom");
+
+  window.qcuStudentsAll = elevesError ? [] : (eleves || []);
+
+  if(!window.qcuItems.length){
+    host.innerHTML = '<section class="hero"><p>Aucun QCU créé pour le moment.</p></section>';
+  }else{
+    host.innerHTML = `<section class="hero">
+      <h3>QCU enregistrés</h3>
+      <div class="grid">
+        ${window.qcuItems.map(q => `
+          <article class="card">
+            <span class="tag">${qcuEsc(q.classe)} · T${q.trimestre}</span>
+            <h3>${qcuEsc(q.titre)}</h3>
+            <p class="muted">${qcuEsc(q.date_qcu)} · ${q.total_questions} questions</p>
+            <button class="primary" onclick="qcuOpen('${q.id}')">Saisir les scores</button>
+            <button onclick="qcuDelete('${q.id}')">Supprimer</button>
+          </article>
+        `).join("")}
+      </div>
+    </section>`;
+  }
+
+  qcuRenderAverages();
+}
+
+async function qcuCreate(){
+  const classe = document.getElementById("qcuClasse").value;
+  const trimestre = Number(document.getElementById("qcuTrim").value);
+  const titre = document.getElementById("qcuTitre").value.trim();
+  const total_questions = Number(document.getElementById("qcuTotal").value);
+  const date_qcu = document.getElementById("qcuDate").value;
+
+  if(!titre || !Number.isInteger(total_questions) || total_questions < 1){
+    alert("Indique un titre et un nombre de questions valide.");
+    return;
+  }
+
+  const {data:{user:u}} = await sb.auth.getUser();
+
+  const {error} = await sb.from("qcu_memorisation").insert({
+    classe, trimestre, titre, total_questions, date_qcu,
+    resultats:{},
+    created_by:u?.id
+  });
+
+  if(error){
+    alert("Création impossible : " + error.message);
+    return;
+  }
+
+  document.getElementById("qcuTitre").value = "";
+  await qcuLoad();
+}
+
+async function qcuOpen(id){
+  const q = window.qcuItems.find(x => x.id === id);
+  if(!q) return;
+  window.qcuCurrent = q;
+
+  document.getElementById("qcuDetail").innerHTML = `
+    <section class="hero">
+      <h3>${qcuEsc(q.titre)} — ${qcuEsc(q.classe)}</h3>
+      <p class="muted">Trimestre ${q.trimestre} · ${q.total_questions} questions</p>
+      <input id="qcuSearch" placeholder="Rechercher un élève…" oninput="qcuFilter()">
+      <div style="overflow-x:auto">
+        <table>
+          <thead><tr>
+            <th>Élève</th>
+            <th>Bonnes réponses / ${q.total_questions}</th>
+            <th>Pourcentage</th>
+            <th>Note /20</th>
+          </tr></thead>
+          <tbody id="qcuRows"><tr><td colspan="4">Chargement…</td></tr></tbody>
+        </table>
+      </div>
+      <button class="primary" onclick="qcuSave()">Enregistrer les scores</button>
+      <button onclick="document.getElementById('qcuDetail').innerHTML=''">Fermer</button>
+    </section>`;
+
+  const {data, error} = await sb.from("Eleves")
+    .select("id,classe,nom,prenom")
+    .eq("classe", q.classe)
+    .order("nom");
+
+  if(error){
+    document.getElementById("qcuRows").innerHTML =
+      `<tr><td colspan="4">${qcuEsc(error.message)}</td></tr>`;
+    return;
+  }
+
+  window.qcuCurrentStudents = data || [];
+  qcuDrawRows();
+}
+
+function qcuDrawRows(){
+  const q = window.qcuCurrent;
+  const host = document.getElementById("qcuRows");
+  if(!host || !q) return;
+
+  host.innerHTML = (window.qcuCurrentStudents || []).map(e => {
+    const v = q.resultats?.[e.id];
+    const n = v == null ? "" : Number(v);
+    return `<tr data-name="${qcuEsc((e.nom+" "+e.prenom).toLowerCase())}">
+      <td>${qcuEsc(e.nom+" "+e.prenom)}</td>
+      <td><input class="qcuScore" data-id="${e.id}"
+        type="number" min="0" max="${q.total_questions}" step="1"
+        value="${n}" style="width:100px" oninput="qcuPreview(this)"></td>
+      <td class="qcuPct">${n==="" ? "—" : (n/q.total_questions*100).toFixed(1)+" %"}</td>
+      <td class="qcuGrade">${n==="" ? "—" : qcuNote(n,q.total_questions).toFixed(2).replace(".",",")}</td>
+    </tr>`;
+  }).join("") || '<tr><td colspan="4">Aucun élève trouvé dans la table Eleves.</td></tr>';
+}
+
+function qcuPreview(input){
+  const q = window.qcuCurrent;
+  const tr = input.closest("tr");
+  const n = Number(input.value);
+
+  if(input.value === "" || !Number.isInteger(n) || n < 0 || n > q.total_questions){
+    tr.querySelector(".qcuPct").textContent = "—";
+    tr.querySelector(".qcuGrade").textContent = "—";
+    return;
+  }
+
+  tr.querySelector(".qcuPct").textContent =
+    (n/q.total_questions*100).toFixed(1)+" %";
+  tr.querySelector(".qcuGrade").textContent =
+    qcuNote(n,q.total_questions).toFixed(2).replace(".",",");
+}
+
+function qcuFilter(){
+  const v = (document.getElementById("qcuSearch")?.value || "").toLowerCase();
+  document.querySelectorAll("#qcuRows tr[data-name]").forEach(tr => {
+    tr.style.display = tr.dataset.name.includes(v) ? "" : "none";
+  });
+}
+
+async function qcuSave(){
+  const q = window.qcuCurrent;
+  if(!q) return;
+
+  const resultats = {...(q.resultats || {})};
+  let invalide = false;
+
+  document.querySelectorAll(".qcuScore").forEach(input => {
+    if(input.value === ""){
+      delete resultats[input.dataset.id];
+      return;
+    }
+
+    const n = Number(input.value);
+    if(!Number.isInteger(n) || n < 0 || n > q.total_questions){
+      invalide = true;
+    }else{
+      resultats[input.dataset.id] = n;
+    }
+  });
+
+  if(invalide){
+    alert("Chaque score doit être un entier compris entre 0 et "+q.total_questions+".");
+    return;
+  }
+
+  const {error} = await sb.from("qcu_memorisation")
+    .update({resultats})
+    .eq("id", q.id);
+
+  if(error){
+    alert("Enregistrement impossible : "+error.message);
+    return;
+  }
+
+  q.resultats = resultats;
+  alert("Scores enregistrés.");
+  qcuRenderAverages();
+}
+
+async function qcuDelete(id){
+  const q = window.qcuItems.find(x => x.id === id);
+  if(!q || !confirm("Supprimer ce QCU et tous ses scores ?")) return;
+
+  const {error} = await sb.from("qcu_memorisation").delete().eq("id", id);
+  if(error){
+    alert("Suppression impossible : "+error.message);
+    return;
+  }
+
+  document.getElementById("qcuDetail").innerHTML = "";
+  await qcuLoad();
+}
+
+function qcuRenderAverages(){
+  const host = document.getElementById("qcuAverages");
+  if(!host) return;
+
+  const items = window.qcuItems || [];
+  const classes = [...new Set(items.map(q => q.classe))].sort();
+
+  if(!items.length){
+    host.innerHTML = "";
+    return;
+  }
+
+  host.innerHTML = `<section class="hero">
+    <h3>Moyennes trimestrielles</h3>
+    <p class="muted">Moyenne des notes sur 20. Les QCU sans score pour un élève ne sont pas comptés.</p>
+    <label>Classe <select id="qcuAvgClass" onchange="qcuDrawAverages()">
+      ${classes.map(c => `<option>${qcuEsc(c)}</option>`).join("")}
+    </select></label>
+    <label>Trimestre <select id="qcuAvgTrim" onchange="qcuDrawAverages()">
+      <option value="1">Trimestre 1</option>
+      <option value="2">Trimestre 2</option>
+      <option value="3">Trimestre 3</option>
+    </select></label>
+    <div id="qcuAvgRows"></div>
+  </section>`;
+
+  qcuDrawAverages();
+}
+
+function qcuDrawAverages(){
+  const host = document.getElementById("qcuAvgRows");
+  if(!host) return;
+
+  const c = document.getElementById("qcuAvgClass").value;
+  const t = Number(document.getElementById("qcuAvgTrim").value);
+  const qs = (window.qcuItems || []).filter(q =>
+    q.classe === c && Number(q.trimestre) === t
+  );
+
+  if(!qs.length){
+    host.innerHTML = '<p class="muted">Aucun QCU pour cette sélection.</p>';
+    return;
+  }
+
+  const eleves = (window.qcuStudentsAll || []).filter(e => e.classe === c);
+  const rows = eleves.map(e => {
+    const notes = qs.filter(q => q.resultats?.[e.id] !== undefined)
+      .map(q => qcuNote(q.resultats[e.id], q.total_questions));
+    return {
+      nom:e.nom+" "+e.prenom,
+      notes,
+      moyenne:notes.length ? notes.reduce((a,b)=>a+b,0)/notes.length : null
+    };
+  });
+
+  host.innerHTML = `<p>${qs.length} QCU dans ce trimestre.</p>
+    <div style="overflow-x:auto"><table>
+      <thead><tr><th>Élève</th><th>QCU notés</th><th>Moyenne /20</th></tr></thead>
+      <tbody>${rows.map(e => `<tr>
+        <td>${qcuEsc(e.nom)}</td>
+        <td>${e.notes.length} / ${qs.length}</td>
+        <td><strong>${e.moyenne===null ? "—" : e.moyenne.toFixed(2).replace(".",",")}</strong></td>
+      </tr>`).join("")}</tbody>
+    </table></div>`;
+}
   await flushPendingAutosave();
   clearTimeout(autosaveTimer);try{localStorage.removeItem(EVAL_NAV_KEY)}catch(e){}niveau=null;classe=null;currentClassData=null;currentChapterIndex=-1;clearNav();label.textContent="Éditeur professeur";updateQuickNav();
   content.innerHTML=`<section class="hero" style="text-align:center;padding:40px 25px"><span class="eyebrow">Espace professeur</span><h2>🧪 Cahier numérique de SVT</h2><p class="muted">Gère tes cahiers et tes évaluations depuis un espace professeur sécurisé.</p></section>
