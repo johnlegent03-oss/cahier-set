@@ -8044,9 +8044,7 @@ async function restoreLastPosition(){
       if(en.view==="classTracking"){classTrackingClass=en.classe||"";classTrackingPeriod=en.period||"year";await openClassTracking();return;}
     }
   }catch(e){}
-  const n=loadNav();if(!n?.niveau){home();return}niveau=n.niveau;if(!CLASSES[niveau]){home();return}
-  if(n.classe&&CLASSES[niveau].includes(n.classe)){classe=n.classe;label.textContent=`Éditeur · ${classe}`;try{currentClassData=await loadClass(classe);const ci=Number.isInteger(n.currentChapterIndex)?n.currentChapterIndex:-1;if(n.view==="chapter"&&ci>=0&&ci<currentClassData.contenu.chapitres.length){currentChapterIndex=ci;editChapter(ci);return}await chapters();return}catch(e){showError(e.message);return}}
-  await openNiveau(niveau);
+  home();
 }
 init();
 </script>
