@@ -4764,6 +4764,7 @@ function refreshCorrectionScore(evalId){
 }
 
 
+
 function generateEvaluationComment() {
   const ev = currentCorrectionEvaluation;
   const textarea = document.getElementById("corrComment");
@@ -4782,89 +4783,101 @@ function generateEvaluationComment() {
 
   const result = computeCorrection(ev);
   const criteria = criteriaFromLegacy(ev);
+  const questions = new Map();
 
-  // Ne retenir que les critères possédant des indicateurs.
-  const evaluated = criteria.filter(
-    cr => Array.isArray(cr.indicateurs) &&
-          cr.indicateurs.length > 0
-  );
+  let totalIndicators = 0;
+  let totalChecked = 0;
 
-  if (evaluated.length === 0) {
-    alert(
-      "Aucun indicateur disponible pour générer l'appréciation."
-    );
+  // Regrouper tous les indicateurs par question,
+  // quelle que soit la compétence évaluée.
+  criteria.forEach((cr, index) => {
+    const indicators = cr.indicateurs || [];
+    if (!indicators.length) return;
+
+    const rawQuestion = cr.questionNumero || index + 1;
+    const questionKey = String(rawQuestion)
+      .replace(/^Q/i, "");
+
+    if (!questions.has(questionKey)) {
+      questions.set(questionKey, {
+        label: "Q" + questionKey,
+        total: 0,
+        checked: 0,
+        uncheckedNames: []
+      });
+    }
+
+    const question = questions.get(questionKey);
+
+    indicators.forEach((indicator, ii) => {
+      const key = cr.id + "_" + ii;
+      const checked = Boolean(result.points[key]);
+      const name = typeof indicator === "string"
+        ? indicator
+        : indicator.nom;
+
+      question.total++;
+      totalIndicators++;
+
+      if (checked) {
+        question.checked++;
+        totalChecked++;
+      } else if (name) {
+        question.uncheckedNames.push(name);
+      }
+    });
+  });
+
+  if (totalIndicators === 0) {
+    alert("Aucun indicateur disponible.");
     return;
   }
 
-  // Un critère est considéré comme validé uniquement
-  // si le calcul de correction le déclare validé.
-  const validated = [];
-  const toImprove = [];
+  const overall = Math.round(
+    totalChecked / totalIndicators * 100
+  );
 
-  evaluated.forEach((cr, index) => {
-    const stats = result.criteriaStats[cr.id] || {};
-    const indicators = cr.indicateurs || [];
+  // Identifier la question ayant le plus faible
+  // pourcentage de réussite.
+  const results = Array.from(questions.values())
+    .filter(q => q.total > 0)
+    .map(q => ({
+      ...q,
+      percent: Math.round(q.checked / q.total * 100)
+    }))
+    .sort((a, b) => a.percent - b.percent);
 
-    const unchecked = indicators
-      .map((indicator, ii) => ({
-        name: typeof indicator === "string"
-          ? indicator
-          : indicator.nom,
-        checked: Boolean(result.points[cr.id + "_" + ii])
-      }))
-      .filter(item => !item.checked && item.name);
+  const weakest = results.find(q => q.percent < 100);
 
-    if (stats.validated) {
-      validated.push(cr);
-    } else {
-      toImprove.push({
-        question: cr.questionNumero || index + 1,
-        criterion: cr.nom,
-        indicators: unchecked.map(item => item.name)
-      });
-    }
-  });
+  let comment;
 
-  
-  const ratio = validated.length / evaluated.length;
-  const sentences = [];
-
-  if (ratio >= 0.85) {
-    sentences.push("Très bon travail !");
-  } else if (ratio >= 0.5) {
-    sentences.push("Travail satisfaisant, mais des points restent à consolider.");
+  if (overall >= 85) {
+    comment = "Très bon travail : " + overall +
+      " % de réussite sur l'ensemble de l'évaluation.";
+  } else if (overall >= 50) {
+    comment = "Travail encourageant : " + overall +
+      " % de réussite. Des points restent à consolider.";
   } else {
-    sentences.push("Des difficultés persistent : poursuis tes efforts.");
+    comment = overall + 
+      " % de réussite : plusieurs apprentissages restent à consolider.";
   }
 
-  const difficulties = [];
+  if (weakest) {
+    let advice = "";
 
-  evaluated.forEach((cr, index) => {
-    const indicators = cr.indicateurs || [];
-    const unchecked = indicators
-      .filter((it, ii) => !result.points[cr.id + "_" + ii])
-      .map(it => typeof it === "string" ? it : it.nom)
-      .filter(Boolean);
-
-    if (unchecked.length) {
-      difficulties.push(unchecked[0]);
+    if (weakest.uncheckedNames.length > 0) {
+      advice = " Retravaille notamment : « " +
+        weakest.uncheckedNames[0].replace(/[«»"]/g, "") +
+        " ».";
     }
-  });
 
-  
-  const uniqueDifficulties = [...new Set(difficulties)];
-
-  if (uniqueDifficulties.length > 0) {
-    sentences.push(
-      "Pour progresser, retravaille en priorité : " +
-      uniqueDifficulties[0].replace(/[«»"]/g, "") +
-      "."
-    );
+    comment += " Priorité : " + weakest.label +
+      " (" + weakest.percent + " % de réussite)." + advice;
   } else {
-    sentences.push("Tous les indicateurs sont validés. Continue ainsi !");
+    comment += " Tous les indicateurs sont validés. Continue ainsi !";
   }
 
-  textarea.value = sentences.join(" ");
+  textarea.value = comment;
 }
 
 async function generateEvaluationSummaryPDF(evalId){
