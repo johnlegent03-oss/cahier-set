@@ -3910,13 +3910,17 @@ function renderCriterionEditor(c,i){
   </div>`;
 }
   
+
 function isTransversalLanguageCompetency(nom){
-  return String(nom || "")
+  const texte = String(nom || "")
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .includes("maitriser la langue francaise");
+    .toLowerCase();
+
+  return texte.includes("maitrise de la langue") ||
+         texte.includes("maitriser la langue francaise");
 }
+
 
 function renderCompetencyEditor(comp,ci){
   const cs=Array.isArray(comp.criteres)?comp.criteres:[];
@@ -4024,30 +4028,42 @@ function selectQuestionCompetency(select){
 
 
 
+
 function renumberEvaluationQuestions(){
   document.querySelectorAll("#competenciesEditor .question-editor")
     .forEach((box,i)=>{
-      const input=box.querySelector(".question-number");
-      const title=box.querySelector("strong");
+      const input = box.querySelector(".question-number");
+      const label = input?.previousElementSibling;
+      const title = box.querySelector("strong");
 
-const nom = box.dataset.competencyName ||
-  box.querySelector(".question-bank-select")
-    ?.selectedOptions?.[0]?.textContent || "";
+      const nom = box.dataset.competencyName ||
+        box.querySelector(".question-bank-select")
+          ?.selectedOptions?.[0]?.textContent || "";
 
       const transversal = isTransversalLanguageCompetency(nom);
 
+      if(input){
+        input.style.display = transversal ? "none" : "";
+        if(label?.tagName === "LABEL"){
+          label.style.display = transversal ? "none" : "";
+        }
+      }
+
       if(transversal){
-        if(input) input.value="";
-        if(title) title.textContent="📝 Maîtriser la langue française — Compétence transversale";
+        if(title){
+          title.textContent =
+            "📝 Maîtriser la langue française — Compétence transversale";
+        }
         return;
       }
 
-      if(input && !input.value) input.value=i+1;
+      if(input && !input.value) input.value = i+1;
 
-      const number=Number(input?.value||i+1);
-      if(title) title.textContent=`📝 Question ${number}`;
+      const number = Number(input?.value || i+1);
+      if(title) title.textContent = `📝 Question ${number}`;
     });
 }
+
 
 function indicatorEditor(item={}){
   return `<div class="eval-card indicator-row" style="margin:8px 0;padding:11px">
