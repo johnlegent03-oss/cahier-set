@@ -4843,16 +4843,38 @@ function generateEvaluationComment() {
     );
   }
 
-  // Réussites : citer uniquement les critères validés.
-  if (validated.length > 0) {
-    const names = validated
-      .slice(0, 3)
-      .map(cr => "« " + cr.nom + " »");
+ 
+  // Réussites : valoriser les indicateurs réellement cochés.
+  const successes = [];
 
+  evaluated.forEach(cr => {
+    const indicators = cr.indicateurs || [];
+
+    indicators.forEach((indicator, ii) => {
+      if (result.points[cr.id + "_" + ii]) {
+        const name = typeof indicator === "string"
+          ? indicator
+          : indicator.nom;
+
+        if (name && !successes.includes(name)) {
+          successes.push(name);
+        }
+      }
+    });
+  });
+
+  if (successes.length > 0) {
     sentences.push(
-      "Points réussis : " + names.join(", ") + "."
+      "Tu réussis notamment à " +
+      successes.slice(0, 3)
+        .map(name =>
+          name.charAt(0).toLowerCase() + name.slice(1)
+        )
+        .join(", ") +
+      "."
     );
   }
+
 
   // Regrouper les difficultés par numéro de question
   // pour éviter les répétitions.
