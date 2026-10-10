@@ -3909,6 +3909,15 @@ function renderCriterionEditor(c,i){
     <button type="button" class="entry-add" onclick="this.previousElementSibling.insertAdjacentHTML('beforeend',indicatorEditor({nom:'',points:1}))">＋ Ajouter un indicateur</button>
   </div>`;
 }
+  
+function isTransversalLanguageCompetency(nom){
+  return String(nom || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .includes("maitriser la langue francaise");
+}
+
 function renderCompetencyEditor(comp,ci){
   const cs=Array.isArray(comp.criteres)?comp.criteres:[];
   const questionNumero=Number(comp.questionNumero||ci+1);
@@ -3918,13 +3927,15 @@ function renderCompetencyEditor(comp,ci){
     data-bank-competency-id="${esc(comp.bankId||"")}">
 
     <div class="row" style="justify-content:space-between;align-items:center">
-      <strong>📝 Question ${questionNumero}</strong>
+      <strong>📝 ${isTransversalLanguageCompetency(comp.nom) ? "Maîtriser la langue française — Compétence transversale" : "Question " + questionNumero}</strong>
       <button class="danger" type="button"
         onclick="this.closest('.question-editor').remove();renumberEvaluationQuestions()">
         Supprimer
       </button>
     </div>
 
+    
+    ${!isTransversalLanguageCompetency(comp.nom) ? `
     <label>Numéro de la question</label>
     <input class="question-number"
       type="number"
@@ -3932,6 +3943,7 @@ function renderCompetencyEditor(comp,ci){
       step="1"
       value="${questionNumero}"
       onchange="renumberEvaluationQuestions()">
+    ` : ""}
 
     <label>Compétence évaluée</label>
 
