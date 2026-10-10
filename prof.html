@@ -7598,8 +7598,6 @@ function qcuDrawAverages(){
     return;
   }
 
-async function home(){
-
   const eleves = (window.qcuStudentsAll || []).filter(e => e.classe === c);
   const rows = eleves.map(e => {
     const notes = qs.filter(q => q.resultats?.[e.id] !== undefined)
@@ -7621,6 +7619,7 @@ async function home(){
       </tr>`).join("")}</tbody>
     </table></div>`;
 }
+ async function home(){
   await flushPendingAutosave();
   clearTimeout(autosaveTimer);try{localStorage.removeItem(EVAL_NAV_KEY)}catch(e){}niveau=null;classe=null;currentClassData=null;currentChapterIndex=-1;clearNav();label.textContent="Éditeur professeur";updateQuickNav();
   content.innerHTML=`<section class="hero" style="text-align:center;padding:40px 25px"><span class="eyebrow">Espace professeur</span><h2>🧪 Cahier numérique de SVT</h2><p class="muted">Gère tes cahiers et tes évaluations depuis un espace professeur sécurisé.</p></section>
