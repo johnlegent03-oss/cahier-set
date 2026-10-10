@@ -7284,6 +7284,7 @@ function qcuNote(correct, total){
   return Math.round(Number(correct) / Number(total) * 2000) / 100;
 }
 
+
 async function openQCU(){
   await flushPendingAutosave();
   clearTimeout(autosaveTimer);
@@ -7292,44 +7293,17 @@ async function openQCU(){
   label.textContent = "QCU – Mémorisation";
   updateQuickNav();
 
+  window.qcuSelectedClass = null;
+
   content.innerHTML = `
     <button onclick="home()">← Accueil</button>
+
     <section class="hero" style="margin-top:14px">
       <span class="eyebrow">Mémorisation active</span>
       <h2>🧠 QCU – Mémorisation</h2>
       <p class="muted">
-        Saisis le nombre de bonnes réponses.
-        Le pourcentage et la note sur 20 sont calculés automatiquement.
+        Choisis une classe pour gérer ses QCU et consulter ses moyennes.
       </p>
-    </section>
-
-    <section class="hero">
-      <h3>Créer un QCU</h3>
-      <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr))">
-        <label>Classe
-          <select id="qcuClasse">
-            ${Object.values(CLASSES).flat().map(c =>
-              `<option>${qcuEsc(c)}</option>`).join("")}
-          </select>
-        </label>
-        <label>Trimestre
-          <select id="qcuTrim">
-            <option value="1">Trimestre 1</option>
-            <option value="2">Trimestre 2</option>
-            <option value="3">Trimestre 3</option>
-          </select>
-        </label>
-        <label>Titre du QCU
-          <input id="qcuTitre" placeholder="Ex. Mémo 1 + 2">
-        </label>
-        <label>Nombre de questions
-          <input id="qcuTotal" type="number" min="1" step="1" value="20">
-        </label>
-        <label>Date
-          <input id="qcuDate" type="date" value="${new Date().toISOString().slice(0,10)}">
-        </label>
-      </div>
-      <button class="primary" onclick="qcuCreate()">＋ Créer le QCU</button>
     </section>
 
     <div id="qcuList">Chargement…</div>
@@ -7338,6 +7312,89 @@ async function openQCU(){
   `;
 
   await qcuLoad();
+}
+
+function qcuOpenClass(c){
+  window.qcuSelectedClass = c;
+
+  const host = document.getElementById("qcuList");
+  if(!host) return;
+
+  host.innerHTML = `
+    <section class="hero">
+      <button onclick="qcuBackToClasses()">← Toutes les classes</button>
+      <h3 style="margin-top:12px">${qcuEsc(c)} — QCU de mémorisation</h3>
+
+      <h4>Créer un QCU</h4>
+      <input id="qcuClasse" type="hidden" value="${qcuEsc(c)}">
+
+      <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr))">
+        <label>Trimestre
+          <select id="qcuTrim">
+            <option value="1">Trimestre 1</option>
+            <option value="2">Trimestre 2</option>
+            <option value="3">Trimestre 3</option>
+          </select>
+        </label>
+
+        <label>Titre du QCU
+          <input id="qcuTitre" placeholder="Ex. Mémo 1 + 2">
+        </label>
+
+        <label>Nombre de questions
+          <input id="qcuTotal" type="number" min="1" step="1" value="20">
+        </label>
+
+        <label>Date
+          <input id="qcuDate" type="date" value="${new Date().toISOString().slice(0,10)}">
+        </label>
+      </div>
+
+      <button class="primary" onclick="qcuCreate()">＋ Créer le QCU</button>
+    </section>
+
+    <section class="hero">
+      <h3>QCU de ${qcuEsc(c)}</h3>
+      <div id="qcuClassItems"></div>
+    </section>
+  `;
+
+  qcuRenderClassItems();
+  qcuRenderAverages();
+}
+
+function qcuBackToClasses(){
+  window.qcuSelectedClass = null;
+  document.getElementById("qcuDetail").innerHTML = "";
+  document.getElementById("qcuAverages").innerHTML = "";
+  qcuLoad();
+}
+
+function qcuRenderClassItems(){
+  const host = document.getElementById("qcuClassItems");
+  if(!host) return;
+
+  const items = (window.qcuItems || [])
+    .filter(q => q.classe === window.qcuSelectedClass);
+
+  if(!items.length){
+    host.innerHTML = '<p class="muted">Aucun QCU pour cette classe. Crée le premier ci-dessus.</p>';
+    return;
+  }
+
+  host.innerHTML = `
+    <div class="grid">
+      ${items.map(q => `
+        <article class="card">
+          <span class="tag">Trimestre ${q.trimestre}</span>
+          <h3>${qcuEsc(q.titre)}</h3>
+          <p class="muted">${qcuEsc(q.date_qcu)} · ${q.total_questions} questions</p>
+          <button class="primary" onclick="qcuOpen('${q.id}')">Saisir les scores</button>
+          <button onclick="qcuDelete('${q.id}')">Supprimer</button>
+        </article>
+      `).join("")}
+    </div>
+  `;
 }
 
 async function qcuLoad(){
@@ -7350,11 +7407,11 @@ async function qcuLoad(){
     .order("date_qcu", {ascending:false});
 
   if(error){
-    host.innerHTML = `<section class="hero">
-      <h3>Erreur de chargement</h3>
-      <p>${qcuEsc(error.message)}</p>
-      <p>Vérifie la table qcu_memorisation dans Supabase.</p>
-    </section>`;
+    host.innerHTML = `
+      <section class="hero">
+        <h3>Erreur de chargement</h3>
+        <p>${qcuEsc(error.message)}</p>
+      </section>`;
     return;
   }
 
@@ -7366,26 +7423,42 @@ async function qcuLoad(){
 
   window.qcuStudentsAll = elevesError ? [] : (eleves || []);
 
-  if(!window.qcuItems.length){
-    host.innerHTML = '<section class="hero"><p>Aucun QCU créé pour le moment.</p></section>';
-  }else{
-    host.innerHTML = `<section class="hero">
-      <h3>QCU enregistrés</h3>
-      <div class="grid">
-        ${window.qcuItems.map(q => `
-          <article class="card">
-            <span class="tag">${qcuEsc(q.classe)} · T${q.trimestre}</span>
-            <h3>${qcuEsc(q.titre)}</h3>
-            <p class="muted">${qcuEsc(q.date_qcu)} · ${q.total_questions} questions</p>
-            <button class="primary" onclick="qcuOpen('${q.id}')">Saisir les scores</button>
-            <button onclick="qcuDelete('${q.id}')">Supprimer</button>
-          </article>
-        `).join("")}
-      </div>
-    </section>`;
+  if(window.qcuSelectedClass){
+    qcuOpenClass(window.qcuSelectedClass);
+    return;
   }
 
-  qcuRenderAverages();
+  const classes = [...new Set([
+    ...Object.values(CLASSES).flat(),
+    ...window.qcuItems.map(q => q.classe)
+  ])].sort();
+
+  host.innerHTML = `
+    <section class="hero">
+      <h3>Choisir une classe</h3>
+      <div class="grid"
+        style="grid-template-columns:repeat(auto-fit,minmax(120px,1fr))">
+
+        ${classes.map(c => {
+          const n = window.qcuItems.filter(q => q.classe === c).length;
+
+          return `
+            <button class="card"
+              style="text-align:center;padding:20px"
+              onclick="qcuOpenClass('${qcuEsc(c)}')">
+
+              <strong style="font-size:1.15rem">
+                ${qcuEsc(c)}
+              </strong>
+
+              <p class="muted">
+                ${n} QCU
+              </p>
+            </button>`;
+        }).join("")}
+
+      </div>
+    </section>`;
 }
 
 async function qcuCreate(){
