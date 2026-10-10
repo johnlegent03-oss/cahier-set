@@ -4002,6 +4002,7 @@ function addCompetencyEditor(){
   });
 }
 
+
 function selectQuestionCompetency(select){
   const box=select.closest(".question-editor");
   if(!box)return;
@@ -4011,24 +4012,43 @@ function selectQuestionCompetency(select){
   );
 
   box.dataset.bankCompetencyId=c?.id||"";
+  box.dataset.competencyName=c?.nom||"";
 
   const input=box.querySelector(".competency-name");
   if(input && c){
     input.value=c.nom||"";
   }
+
+  renumberEvaluationQuestions();
 }
+
+
 
 function renumberEvaluationQuestions(){
   document.querySelectorAll("#competenciesEditor .question-editor")
     .forEach((box,i)=>{
       const input=box.querySelector(".question-number");
-      if(input && !input.value)input.value=i+1;
+      const title=box.querySelector("strong");
+
+const nom = box.dataset.competencyName ||
+  box.querySelector(".question-bank-select")
+    ?.selectedOptions?.[0]?.textContent || "";
+
+      const transversal = isTransversalLanguageCompetency(nom);
+
+      if(transversal){
+        if(input) input.value="";
+        if(title) title.textContent="📝 Maîtriser la langue française — Compétence transversale";
+        return;
+      }
+
+      if(input && !input.value) input.value=i+1;
 
       const number=Number(input?.value||i+1);
-      const title=box.querySelector("strong");
-      if(title)title.textContent=`📝 Question ${number}`;
+      if(title) title.textContent=`📝 Question ${number}`;
     });
 }
+
 function indicatorEditor(item={}){
   return `<div class="eval-card indicator-row" style="margin:8px 0;padding:11px">
     <div class="eval-grid">
