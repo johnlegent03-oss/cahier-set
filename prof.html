@@ -7273,10 +7273,7 @@ async function doLogin(){
   }
 }
 async function logout(){clearTimeout(autosaveTimer);await sb.auth.signOut()}
-
-async function home(){
-  
-function qcuEsc(v){
+  function qcuEsc(v){
   return String(v ?? "").replace(/[&<>"']/g, c => ({
     "&":"&amp;", "<":"&lt;", ">":"&gt;",
     '"':"&quot;", "'":"&#39;"
@@ -7600,6 +7597,8 @@ function qcuDrawAverages(){
     host.innerHTML = '<p class="muted">Aucun QCU pour cette sélection.</p>';
     return;
   }
+
+async function home(){
 
   const eleves = (window.qcuStudentsAll || []).filter(e => e.classe === c);
   const rows = eleves.map(e => {
