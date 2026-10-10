@@ -3496,47 +3496,52 @@ async function generateBlankEvaluationGrid(evalId){
         0
       );
 
+     
       const criteresHtml=question.criteres.map((cr,i)=>{
         const inds=(cr.indicateurs||[]).filter(x=>x&&x.nom);
         const pts=inds.reduce((a,x)=>a+Number(x.points||0),0);
 
-        return `<tr>
-          <td>
-            <strong>Critère ${i+1}</strong><br>
-            ${escP(cr.nom)}<br>
-            <span class="points">Barème : / ${pts} pt</span>
-          </td>
-          <td>
-            ${inds.map(x=>`☐ ${escP(x.nom)} <span class="ipt">${Number(x.points||0)} pt</span>`).join("<br>")||"—"}
-          </td>
-          <td>
-            <div class="scoreline">Points : ______ / ${pts}</div>
-            <div>☐ Critère validé</div>
-          </td>
-        </tr>`;
+        return `<div class="blank-criterion" style="border:1px solid #555;padding:7px;margin:0;break-inside:avoid">
+          <strong>Critère ${i+1} — ${escP(cr.nom)}</strong>
+          <div style="font-size:9px;margin:3px 0">Barème : / ${pts} pt</div>
+          <div style="margin:5px 0">
+            ${inds.map(x=>`☐ ${escP(x.nom)} <span style="float:right">${Number(x.points||0)} pt</span>`).join("<br>")||"—"}
+          </div>
+          <div style="border-top:1px solid #aaa;padding-top:5px;margin-top:5px">
+            Points : ______ / ${pts} pt
+            <br>☐ Critère validé
+          </div>
+        </div>`;
       }).join("");
 
-      return `<section>
-        <h2>📝 Question ${question.questionNumero} — ${escP(question.nom)}</h2>
-        <table>
-          <thead>
-            <tr>
-              <th style="width:22%">Critère</th>
-              <th>Indicateurs</th>
-              <th style="width:20%">Résultat du critère</th>
-            </tr>
-          </thead>
-          <tbody>${criteresHtml}</tbody>
-        </table>
+      return `<section style="break-inside:avoid">
+       
+<h2>📝 ${isTransversalLanguageCompetency(question.nom)
+  ? "Maîtrise de la langue — Compétence transversale"
+  : "Question " + question.questionNumero + " — " + escP(question.nom)}</h2>
+
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;align-items:start">
+          ${criteresHtml}
+        </div>
 
         <div class="total" style="margin-top:8px">
-          Total Question ${question.questionNumero} : ______ / ${totalQuestion} pt
+          
+${isTransversalLanguageCompetency(question.nom)
+  ? "Total maîtrise de la langue"
+  : "Total Question " + question.questionNumero} : ______ / ${totalQuestion} pt
+
         </div>
 
         <div class="mastery" style="margin-top:8px">
-          Maîtrise de la question :
+          
+${isTransversalLanguageCompetency(question.nom)
+  ? "Maîtrise de la compétence :"
+  : "Maîtrise de la question :"}
+
           ☐ TBM &nbsp;&nbsp; ☐ MS &nbsp;&nbsp; ☐ MF &nbsp;&nbsp; ☐ MI
-        </div>
+        </div>`;
+
       </section>`;
     }).join("");
 
@@ -5994,8 +5999,11 @@ function correctionGridHtml(ev,c,selectedClass=""){
       <section class="question-block">
 
         <h2>
-          📝 Question ${question.questionNumero}
-          — ${escPrint(question.nom)}
+          
+📝 ${isTransversalLanguageCompetency(question.nom)
+  ? "Maîtrise de la langue — Compétence transversale"
+  : "Question " + question.questionNumero + " — " + escPrint(question.nom)}
+
         </h2>
 
         <table class="question-criteria-table">
@@ -6205,7 +6213,9 @@ function correctionGridHtml(ev,c,selectedClass=""){
 
         <div class="mastery">
 
-          Maîtrise de la question :
+         ${isTransversalLanguageCompetency(question.nom)
+  ? "Maîtrise de la compétence :"
+  : "Maîtrise de la question :"}
 
           <strong>
             ${qm.mastery.code}
