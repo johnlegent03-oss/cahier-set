@@ -7279,6 +7279,11 @@ async function home(){
   clearTimeout(autosaveTimer);try{localStorage.removeItem(EVAL_NAV_KEY)}catch(e){}niveau=null;classe=null;currentClassData=null;currentChapterIndex=-1;clearNav();label.textContent="Éditeur professeur";updateQuickNav();
   content.innerHTML=`<section class="hero" style="text-align:center;padding:40px 25px"><span class="eyebrow">Espace professeur</span><h2>🧪 Cahier numérique de SVT</h2><p class="muted">Gère tes cahiers et tes évaluations depuis un espace professeur sécurisé.</p></section>
   <div class="grid">
+      <article class="card" onclick="openQCU()">
+      <span class="tag">🧠 Mémorisation</span>
+      <h3>QCU – Mémorisation</h3>
+      <p class="muted">Saisir les scores, calculer les notes sur 20 et suivre les moyennes trimestrielles.</p>
+    </article>
     <article class="card" onclick="openEvaluations()"><span class="tag">📝 Correction</span><h3>Mes évaluations</h3><p class="muted">Créer des barèmes, corriger les élèves et générer automatiquement les grilles.</p></article>
     <article class="card" onclick="openPP()"><span class="tag">👨‍🏫 Professeur principal</span><h3>Suivi PP</h3><p class="muted">Élèves, aménagements, familles, actions et conseil de classe.</p></article>
     ${Object.keys(CLASSES).map(n=>`<article class="card" onclick="openNiveau('${n}')"><span class="tag">🧪 Niveau</span><h3>${n}</h3><p class="muted">Choisir une classe →</p></article>`).join("")}
