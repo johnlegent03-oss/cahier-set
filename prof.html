@@ -7627,31 +7627,47 @@ async function qcuDelete(id){
   await qcuLoad();
 }
 
+
 function qcuRenderAverages(){
   const host = document.getElementById("qcuAverages");
   if(!host) return;
 
-  const items = window.qcuItems || [];
-  const classes = [...new Set(items.map(q => q.classe))].sort();
+  const c = window.qcuSelectedClass;
+  if(!c){
+    host.innerHTML = "";
+    return;
+  }
+
+  const items = (window.qcuItems || [])
+    .filter(q => q.classe === c);
 
   if(!items.length){
     host.innerHTML = "";
     return;
   }
 
-  host.innerHTML = `<section class="hero">
-    <h3>Moyennes trimestrielles</h3>
-    <p class="muted">Moyenne des notes sur 20. Les QCU sans score pour un élève ne sont pas comptés.</p>
-    <label>Classe <select id="qcuAvgClass" onchange="qcuDrawAverages()">
-      ${classes.map(c => `<option>${qcuEsc(c)}</option>`).join("")}
-    </select></label>
-    <label>Trimestre <select id="qcuAvgTrim" onchange="qcuDrawAverages()">
-      <option value="1">Trimestre 1</option>
-      <option value="2">Trimestre 2</option>
-      <option value="3">Trimestre 3</option>
-    </select></label>
-    <div id="qcuAvgRows"></div>
-  </section>`;
+  host.innerHTML = `
+    <details class="hero">
+      <summary style="cursor:pointer;font-weight:700">
+        📊 Moyennes trimestrielles — ${qcuEsc(c)}
+      </summary>
+
+      <p class="muted">
+        Moyenne des notes sur 20.
+        Les QCU sans score pour un élève ne sont pas comptés.
+      </p>
+
+      <label>Trimestre
+        <select id="qcuAvgTrim" onchange="qcuDrawAverages()">
+          <option value="1">Trimestre 1</option>
+          <option value="2">Trimestre 2</option>
+          <option value="3">Trimestre 3</option>
+        </select>
+      </label>
+
+      <div id="qcuAvgRows"></div>
+    </details>
+  `;
 
   qcuDrawAverages();
 }
@@ -7660,7 +7676,8 @@ function qcuDrawAverages(){
   const host = document.getElementById("qcuAvgRows");
   if(!host) return;
 
-  const c = document.getElementById("qcuAvgClass").value;
+  const c = window.qcuSelectedClass;
+if(!c) return;
   const t = Number(document.getElementById("qcuAvgTrim").value);
   const qs = (window.qcuItems || []).filter(q =>
     q.classe === c && Number(q.trimestre) === t
