@@ -4851,18 +4851,21 @@ function generateEvaluationComment() {
     }
   });
 
+  
   const uniqueDifficulties = [...new Set(difficulties)];
 
-  if (uniqueDifficulties.length) {
+  if (uniqueDifficulties.length > 0) {
     sentences.push(
-      "À retravailler : " +
-      uniqueDifficulties.slice(0, 2).join(" et ") + "."
+      "Pour progresser, retravaille en priorité : " +
+      uniqueDifficulties[0].replace(/[«»"]/g, "") +
+      "."
     );
   } else {
     sentences.push("Tous les indicateurs sont validés. Continue ainsi !");
   }
 
   textarea.value = sentences.join(" ");
+
 
 
 
