@@ -6603,8 +6603,11 @@ if(correctionId){
         return `<section>
 
           <h3>
-            📝 Question ${question.questionNumero}
-            — ${escPrint(question.nom)}
+            
+📝 ${isTransversalLanguageCompetency(question.nom)
+  ? "Maîtrise de la langue — Compétence transversale"
+  : "Question " + question.questionNumero + " — " + escPrint(question.nom)}
+
           </h3>
 
           
@@ -6613,7 +6616,11 @@ if(correctionId){
 </div>
 
           <div class="mastery">
-            Maîtrise de la question :
+
+${isTransversalLanguageCompetency(question.nom)
+  ? "Maîtrise de la compétence :"
+  : "Maîtrise de la question :"}
+
             <strong>
               ${m.mastery.code}
               — ${escPrint(m.mastery.label)}
