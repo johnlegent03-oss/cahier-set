@@ -368,7 +368,6 @@ async function saveClass(c,contenu,id){
 function saveNav(){
   try{localStorage.setItem(NAV_KEY,JSON.stringify({niveau,classe,currentChapterIndex,view:currentChapterIndex>=0?"chapter":(classe?"chapters":(niveau?"classes":"home"))}))}catch(e){}
 }
-function loadNav(){try{return JSON.parse(localStorage.getItem(NAV_KEY)||"null")}catch(e){return null}}
 function clearNav(){try{localStorage.removeItem(NAV_KEY)}catch(e){}}
 
 function buildQuickNav(){
