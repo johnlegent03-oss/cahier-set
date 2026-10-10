@@ -5081,6 +5081,15 @@ async function generateEvaluationSummaryPDF(evalId){
      * - au même chapitre ;
      * - au type Évaluation de chapitre.
      */
+   
+    // Le récapitulatif regroupe les sujets de même type,
+    // pour la classe et le chapitre concernés.
+    // Les activités et les évaluations restent distinctes.
+
+    const typeCible=String(
+      ev.typeEvaluation || "evaluation"
+    );
+
     const chapterEvaluations=evaluationsCache
       .filter(e=>{
         const classes=Array.isArray(e.assignedClasses)
@@ -5092,7 +5101,7 @@ async function generateEvaluationSummaryPDF(evalId){
 
         return classes.includes(selectedClass)
           && Number(e.chapitre||0)===chapitre
-          && String(e.typeEvaluation||"evaluation")==="evaluation";
+          && String(e.typeEvaluation||"evaluation")===typeCible;
       })
       .sort((a,b)=>{
         return String(a.titre||"")
@@ -5105,7 +5114,7 @@ async function generateEvaluationSummaryPDF(evalId){
 
     if(!chapterEvaluations.length){
       alert(
-        `Aucune évaluation de chapitre trouvée pour ${selectedClass}, chapitre ${chapitre}.`
+        `Aucun sujet du même type trouvé pour ${selectedClass}, chapitre ${chapitre}.`
       );
       return;
     }
