@@ -1318,7 +1318,8 @@ function renderClassTracking(){
       <div style="display:grid;grid-template-columns:repeat(4,minmax(130px,1fr));gap:8px;margin:12px 0" class="behavior-actions">${behaviorButtons}</div>
       ${roster.length?`<div style="border:1px solid #ddd;border-radius:10px;overflow:hidden"><label class="behavior-roster-header" style="display:flex;align-items:center;gap:10px;padding:9px 10px;background:#f7f7f7;cursor:pointer"><input type="checkbox" onchange="toggleAllBehaviorStudents(this.checked)"><strong>Toute la classe</strong><span class="small-note">${roster.length} élève(s)</span></label>${rosterRows}</div>`:`<p class="muted">Aucun élève enregistré dans la banque pour cette classe.</p>`}
     </section>
-    <section class="hero" style="margin-top:14px"><div class="tracking-summary"><div class="tracking-stat"><strong>${roster.length}</strong><span>élève(s)</span></div><div class="tracking-stat"><strong>${classAverage}</strong><span>moyenne de classe /20</span></div><div class="tracking-stat"><strong>${totalEvaluations}</strong><span>correction(s)</span></div><div class="tracking-stat">
+    <section class="hero" style="margin-top:14px"><div class="tracking-summary"><div class="tracking-stat"><strong>${roster.length}</strong><span>élève(s)</span></div><div class="tracking-stat"><strong>${classAverage}</strong><span>moyenne de classe /20</span></div>
+<div class="tracking-stat"><strong>${totalEvaluations}</strong><span>correction(s)</span></div></div>
       ${rows.length?`<div style="overflow:auto">
 <table class="mastery-table">
   <thead>
