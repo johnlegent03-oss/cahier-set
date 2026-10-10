@@ -1281,32 +1281,61 @@ function renderClassTracking(){
   }).join("");
   const behaviorButtons=BEHAVIOR_TYPES.map(m=>`<button type="button" onclick="addBehaviorEventToSelected('${esc(m.code)}')">${m.icon} ${esc(m.label)}</button>`).join("");
 
+  
   const studentRows=rows.map(s=>{
     const latest={};
-    s.competencies.forEach(x=>{latest[x.competence]=x});
-    const scores=s.evaluations.map(trackingScore20);
-    const studentAverage=formatAverage20(scores);
+    s.competencies.forEach(x=>{
+      latest[x.competence]=x;
+    });
 
-    const competencyCells=allCompetencies.map(name=>{
-      const x=latest[name];
-      return x
-        ? `<td style="text-align:center;min-width:90px">
-             <span class="mastery-result ${x.mastery.cls}"
-               title="${esc(name)} — ${esc(x.mastery.label||x.mastery.code)}"
-               style="margin:0;display:inline-block">
-               ${esc(x.mastery.code)}
-             </span>
-           </td>`
-        : `<td style="text-align:center;color:#999">—</td>`;
-    }).join("");
+    const scores=s.evaluations
+      .map(trackingScore20)
+      .filter(v=>v!==null && Number.isFinite(v));
+
+    const avg=scores.length
+      ? scores.reduce((a,b)=>a+b,0)/scores.length
+      : null;
+
+    const classAvg=classScores.length
+      ? classScores.reduce((a,b)=>a+b,0)/classScores.length
+      : null;
+
+    const position=avg===null || classAvg===null
+      ? "—"
+      : avg>classAvg+0.05
+        ? "🟢 Au-dessus"
+        : avg<classAvg-0.05
+          ? "🔴 En dessous"
+          : "⚪ Dans la moyenne";
+
+    const competencySummary=allCompetencies
+      .map(name=>{
+        const x=latest[name];
+        if(!x) return "";
+        return `<div style="margin:4px 0">
+          <strong>${esc(name)} :</strong>
+          ${esc(x.mastery.label||x.mastery.code)}
+        </div>`;
+      })
+      .filter(Boolean)
+      .join("");
 
     return `<tr>
       <td><strong>${esc(s.name)}</strong></td>
-      <td>${s.evaluations.length}</td>
-      <td>${studentAverage}</td>
-      ${competencyCells}
+      <td>${scores.length}</td>
+      <td style="white-space:nowrap">
+        ${avg===null?"—":avg.toLocaleString("fr-FR",{
+          minimumFractionDigits:2,
+          maximumFractionDigits:2
+        })+" /20"}
+      </td>
+      <td style="white-space:nowrap">${position}</td>
+      <td style="min-width:230px">
+        ${competencySummary||"—"}
+      </td>
     </tr>`;
   }).join("");
+
 
   const competencyLegend=allCompetencies.length?`<div class="criteria-box" style="margin-top:16px"><h3 style="margin-top:0">🎯 Compétences suivies</h3><div class="small-note">${allCompetencies.map(x=>`<strong style="display:inline-block;margin:3px 12px 3px 0">${esc(x)}</strong>`).join("")}</div></div>`:"";
   content.innerHTML=`<button onclick="openEvaluations()">← Mes évaluations</button>
