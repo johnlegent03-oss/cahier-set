@@ -2532,9 +2532,17 @@ async function generateChapterBilanPDF(chapitre, classe){
         });
       });
 
-      const corrected=group.items.reduce((sum,e)=>
-        sum+Number(evaluationStatisticsCache[String(e.id)]?.corrected||0),0
-      );
+     const corrected=group.items.reduce((sum,e)=>{
+  const statsCount=Number(
+    evaluationStatisticsCache[String(e.id)]?.corrected||0
+  );
+
+  if(statsCount>0) return sum+statsCount;
+
+  return sum+corrections.filter(c=>
+    String(c.evaluation_id)===String(e.id)
+  ).length;
+},0);
 
       groupRows.push({
         label:group.type==="activite"?"🧪 Activité":"📝 Évaluation",
@@ -5571,7 +5579,7 @@ async function generateEvaluationSummaryPDF(evalId){
           &nbsp; · &nbsp;
 
           <strong>Type :</strong>
-          Évaluation de chapitre
+          ${typeCible==="activite" ? "Activité" : "Évaluation de chapitre"}
         </p>
 
         <p class="small-note">
