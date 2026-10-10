@@ -1308,17 +1308,56 @@ function renderClassTracking(){
           ? "🔴 En dessous"
           : "⚪ Dans la moyenne";
 
-    const competencySummary=allCompetencies
-      .map(name=>{
-        const x=latest[name];
-        if(!x) return "";
-        return `<div style="margin:4px 0">
-          <strong>${esc(name)} :</strong>
-          ${esc(x.mastery.label||x.mastery.code)}
-        </div>`;
-      })
-      .filter(Boolean)
-      .join("");
+
+    const mastered=[];
+    const fragile=[];
+    const notEvaluated=[];
+
+    allCompetencies.forEach(name=>{
+      const x=latest[name];
+
+      if(!x){
+        notEvaluated.push(name);
+        return;
+      }
+
+      const code=x.mastery?.code||"";
+      const label=x.mastery?.label||code||"Non renseignée";
+      const item=`${name} (${label})`;
+
+      if(code==="TBM"||code==="MS"){
+        mastered.push(item);
+      }else if(code==="MF"||code==="MI"){
+        fragile.push(item);
+      }else{
+        notEvaluated.push(item);
+      }
+    });
+
+    const competencySummary=`
+      ${mastered.length?`
+        <div style="margin-bottom:6px">
+          <strong style="color:#247447">✓ Maîtrisées</strong>
+          <div>${mastered.map(esc).join("<br>")}</div>
+        </div>`:""}
+      ${fragile.length?`
+        <div style="margin-bottom:6px">
+          <strong style="color:#a34b36">⚠ À retravailler</strong>
+          <div>${fragile.map(esc).join("<br>")}</div>
+        </div>`:""}
+      ${notEvaluated.length?`
+        <details style="margin-top:5px">
+          <summary style="cursor:pointer;color:#666">
+            Non évaluées ou non renseignées (${notEvaluated.length})
+          </summary>
+          <div style="margin-top:5px">
+            ${notEvaluated.map(esc).join("<br>")}
+          </div>
+        </details>`:""}
+      ${!mastered.length&&!fragile.length&&!notEvaluated.length
+        ?"—":""}
+    `;
+
 
     return `<tr>
       <td><strong>${esc(s.name)}</strong></td>
