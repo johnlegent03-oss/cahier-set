@@ -4825,111 +4825,45 @@ function generateEvaluationComment() {
     }
   });
 
+  
   const ratio = validated.length / evaluated.length;
   const sentences = [];
 
-  // Bilan général, fondé sur la proportion de critères validés.
   if (ratio >= 0.85) {
-    sentences.push(
-      "Très bon travail : la grande majorité des critères évalués est validée."
-    );
+    sentences.push("Très bon travail !");
   } else if (ratio >= 0.5) {
-    sentences.push(
-      "Ton travail montre des acquis, mais certains points restent à consolider."
-    );
+    sentences.push("Travail satisfaisant, mais des points restent à consolider.");
   } else {
-    sentences.push(
-      "Plusieurs critères évalués restent à travailler pour progresser."
-    );
+    sentences.push("Des difficultés persistent : poursuis tes efforts.");
   }
 
- 
-  // Réussites : valoriser les indicateurs réellement cochés.
-  const successes = [];
+  const difficulties = [];
 
-  evaluated.forEach(cr => {
+  evaluated.forEach((cr, index) => {
     const indicators = cr.indicateurs || [];
+    const unchecked = indicators
+      .filter((it, ii) => !result.points[cr.id + "_" + ii])
+      .map(it => typeof it === "string" ? it : it.nom)
+      .filter(Boolean);
 
-    indicators.forEach((indicator, ii) => {
-      if (result.points[cr.id + "_" + ii]) {
-        const name = typeof indicator === "string"
-          ? indicator
-          : indicator.nom;
-
-        if (name && !successes.includes(name)) {
-          successes.push(name);
-        }
-      }
-    });
+    if (unchecked.length) {
+      difficulties.push(unchecked[0]);
+    }
   });
 
-  if (successes.length > 0) {
+  const uniqueDifficulties = [...new Set(difficulties)];
+
+  if (uniqueDifficulties.length) {
     sentences.push(
-      "Tu réussis notamment à " +
-      successes.slice(0, 3)
-        .map(name =>
-          name.charAt(0).toLowerCase() + name.slice(1)
-        )
-        .join(", ") +
-      "."
-    );
-  }
-
-
-  // Regrouper les difficultés par numéro de question
-  // pour éviter les répétitions.
-  const questions = new Map();
-
-  toImprove.forEach(item => {
-    const key = String(item.question);
-
-    if (!questions.has(key)) {
-      questions.set(key, []);
-    }
-
-    const list = questions.get(key);
-
-    item.indicators.forEach(name => {
-      if (!list.includes(name)) {
-        list.push(name);
-      }
-    });
-  });
-
-  const advice = [];
-
-  for (const [question, indicators] of questions) {
-    if (indicators.length > 0) {
-      advice.push(
-        "à la question " + question +
-        ", retravaille " +
-        indicators.slice(0, 2)
-          .map(name => "« " + name + " »")
-          .join(" et ")
-      );
-    }
-  }
-
-  if (advice.length > 0) {
-    sentences.push(
-      "Pour progresser, " +
-      advice.slice(0, 3).join("; ") +
-      ". Reprends les notions correspondantes dans ton cours " +
-      "et entraîne-toi à appliquer la méthode attendue."
-    );
-  } else if (toImprove.length > 0) {
-    sentences.push(
-      "Certains critères ne sont pas encore validés. " +
-      "Relis les remarques de correction et reprends les exercices concernés."
+      "À retravailler : " +
+      uniqueDifficulties.slice(0, 2).join(" et ") + "."
     );
   } else {
-    sentences.push(
-      "Tous les critères comportant des indicateurs sont validés. Continue ainsi."
-    );
+    sentences.push("Tous les indicateurs sont validés. Continue ainsi !");
   }
 
   textarea.value = sentences.join(" ");
-}
+
 
 
 async function generateEvaluationSummaryPDF(evalId){
