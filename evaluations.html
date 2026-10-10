@@ -8,7 +8,20 @@
 :root{--bg:#eef6f2;--card:#fff;--text:#213331;--muted:#6f807d;--a:#34796a;--a-dark:#286456;--a2:#dff0e9;--b:#d5e4de;--danger:#fff0ef;--shadow:0 12px 35px rgba(35,65,59,.08);--shadow-hover:0 16px 40px rgba(35,65,59,.14)}
 *{box-sizing:border-box}html{scroll-behavior:smooth}
 body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;background:radial-gradient(circle at 5% 0%,#d8eee5 0,transparent 28%),radial-gradient(circle at 95% 10%,#edf4d9 0,transparent 24%),var(--bg);color:var(--text);min-height:100vh}
-#printOverlay{display:none;position:fixed;inset:0;z-index:99999;background:rgba(15,23,42,.72);overflow:auto;padding:20px}.print-sheet{font-family:Arial,sans-serif;color:#111;background:#fff}.print-sheet .print-page{width:100%;min-height:270mm;padding:2mm;page-break-after:always;box-sizing:border-box}.print-sheet .print-page:last-child{page-break-after:auto}@media print{html,body{margin:0!important;padding:0!important;background:#fff!important}body > *:not(#printOverlay){display:none!important}#printOverlay{display:block!important;position:static!important;inset:auto!important;width:100%!important;background:#fff!important;padding:0!important;overflow:visible!important}.print-preview-toolbar{display:none!important}.print-sheet{display:block!important;width:100%!important;margin:0!important;padding:0!important;font-size:12px!important;line-height:1.34!important;-webkit-print-color-adjust:exact;print-color-adjust:exact}.print-sheet .print-page{min-height:0!important;height:auto!important;padding:2mm!important;margin:0!important;page-break-after:always!important;break-after:page!important}.print-sheet .print-page:last-child{page-break-after:auto!important;break-after:auto!important}.print-sheet h1{font-size:24px!important;margin:0 0 7px!important}.print-sheet h2{font-size:17px!important;margin:10px 0 6px!important;padding-bottom:3px!important}.print-sheet h3{font-size:15px!important;margin:9px 0 5px!important}.print-sheet h4{font-size:14px!important;margin:0 0 4px!important}.print-sheet th,.print-sheet td{padding:7px!important}.print-sheet .criterion{padding:9px!important;margin:8px 0!important}.print-sheet .criterion li{padding:3px 0!important}.print-sheet .mastery{padding:9px!important;margin-top:8px!important}.print-sheet .footer{display:none!important}.correction-compact{
+#printOverlay{display:none;position:fixed;inset:0;z-index:99999;background:rgba(15,23,42,.72);overflow:auto;padding:20px}.print-sheet{font-family:Arial,sans-serif;color:#111;background:#fff}.print-sheet .print-page{width:100%;min-height:270mm;padding:2mm;page-break-after:always;box-sizing:border-box}.print-sheet .print-page:last-child{page-break-after:auto}@media print{html,body{margin:0!important;padding:0!important;background:#fff!important}body > *:not(#printOverlay){display:none!important}#printOverlay{display:block!important;position:static!important;inset:auto!important;width:100%!important;background:#fff!important;padding:0!important;overflow:visible!important}.print-preview-toolbar{display:none!important}.print-sheet{display:block!important;width:100%!important;margin:0!important;padding:0!important;font-size:12px!important;line-height:1.34!important;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.print-sheet .print-page{
+  min-height:0!important;
+  height:auto!important;
+  padding:0!important;
+  margin:0!important;
+  page-break-after:always!important;
+  break-after:auto!important;
+}
+.print-sheet .print-page:last-child{
+  page-break-after:auto!important;
+  break-after:auto!important;
+}
+.print-sheet h1{font-size:24px!important;margin:0 0 7px!important}.print-sheet h2{font-size:17px!important;margin:10px 0 6px!important;padding-bottom:3px!important}.print-sheet h3{font-size:15px!important;margin:9px 0 5px!important}.print-sheet h4{font-size:14px!important;margin:0 0 4px!important}.print-sheet th,.print-sheet td{padding:7px!important}.print-sheet .criterion{padding:9px!important;margin:8px 0!important}.print-sheet .criterion li{padding:3px 0!important}.print-sheet .mastery{padding:9px!important;margin-top:8px!important}.print-sheet .footer{display:none!important}.correction-compact{
   font-size:9px!important;
   line-height:1.12!important;
   padding:2mm!important;
@@ -1267,15 +1280,102 @@ function renderClassTracking(){
     return `<label class="behavior-roster-row" style="display:grid;grid-template-columns:24px minmax(0,1fr) auto;align-items:center;gap:10px;padding:9px 10px;border-bottom:1px solid #eee;cursor:pointer"><input type="checkbox" class="behavior-student-check" value="${esc(s.id)}"><span style="min-width:0"><strong>${esc(s.nom||"Élève")}</strong></span><span class="small-note">${events.length?`${events.length} observation(s)`:"—"}</span></label>`;
   }).join("");
   const behaviorButtons=BEHAVIOR_TYPES.map(m=>`<button type="button" onclick="addBehaviorEventToSelected('${esc(m.code)}')">${m.icon} ${esc(m.label)}</button>`).join("");
+
+  
   const studentRows=rows.map(s=>{
-    const counts={TBM:0,MS:0,MF:0,MI:0};
-    s.competencies.forEach(x=>counts[x.mastery.code]=(counts[x.mastery.code]||0)+1);
-    const latest={}; s.competencies.forEach(x=>{latest[x.competence]=x});
-    const scores=s.evaluations.map(trackingScore20); const studentAverage=formatAverage20(scores);
-    const compHtml=allCompetencies.map(name=>{const x=latest[name];return x?`<span class="competency-pill" tabindex="0" data-competence="${esc(x.competence)}" aria-label="Compétence : ${esc(x.competence)} — ${esc(x.mastery.code)}" title="${esc(x.competence)}"><span class="mastery-result ${x.mastery.cls}" style="margin:0;display:inline-block">${x.mastery.code}</span></span>`:`<span class="small-note" style="margin-right:6px">—</span>`;}).join("");
-    const last=s.evaluations.slice().sort((a,b)=>{const da=a.created_at?new Date(a.created_at).getTime():0;const db=b.created_at?new Date(b.created_at).getTime():0;return db-da;})[0];
-    return `<tr><td><strong>${esc(s.name)}</strong></td><td>${s.evaluations.length}</td><td>${studentAverage}</td><td>${counts.TBM}</td><td>${counts.MS}</td><td>${counts.MF}</td><td>${counts.MI}</td><td>${last?esc(last.evaluation?.titre||""):"—"}</td><td>${compHtml||"—"}</td></tr>`;
+    const latest={};
+    s.competencies.forEach(x=>{
+      latest[x.competence]=x;
+    });
+
+    const scores=s.evaluations
+      .map(trackingScore20)
+      .filter(v=>v!==null && Number.isFinite(v));
+
+    const avg=scores.length
+      ? scores.reduce((a,b)=>a+b,0)/scores.length
+      : null;
+
+    const classAvg=classScores.length
+      ? classScores.reduce((a,b)=>a+b,0)/classScores.length
+      : null;
+
+    const position=avg===null || classAvg===null
+      ? "—"
+      : avg>classAvg+0.05
+        ? "🟢 Au-dessus"
+        : avg<classAvg-0.05
+          ? "🔴 En dessous"
+          : "⚪ Dans la moyenne";
+
+
+    const mastered=[];
+    const fragile=[];
+    const notEvaluated=[];
+
+    allCompetencies.forEach(name=>{
+      const x=latest[name];
+
+      if(!x){
+        notEvaluated.push(name);
+        return;
+      }
+
+      const code=x.mastery?.code||"";
+      const label=x.mastery?.label||code||"Non renseignée";
+      const item=`${name} (${label})`;
+
+      if(code==="TBM"||code==="MS"){
+        mastered.push(item);
+      }else if(code==="MF"||code==="MI"){
+        fragile.push(item);
+      }else{
+        notEvaluated.push(item);
+      }
+    });
+
+    const competencySummary=`
+      ${mastered.length?`
+        <div style="margin-bottom:6px">
+          <strong style="color:#247447">✓ Maîtrisées</strong>
+          <div>${mastered.map(esc).join("<br>")}</div>
+        </div>`:""}
+      ${fragile.length?`
+        <div style="margin-bottom:6px">
+          <strong style="color:#a34b36">⚠ À retravailler</strong>
+          <div>${fragile.map(esc).join("<br>")}</div>
+        </div>`:""}
+      ${notEvaluated.length?`
+        <details style="margin-top:5px">
+          <summary style="cursor:pointer;color:#666">
+            Non évaluées ou non renseignées (${notEvaluated.length})
+          </summary>
+          <div style="margin-top:5px">
+            ${notEvaluated.map(esc).join("<br>")}
+          </div>
+        </details>`:""}
+      ${!mastered.length&&!fragile.length&&!notEvaluated.length
+        ?"—":""}
+    `;
+
+
+    return `<tr>
+      <td><strong>${esc(s.name)}</strong></td>
+      <td>${scores.length}</td>
+      <td style="white-space:nowrap">
+        ${avg===null?"—":avg.toLocaleString("fr-FR",{
+          minimumFractionDigits:2,
+          maximumFractionDigits:2
+        })+" /20"}
+      </td>
+      <td style="white-space:nowrap">${position}</td>
+      <td style="min-width:230px">
+        ${competencySummary||"—"}
+      </td>
+    </tr>`;
   }).join("");
+
+
   const competencyLegend=allCompetencies.length?`<div class="criteria-box" style="margin-top:16px"><h3 style="margin-top:0">🎯 Compétences suivies</h3><div class="small-note">${allCompetencies.map(x=>`<strong style="display:inline-block;margin:3px 12px 3px 0">${esc(x)}</strong>`).join("")}</div></div>`:"";
   content.innerHTML=`<button onclick="openEvaluations()">← Mes évaluations</button>
     <section class="hero" style="margin-top:14px"><span class="eyebrow">Suivi des acquis</span><h2>🏫 Suivi de classe</h2><p class="muted">Toutes les classes et tous les élèves sont disponibles ici. Tu peux enregistrer une observation sur plusieurs élèves en une seule fois.</p>
@@ -1286,8 +1386,23 @@ function renderClassTracking(){
       <div style="display:grid;grid-template-columns:repeat(4,minmax(130px,1fr));gap:8px;margin:12px 0" class="behavior-actions">${behaviorButtons}</div>
       ${roster.length?`<div style="border:1px solid #ddd;border-radius:10px;overflow:hidden"><label class="behavior-roster-header" style="display:flex;align-items:center;gap:10px;padding:9px 10px;background:#f7f7f7;cursor:pointer"><input type="checkbox" onchange="toggleAllBehaviorStudents(this.checked)"><strong>Toute la classe</strong><span class="small-note">${roster.length} élève(s)</span></label>${rosterRows}</div>`:`<p class="muted">Aucun élève enregistré dans la banque pour cette classe.</p>`}
     </section>
-    <section class="hero" style="margin-top:14px"><div class="tracking-summary"><div class="tracking-stat"><strong>${roster.length}</strong><span>élève(s)</span></div><div class="tracking-stat"><strong>${classAverage}</strong><span>moyenne de classe /20</span></div><div class="tracking-stat"><strong>${totalEvaluations}</strong><span>correction(s)</span></div><div class="tracking-stat"><strong>${distribution.TBM}</strong><span>TBM</span></div><div class="tracking-stat"><strong>${distribution.MS}</strong><span>MS</span></div><div class="tracking-stat"><strong>${distribution.MF}</strong><span>MF</span></div><div class="tracking-stat"><strong>${distribution.MI}</strong><span>MI</span></div></div>
-      ${rows.length?`<div style="overflow:auto"><table class="mastery-table"><thead><tr><th>Élève</th><th>Évaluations</th><th>Moyenne /20</th><th>TBM</th><th>MS</th><th>MF</th><th>MI</th><th>Dernière évaluation</th><th>Dernière maîtrise par compétence</th></tr></thead><tbody>${studentRows}</tbody></table></div>`:`<p class="muted">Aucune correction enregistrée pour cette sélection.</p>`}</section>${competencyLegend}`;
+    <section class="hero" style="margin-top:14px"><div class="tracking-summary"><div class="tracking-stat"><strong>${roster.length}</strong><span>élève(s)</span></div><div class="tracking-stat"><strong>${classAverage}</strong><span>moyenne de classe /20</span></div>
+<div class="tracking-stat"><strong>${totalEvaluations}</strong><span>correction(s)</span></div></div>
+      ${rows.length?`<div style="overflow:auto">
+
+<table class="mastery-table" style="width:100%;table-layout:auto">
+  <thead>
+    <tr>
+      <th>Nom de l’élève</th>
+      <th>Nombre d’évaluations</th>
+      <th>Moyenne /20</th>
+      <th>Position par rapport à la moyenne de classe</th>
+      <th>Maîtrise des compétences</th>
+    </tr>
+  </thead>
+  <tbody>${studentRows}</tbody>
+</table>
+</div>`:`<p class="muted">Aucune correction enregistrée pour cette sélection.</p>`}</section>${competencyLegend}`;
 }
 async function openClassTracking(){
   try{
@@ -2417,9 +2532,17 @@ async function generateChapterBilanPDF(chapitre, classe){
         });
       });
 
-      const corrected=group.items.reduce((sum,e)=>
-        sum+Number(evaluationStatisticsCache[String(e.id)]?.corrected||0),0
-      );
+     const corrected=group.items.reduce((sum,e)=>{
+  const statsCount=Number(
+    evaluationStatisticsCache[String(e.id)]?.corrected||0
+  );
+
+  if(statsCount>0) return sum+statsCount;
+
+  return sum+corrections.filter(c=>
+    String(c.evaluation_id)===String(e.id)
+  ).length;
+},0);
 
       groupRows.push({
         label:group.type==="activite"?"🧪 Activité":"📝 Évaluation",
@@ -3024,40 +3147,342 @@ function printHtmlInCurrentWindow(title,bodyHtml,extraCss=""){
       <div class="print-preview-toolbar">
         <strong>${String(title||"Aperçu PDF").replace(/[&<>]/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[m]))}</strong>
         <div class="row" style="gap:8px;margin:0">
-          <button type="button" class="primary" onclick="window.print()">📥 Télécharger / Enregistrer en PDF</button>
+          <button type="button" class="primary" onclick="preparePrintPages();setTimeout(()=>window.print(),50)">📥 Télécharger / Enregistrer en PDF</button>
           <button type="button" onclick="closePrintPreview()">✖️ Fermer</button>
         </div>
       </div>
+
       <div class="print-preview-page">
         <style>
-          @page{size:A4;margin:5mm}
-          .print-preview-wrap{width:min(100%,1100px);margin:0 auto;background:#fff;border-radius:12px;box-shadow:0 20px 60px rgba(0,0,0,.25);overflow:hidden}
-          .print-preview-toolbar{position:sticky;top:0;z-index:2;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 16px;background:#fff;border-bottom:1px solid #ddd}
-          .print-preview-toolbar .row{display:flex;align-items:center}
+          @page{size:A4 portrait;margin:5mm}
+
+          .print-preview-wrap{
+            width:min(100%,1100px);
+            margin:0 auto;
+            background:#fff;
+            border-radius:12px;
+            box-shadow:0 20px 60px rgba(0,0,0,.25);
+            overflow:hidden
+          }
+
+          .print-preview-toolbar{
+            position:sticky;
+            top:0;
+            z-index:2;
+            display:flex;
+            align-items:center;
+            justify-content:space-between;
+            gap:12px;
+            padding:12px 16px;
+            background:#fff;
+            border-bottom:1px solid #ddd
+          }
+
+          .print-preview-toolbar .row{
+            display:flex;
+            align-items:center
+          }
+
           *{box-sizing:border-box}
-          .print-preview-page{background:#fff;font-size:12px;line-height:1.34}
+
+          .print-preview-page{
+            background:#fff;
+            font-size:12px;
+            line-height:1.34
+          }
+
           .print-preview-page h1{font-size:24px;margin:0 0 7px}
           .print-preview-page h2{font-size:17px;margin:10px 0 6px;border-bottom:2px solid #333;padding-bottom:4px}
           .print-preview-page h3{font-size:15px;margin:9px 0 5px}
           .print-preview-page h4{font-size:14px;margin:0 0 4px}
-          .print-preview-page table{width:100%;border-collapse:collapse;table-layout:fixed}
-          .print-preview-page th,.print-preview-page td{border:1px solid #555;padding:7px;vertical-align:top}
-          .print-preview-page th{background:#f0f0f0;text-align:left}
+
+          .print-preview-page table{
+            width:100%;
+            border-collapse:collapse;
+            table-layout:fixed
+          }
+
+          .print-preview-page th,
+          .print-preview-page td{
+            border:1px solid #555;
+            padding:7px;
+            vertical-align:top
+          }
+
+          .print-preview-page th{
+            background:#f0f0f0;
+            text-align:left
+          }
+
           .print-preview-page .points{font-size:10px;color:#555}
           .print-preview-page .ipt{float:right;color:#555;font-size:10px}
           .print-preview-page .scoreline{margin-bottom:8px}
           .print-preview-page .total{margin-top:10px;border:1px solid #555;padding:8px;font-weight:bold}
           .print-preview-page .blank{margin-top:10px;border:1px solid #555;padding:8px;min-height:25mm}
           .print-preview-page .footer{margin-top:8px;font-size:9px;color:#666}
-          .print-preview-page .criterion{border:1px solid #d8dfdc;border-radius:7px;padding:9px;margin:8px 0}
-          .print-preview-page .criterion ul{list-style:none;padding:0;margin:5px 0}
+
+          .print-preview-page .criterion{
+            border:1px solid #d8dfdc;
+            border-radius:7px;
+            padding:9px;
+            margin:8px 0
+          }
+
+          .print-preview-page .criterion ul{
+            list-style:none;
+            padding:0;
+            margin:5px 0
+          }
+
           .print-preview-page .criterion li{padding:3px 0}
           .print-preview-page .criterion li span{float:right;color:#667085}
           .print-preview-page .checked{font-weight:600}
           .print-preview-page .unchecked{color:#777}
-          .print-preview-page .mastery{background:#f3f6f5;border-radius:7px;padding:9px;margin-top:8px}
+
+          .print-preview-page .mastery{
+            background:#f3f6f5;
+            border-radius:7px;
+            padding:9px;
+            margin-top:8px
+          }
+/* =========================================================
+   GRILLES CORRIGÉES — 1 TABLEAU PAR QUESTION
+   2 CRITÈRES PAR LIGNE
+   ========================================================= */
+
+.print-preview-page .correction-student-page
+.question-block{
+  margin:5px 0 7px!important;
+}
+
+.print-preview-page .correction-student-page
+.question-criteria-table{
+  width:100%!important;
+  border-collapse:collapse!important;
+  table-layout:fixed!important;
+  margin:3px 0 4px!important;
+}
+
+.print-preview-page .correction-student-page
+.question-criteria-table td{
+  width:50%!important;
+  border:1px solid #bfc8c5!important;
+  padding:5px!important;
+  vertical-align:top!important;
+}
+
+.print-preview-page .correction-student-page
+.question-criteria-table .criterion-cell{
+  background:#fff!important;
+}
+
+.print-preview-page .correction-student-page
+.question-criteria-table .criterion-empty{
+  background:#fafafa!important;
+}
+
+.print-preview-page .correction-student-page
+.criterion-inner h3{
+  font-size:10.5px!important;
+  line-height:1.2!important;
+  margin:0 0 3px!important;
+  font-weight:700!important;
+}
+
+.print-preview-page .correction-student-page
+.criterion-points{
+  float:right!important;
+  font-weight:600!important;
+  white-space:nowrap!important;
+}
+
+.print-preview-page .correction-student-page
+.criterion-inner .status{
+  font-size:9px!important;
+  line-height:1.2!important;
+  margin:2px 0 3px!important;
+}
+
+.print-preview-page .correction-student-page
+.criterion-inner ul{
+  margin:2px 0 0 0!important;
+  padding:0!important;
+  list-style:none!important;
+}
+
+.print-preview-page .correction-student-page
+.criterion-inner li{
+  font-size:9px!important;
+  line-height:1.2!important;
+  padding:1.5px 0!important;
+  margin:0!important;
+}
+
+.print-preview-page .correction-student-page
+.indicator-mark{
+  display:inline-block!important;
+  width:12px!important;
+  font-weight:700!important;
+}
+
+.print-preview-page .correction-student-page
+.indicator-points{
+  float:right!important;
+  margin-left:4px!important;
+  color:#667085!important;
+  white-space:nowrap!important;
+  font-size:8.5px!important;
+}
+          /* Une grille corrigée = une feuille A4 */
+          .print-preview-page .correction-student-page{
+            width:100%;
+            height:287mm;
+            min-height:287mm;
+            max-height:287mm;
+            margin:0;
+            padding:2mm;
+            overflow:hidden;
+            page-break-after:always;
+            break-after:page;
+            break-inside:avoid;
+            box-sizing:border-box
+          }
+
+          .print-preview-page .correction-student-page:last-child{
+            page-break-after:auto;
+            break-after:auto
+          }
+
+          .print-preview-page .correction-page-content{
+            transform-origin:top left;
+            width:100%;
+            box-sizing:border-box
+          }
+
+          /* Réduction de la grille : elle reste lisible tout en tenant sur A4 */
+          .print-preview-page .correction-student-page h1{
+            font-size:18px;
+            margin:0 0 4px
+          }
+
+          .print-preview-page .correction-student-page h2{
+            font-size:12px;
+            margin:5px 0 3px;
+            padding-bottom:2px
+          }
+
+          .print-preview-page .correction-student-page h3{
+            font-size:10px;
+            margin:3px 0 2px
+          }
+
+          .print-preview-page .correction-student-page p{
+            margin:3px 0
+          }
+
+          .print-preview-page .correction-student-page .result{
+            padding:4px!important;
+            margin:4px 0!important;
+            font-size:10px!important
+          }
+
+          .print-preview-page .correction-student-page .mastery-summary{
+            padding:5px!important;
+            margin:5px 0!important
+          }
+
+          .print-preview-page .correction-student-page .criterion{
+            padding:4px!important;
+            margin:3px 0!important
+          }
+
+          .print-preview-page .correction-student-page .criterion li{
+            padding:1px 0!important;
+            margin:0!important
+          }
+
+          .print-preview-page .correction-student-page .status{
+            margin:2px 0!important
+          }
+
+          .print-preview-page .correction-student-page .mastery{
+            padding:3px!important;
+            margin:3px 0!important;
+            font-size:9px!important
+          }
+
+          .print-preview-page .correction-student-page ul{
+            margin:2px 0 2px 14px!important;
+            padding:0!important
+          }
+
           ${extraCss}
+
+          @media print{
+            html,body{
+              margin:0!important;
+              padding:0!important;
+              background:#fff!important
+            }
+
+            body > *:not(#printOverlay){
+              display:none!important
+            }
+
+            #printOverlay{
+              display:block!important;
+              position:static!important;
+              width:100%!important;
+              margin:0!important;
+              padding:0!important;
+              background:#fff!important;
+              overflow:visible!important
+            }
+
+            .print-preview-wrap{
+              width:100%!important;
+              margin:0!important;
+              padding:0!important;
+              box-shadow:none!important;
+              border-radius:0!important;
+              overflow:visible!important
+            }
+
+            .print-preview-toolbar{
+              display:none!important
+            }
+
+            .print-preview-page{
+              width:100%!important;
+              margin:0!important;
+              padding:0!important;
+              background:#fff!important;
+              -webkit-print-color-adjust:exact;
+              print-color-adjust:exact
+            }
+
+            
+.print-preview-page .correction-student-page{
+  width:100%!important;
+  min-height:0!important;
+  height:auto!important;
+  max-height:none!important;
+  margin:0!important;
+  padding:2mm!important;
+  overflow:visible!important;
+  page-break-after:auto!important;
+  break-after:auto!important;
+  break-inside:avoid!important;
+}
+
+
+            .print-preview-page .correction-student-page:last-child{
+              page-break-after:auto!important;
+              break-after:auto!important
+            }
+          }
         </style>
+
         ${bodyHtml}
       </div>
     </div>`;
@@ -3072,11 +3497,64 @@ function printHtmlInCurrentWindow(title,bodyHtml,extraCss=""){
     document.title=previousTitle;
   };
 
+  window.preparePrintPages=function(){
+    const pages=[
+      ...overlay.querySelectorAll(
+        ".print-preview-page .correction-student-page"
+      )
+    ];
+
+    if(!pages.length)return;
+
+    const availableHeight=(287/25.4)*96;
+    const availableWidth=(
+      overlay.querySelector(".print-preview-page")?.clientWidth ||
+      794
+    );
+
+    pages.forEach(page=>{
+      const inner=page.querySelector(
+        ":scope > .correction-page-content"
+      );
+
+      if(!inner)return;
+
+      inner.style.transform="scale(1)";
+      inner.style.width="100%";
+
+      // Mesure réelle du contenu avant réduction.
+      const naturalHeight=inner.scrollHeight;
+      const naturalWidth=inner.scrollWidth;
+
+      const scaleH=naturalHeight>0
+        ?availableHeight/naturalHeight
+        :1;
+
+      const scaleW=naturalWidth>availableWidth
+        ?availableWidth/naturalWidth
+        :1;
+
+      // Ne jamais agrandir ; on réduit uniquement si nécessaire.
+      const scale=Math.min(1,scaleH,scaleW);
+
+      inner.style.width=`${100/scale}%`;
+      inner.style.transform=`scale(${scale})`;
+    });
+  };
+
+  // Prépare aussi l'aperçu avant que l'utilisateur clique sur PDF.
+  requestAnimationFrame(()=>{
+    setTimeout(()=>window.preparePrintPages(),100);
+  });
+
   if(!window.__printPreviewKeyHandler){
     window.__printPreviewKeyHandler=function(e){
-      if(e.key==="Escape") window.closePrintPreview?.();
+      if(e.key==="Escape")window.closePrintPreview?.();
     };
-    document.addEventListener("keydown",window.__printPreviewKeyHandler);
+    document.addEventListener(
+      "keydown",
+      window.__printPreviewKeyHandler
+    );
   }
 }
 
@@ -3128,45 +3606,49 @@ async function generateBlankEvaluationGrid(evalId){
         0
       );
 
+     
       const criteresHtml=question.criteres.map((cr,i)=>{
         const inds=(cr.indicateurs||[]).filter(x=>x&&x.nom);
         const pts=inds.reduce((a,x)=>a+Number(x.points||0),0);
 
-        return `<tr>
-          <td>
-            <strong>Critère ${i+1}</strong><br>
-            ${escP(cr.nom)}<br>
-            <span class="points">Barème : / ${pts} pt</span>
-          </td>
-          <td>
-            ${inds.map(x=>`☐ ${escP(x.nom)} <span class="ipt">${Number(x.points||0)} pt</span>`).join("<br>")||"—"}
-          </td>
-          <td>
-            <div class="scoreline">Points : ______ / ${pts}</div>
-            <div>☐ Critère validé</div>
-          </td>
-        </tr>`;
+        return `<div class="blank-criterion" style="border:1px solid #555;padding:7px;margin:0;break-inside:avoid">
+          <strong>Critère ${i+1} — ${escP(cr.nom)}</strong>
+          <div style="font-size:9px;margin:3px 0">Barème : / ${pts} pt</div>
+          <div style="margin:5px 0">
+            ${inds.map(x=>`☐ ${escP(x.nom)} <span style="float:right">${Number(x.points||0)} pt</span>`).join("<br>")||"—"}
+          </div>
+          <div style="border-top:1px solid #aaa;padding-top:5px;margin-top:5px">
+            Points : ______ / ${pts} pt
+            <br>☐ Critère validé
+          </div>
+        </div>`;
       }).join("");
 
-      return `<section>
-        <h2>📝 Question ${question.questionNumero} — ${escP(question.nom)}</h2>
-        <table>
-          <thead>
-            <tr>
-              <th style="width:22%">Critère</th>
-              <th>Indicateurs</th>
-              <th style="width:20%">Résultat du critère</th>
-            </tr>
-          </thead>
-          <tbody>${criteresHtml}</tbody>
-        </table>
+      return `<section style="break-inside:avoid">
+       
+<h2>📝 ${isTransversalLanguageCompetency(question.nom)
+  ? "Maîtrise de la langue — Compétence transversale"
+  : "Question " + question.questionNumero + " — " + escP(question.nom)}</h2>
+
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;align-items:start">
+          ${criteresHtml}
+        </div>
 
         <div class="total" style="margin-top:8px">
-          Total Question ${question.questionNumero} : ______ / ${totalQuestion} pt
+          
+${isTransversalLanguageCompetency(question.nom)
+  ? "Total maîtrise de la langue"
+  : "Total Question " + question.questionNumero} : ______ / ${totalQuestion} pt
+
         </div>
 
         <div class="mastery" style="margin-top:8px">
-          Maîtrise de la question :
+          
+${isTransversalLanguageCompetency(question.nom)
+  ? "Maîtrise de la compétence :"
+  : "Maîtrise de la question :"}
+
           ☐ TBM &nbsp;&nbsp; ☐ MS &nbsp;&nbsp; ☐ MF &nbsp;&nbsp; ☐ MI
         </div>
       </section>`;
@@ -3541,6 +4023,19 @@ function renderCriterionEditor(c,i){
     <button type="button" class="entry-add" onclick="this.previousElementSibling.insertAdjacentHTML('beforeend',indicatorEditor({nom:'',points:1}))">＋ Ajouter un indicateur</button>
   </div>`;
 }
+  
+
+function isTransversalLanguageCompetency(nom){
+  const texte = String(nom || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+
+  return texte.includes("maitrise de la langue") ||
+         texte.includes("maitriser la langue francaise");
+}
+
+
 function renderCompetencyEditor(comp,ci){
   const cs=Array.isArray(comp.criteres)?comp.criteres:[];
   const questionNumero=Number(comp.questionNumero||ci+1);
@@ -3550,13 +4045,15 @@ function renderCompetencyEditor(comp,ci){
     data-bank-competency-id="${esc(comp.bankId||"")}">
 
     <div class="row" style="justify-content:space-between;align-items:center">
-      <strong>📝 Question ${questionNumero}</strong>
+      <strong>📝 ${isTransversalLanguageCompetency(comp.nom) ? "Maîtriser la langue française — Compétence transversale" : "Question " + questionNumero}</strong>
       <button class="danger" type="button"
         onclick="this.closest('.question-editor').remove();renumberEvaluationQuestions()">
         Supprimer
       </button>
     </div>
 
+    
+    ${!isTransversalLanguageCompetency(comp.nom) ? `
     <label>Numéro de la question</label>
     <input class="question-number"
       type="number"
@@ -3564,6 +4061,7 @@ function renderCompetencyEditor(comp,ci){
       step="1"
       value="${questionNumero}"
       onchange="renumberEvaluationQuestions()">
+    ` : ""}
 
     <label>Compétence évaluée</label>
 
@@ -3622,6 +4120,7 @@ function addCompetencyEditor(){
   });
 }
 
+
 function selectQuestionCompetency(select){
   const box=select.closest(".question-editor");
   if(!box)return;
@@ -3631,24 +4130,55 @@ function selectQuestionCompetency(select){
   );
 
   box.dataset.bankCompetencyId=c?.id||"";
+  box.dataset.competencyName=c?.nom||"";
 
   const input=box.querySelector(".competency-name");
   if(input && c){
     input.value=c.nom||"";
   }
+
+  renumberEvaluationQuestions();
 }
+
+
+
 
 function renumberEvaluationQuestions(){
   document.querySelectorAll("#competenciesEditor .question-editor")
     .forEach((box,i)=>{
-      const input=box.querySelector(".question-number");
-      if(input && !input.value)input.value=i+1;
+      const input = box.querySelector(".question-number");
+      const label = input?.previousElementSibling;
+      const title = box.querySelector("strong");
 
-      const number=Number(input?.value||i+1);
-      const title=box.querySelector("strong");
-      if(title)title.textContent=`📝 Question ${number}`;
+      const nom = box.dataset.competencyName ||
+        box.querySelector(".question-bank-select")
+          ?.selectedOptions?.[0]?.textContent || "";
+
+      const transversal = isTransversalLanguageCompetency(nom);
+
+      if(input){
+        input.style.display = transversal ? "none" : "";
+        if(label?.tagName === "LABEL"){
+          label.style.display = transversal ? "none" : "";
+        }
+      }
+
+      if(transversal){
+        if(title){
+          title.textContent =
+            "📝 Maîtriser la langue française — Compétence transversale";
+        }
+        return;
+      }
+
+      if(input && !input.value) input.value = i+1;
+
+      const number = Number(input?.value || i+1);
+      if(title) title.textContent = `📝 Question ${number}`;
     });
 }
+
+
 function indicatorEditor(item={}){
   return `<div class="eval-card indicator-row" style="margin:8px 0;padding:11px">
     <div class="eval-grid">
@@ -4293,7 +4823,23 @@ const savedValidated=result.criteriaStats||{};
   <section class="hero teacher" style="margin-top:14px">
 <span class="eyebrow">${esc(correctionClass||"Classe")}</span>    <div class="row"><span class="score-pill" id="liveScore">0 / ${Number(ev.total||0)}</span><span id="livePercent" class="status"></span></div>
     <div id="correctionCriteria">${comps.map((comp,co)=>`<div class="eval-card"><h3>📝 Question ${comp.questionNumero} — ${esc(comp.nom)}</h3>${comp.criteres.map((cr,ci)=>`<div class="criteria-box"><h4 style="margin:0 0 8px">Critère ${ci+1} — ${esc(cr.nom)}</h4><div class="criterion-auto-status" data-criterion-status="${esc(cr.id)}"><span class="small-note">Validation automatique : au moins 2/3 des indicateurs cochés (≥ 66,7 %).</span></div>${(cr.indicateurs||[]).map((it,ii)=>{const key=`${cr.id}_${ii}`,checked=!!result.points?.[key]||!!result.points?.[`${cr.id}_${ii}`];return `<div class="check-row"><label><input type="checkbox" class="correction-check" data-key="${key}" data-points="${Number(it.points||0)}" data-criterion="${esc(cr.id)}" ${checked?"checked":""} onchange="refreshCorrectionScore('${esc(ev.id)}')"> ${esc(it.nom)}</label><span class="small-note">${Number(it.points||0)} pt</span></div>`}).join("")||`<p class="muted">Aucun indicateur pour ce critère.</p>`}</div>`).join("")}</div>`).join("")}</div>
-    <div class="editbox"><label>Appréciation / remarque</label><textarea id="corrComment" style="width:100%;min-height:90px;border:1px solid var(--b);border-radius:10px;padding:10px;font:inherit">${esc(result.commentaire||"")}</textarea></div>
+    
+<div class="editbox">
+  <div class="entry-head">
+    <label style="margin:0">Appréciation / remarque</label>
+    <button type="button" onclick="generateEvaluationComment()">
+      ✨ Générer une appréciation
+    </button>
+  </div>
+  <p class="small-note">
+    L'appréciation est construite à partir des critères et
+    indicateurs de cette évaluation. Tu peux la modifier avant
+    d'enregistrer la correction.
+  </p>
+  <textarea id="corrComment"
+    style="width:100%;min-height:90px;border:1px solid var(--b);border-radius:10px;padding:10px;font:inherit">${esc(result.commentaire||"")}</textarea>
+</div>
+
     <div id="masteryPreview"></div>
     <div class="row"><button type="button" class="primary" onclick="event.preventDefault();saveCorrection(${jsArg(evalId)},${jsArg(correctionId||"")},${jsArg(corr.eleve||"")},${jsArg(corr.eleve_id||"")})">💾 Enregistrer la correction</button><button type="button" onclick="event.preventDefault();generateCorrectionPDF('${esc(evalId)}')">📥 Exporter cette grille en PDF</button><button type="button" onclick="event.preventDefault();printAllCorrectionGrids('${esc(evalId)}')">📥 Exporter toutes les grilles de la classe en PDF</button></div>
   </section>`;
@@ -4379,6 +4925,123 @@ function refreshCorrectionScore(evalId){
   });
 }
 
+
+
+function generateEvaluationComment() {
+  const ev = currentCorrectionEvaluation;
+  const textarea = document.getElementById("corrComment");
+
+  if (!ev || !textarea) {
+    alert("La correction n'est pas chargée.");
+    return;
+  }
+
+  if (
+    textarea.value.trim() &&
+    !confirm("Remplacer l'appréciation actuelle ?")
+  ) {
+    return;
+  }
+
+  const result = computeCorrection(ev);
+  const criteria = criteriaFromLegacy(ev);
+  const questions = new Map();
+
+  let totalIndicators = 0;
+  let totalChecked = 0;
+
+  // Regrouper tous les indicateurs par question,
+  // quelle que soit la compétence évaluée.
+  criteria.forEach((cr, index) => {
+    const indicators = cr.indicateurs || [];
+    if (!indicators.length) return;
+
+    const rawQuestion = cr.questionNumero || index + 1;
+    const questionKey = String(rawQuestion)
+      .replace(/^Q/i, "");
+
+    if (!questions.has(questionKey)) {
+      questions.set(questionKey, {
+        label: "Q" + questionKey,
+        total: 0,
+        checked: 0,
+        uncheckedNames: []
+      });
+    }
+
+    const question = questions.get(questionKey);
+
+    indicators.forEach((indicator, ii) => {
+      const key = cr.id + "_" + ii;
+      const checked = Boolean(result.points[key]);
+      const name = typeof indicator === "string"
+        ? indicator
+        : indicator.nom;
+
+      question.total++;
+      totalIndicators++;
+
+      if (checked) {
+        question.checked++;
+        totalChecked++;
+      } else if (name) {
+        question.uncheckedNames.push(name);
+      }
+    });
+  });
+
+  if (totalIndicators === 0) {
+    alert("Aucun indicateur disponible.");
+    return;
+  }
+
+  const overall = Math.round(
+    totalChecked / totalIndicators * 100
+  );
+
+  // Identifier la question ayant le plus faible
+  // pourcentage de réussite.
+  const results = Array.from(questions.values())
+    .filter(q => q.total > 0)
+    .map(q => ({
+      ...q,
+      percent: Math.round(q.checked / q.total * 100)
+    }))
+    .sort((a, b) => a.percent - b.percent);
+
+  const weakest = results.find(q => q.percent < 100);
+
+  let comment;
+
+  if (overall >= 85) {
+    comment = "Très bon travail : " + overall +
+      " % de réussite sur l'ensemble de l'évaluation.";
+  } else if (overall >= 50) {
+    comment = "Travail encourageant : " + overall +
+      " % de réussite. Des points restent à consolider.";
+  } else {
+    comment = overall + 
+      " % de réussite : plusieurs apprentissages restent à consolider.";
+  }
+
+  if (weakest) {
+    let advice = "";
+
+    if (weakest.uncheckedNames.length > 0) {
+      advice = " Retravaille notamment : « " +
+        weakest.uncheckedNames[0].replace(/[«»"]/g, "") +
+        " ».";
+    }
+
+    comment += " Priorité : " + weakest.label +
+      " (" + weakest.percent + " % de réussite)." + advice;
+  } else {
+    comment += " Tous les indicateurs sont validés. Continue ainsi !";
+  }
+
+  textarea.value = comment;
+}
+
 async function generateEvaluationSummaryPDF(evalId){
   try{
     const ev=await getEvaluationById(evalId);
@@ -4426,6 +5089,15 @@ async function generateEvaluationSummaryPDF(evalId){
      * - au même chapitre ;
      * - au type Évaluation de chapitre.
      */
+   
+    // Le récapitulatif regroupe les sujets de même type,
+    // pour la classe et le chapitre concernés.
+    // Les activités et les évaluations restent distinctes.
+
+    const typeCible=String(
+      ev.typeEvaluation || "evaluation"
+    );
+
     const chapterEvaluations=evaluationsCache
       .filter(e=>{
         const classes=Array.isArray(e.assignedClasses)
@@ -4437,7 +5109,7 @@ async function generateEvaluationSummaryPDF(evalId){
 
         return classes.includes(selectedClass)
           && Number(e.chapitre||0)===chapitre
-          && String(e.typeEvaluation||"evaluation")==="evaluation";
+          && String(e.typeEvaluation||"evaluation")===typeCible;
       })
       .sort((a,b)=>{
         return String(a.titre||"")
@@ -4450,7 +5122,7 @@ async function generateEvaluationSummaryPDF(evalId){
 
     if(!chapterEvaluations.length){
       alert(
-        `Aucune évaluation de chapitre trouvée pour ${selectedClass}, chapitre ${chapitre}.`
+        `Aucun sujet du même type trouvé pour ${selectedClass}, chapitre ${chapitre}.`
       );
       return;
     }
@@ -4907,7 +5579,7 @@ async function generateEvaluationSummaryPDF(evalId){
           &nbsp; · &nbsp;
 
           <strong>Type :</strong>
-          Évaluation de chapitre
+          ${typeCible==="activite" ? "Activité" : "Évaluation de chapitre"}
         </p>
 
         <p class="small-note">
@@ -5130,6 +5802,7 @@ function correctionGridHtml(ev,c,selectedClass=""){
     ?Math.round(score/total*100)
     :0;
 
+
   /*
    * =========================================================
    * 1. GROUPER PAR QUESTION
@@ -5311,7 +5984,10 @@ function correctionGridHtml(ev,c,selectedClass=""){
 
         return `
           <tr>
-            <td style="padding:7px;border-bottom:1px solid #ccd5d1">
+            <td style="
+              padding:7px;
+              border-bottom:1px solid #ccd5d1
+            ">
               <strong>
                 ${escPrint(comp.nom)}
               </strong>
@@ -5333,86 +6009,102 @@ function correctionGridHtml(ev,c,selectedClass=""){
 
   /*
    * =========================================================
-   * 6. GRILLE DÉTAILLÉE :
-   *    UNE QUESTION = UN BLOC
+   * 6. CONSTRUIRE LA PAGE
    * =========================================================
    */
 
- let body=`<div class="print-page"><h1>Correction — ${escPrint(ev.titre||"Évaluation")}</h1><p><strong>${escPrint(c.eleve||"Élève")}</strong> — ${escPrint(c.classe||ev.classe||"Classe")}</p>
+  let body=`
+    <div class="print-page correction-student-page">
 
-      <div
-        class="result"
-        style="
-          border:1px solid #ccd5d1;
-          padding:10px;
-          margin:10px 0;
-          font-size:14px
-        "
-      >
-        <strong>
-          Note : ${score} / ${total} pt
-        </strong>
-        — ${pct}%
-      </div>
+      <div class="correction-page-content">
 
+        <h1>
+          Correction — ${escPrint(ev.titre||"Évaluation")}
+        </h1>
 
-      <!-- SYNTHÈSE -->
+        <p>
+          <strong>
+            ${escPrint(c.eleve||"Élève")}
+          </strong>
+          —
+          ${escPrint(c.classe||ev.classe||"Classe")}
+        </p>
 
-      <section
-        class="mastery-summary"
-        style="
-          border:1px solid #ccd5d1;
-          padding:12px;
-          margin:14px 0
-        "
-      >
-
-        <h2 style="margin:0 0 10px">
-          📊 Récapitulatif de la maîtrise
-        </h2>
-
-        <table
+        <div
+          class="result"
           style="
-            width:100%;
-            border-collapse:collapse
+            border:1px solid #ccd5d1;
+            padding:10px;
+            margin:10px 0;
+            font-size:14px
+          "
+        >
+          <strong>
+            Note : ${score} / ${total} pt
+          </strong>
+          — ${pct}%
+        </div>
+
+
+        <!-- SYNTHÈSE DES COMPÉTENCES -->
+
+        <section
+          class="mastery-summary"
+          style="
+            border:1px solid #ccd5d1;
+            padding:12px;
+            margin:14px 0
           "
         >
 
-          <thead>
-            <tr>
+          <h2 style="margin:0 0 10px">
+            📊 Récapitulatif de la maîtrise
+          </h2>
 
-              <th style="
-                text-align:left;
-                padding:7px;
-                border-bottom:1px solid #ccd5d1
-              ">
-                Compétence
-              </th>
+          <table
+            style="
+              width:100%;
+              border-collapse:collapse
+            "
+          >
 
-              <th style="
-                text-align:center;
-                padding:7px;
-                border-bottom:1px solid #ccd5d1
-              ">
-                Maîtrise
-              </th>
+            <thead>
+              <tr>
 
-            </tr>
-          </thead>
+                <th style="
+                  text-align:left;
+                  padding:7px;
+                  border-bottom:1px solid #ccd5d1
+                ">
+                  Compétence
+                </th>
 
-          <tbody>
-            ${masterySummary}
-          </tbody>
+                <th style="
+                  text-align:center;
+                  padding:7px;
+                  border-bottom:1px solid #ccd5d1
+                ">
+                  Maîtrise
+                </th>
 
-        </table>
+              </tr>
+            </thead>
 
-      </section>
+            <tbody>
+              ${masterySummary}
+            </tbody>
+
+          </table>
+
+        </section>
   `;
 
 
   /*
    * =========================================================
    * 7. QUESTIONS
+   *    UN TABLEAU PAR QUESTION
+   *    CRITÈRES RÉPARTIS EN 2 COLONNES
    * =========================================================
    */
 
@@ -5421,134 +6113,232 @@ function correctionGridHtml(ev,c,selectedClass=""){
     const qm=masteryForQuestion(question);
 
     body+=`
-      <section>
+
+      <section class="question-block">
 
         <h2>
-          📝 Question ${question.questionNumero}
-          — ${escPrint(question.nom)}
+          
+📝 ${isTransversalLanguageCompetency(question.nom)
+  ? "Maîtrise de la langue — Compétence transversale"
+  : "Question " + question.questionNumero + " — " + escPrint(question.nom)}
+
         </h2>
+
+        <table class="question-criteria-table">
+
+          <tbody>
     `;
 
-    question.criteres.forEach((cr,i)=>{
 
-      const st=
-        r.criteriaStats?.[cr.id]||{
-          checked:0,
-          count:0,
-          percent:0,
-          validated:false
-        };
+    /*
+     * Deux critères par ligne.
+     *
+     * Exemple :
+     *
+     * Critère 1 | Critère 2
+     * Critère 3 | Critère 4
+     *
+     * Si 3 critères :
+     *
+     * Critère 1 | Critère 2
+     * Critère 3 | vide
+     */
 
-      const indicators=
-        Array.isArray(cr.indicateurs)
-          ?cr.indicateurs
-          :[];
+    for(
+      let i=0;
+      i<question.criteres.length;
+      i+=2
+    ){
 
-      const earned=
-        indicators.reduce(
-          (sum,it,ii)=>
-            sum+
-            (
-              r.points?.[`${cr.id}_${ii}`]
-                ?Number(it.points||0)
-                :0
-            ),
-          0
-        );
+      const cr1=
+        question.criteres[i];
 
-      const possible=
-        indicators.reduce(
-          (sum,it)=>
-            sum+Number(it.points||0),
-          0
-        );
+      const cr2=
+        question.criteres[i+1];
 
-      body+=`
-        <div class="criterion">
 
-          <h3 style="margin:0 0 6px">
-            Critère ${i+1}
-            — ${escPrint(cr.nom)}
+      function renderCriterion(cr){
 
-            <span style="float:right">
-              ${earned} / ${possible} pt
-            </span>
-          </h3>
+        if(!cr){
+          return `
+            <td class="criterion-empty"></td>
+          `;
+        }
 
-          <p class="status">
 
-            <strong>
-              ${
-                st.validated
-                  ?"✅ Critère validé"
-                  :"❌ Critère non validé"
-              }
-            </strong>
+        const st=
+          r.criteriaStats?.[cr.id]||{
+            checked:0,
+            count:0,
+            percent:0,
+            validated:false
+          };
 
-            · ${st.checked||0}
-            / ${st.count||0}
-            indicateur(s) coché(s)
 
-            — ${st.percent||0}%
+        const indicators=
+          Array.isArray(cr.indicateurs)
+            ?cr.indicateurs
+            :[];
 
-          </p>
 
-          <ul>
-      `;
+        const earned=
+          indicators.reduce(
+            (sum,it,ii)=>
+              sum+
+              (
+                r.points?.[
+                  `${cr.id}_${ii}`
+                ]
+                  ?Number(it.points||0)
+                  :0
+              ),
+            0
+          );
 
-      if(indicators.length){
 
-        indicators.forEach((it,ii)=>{
+        const possible=
+          indicators.reduce(
+            (sum,it)=>
+              sum+Number(it.points||0),
+            0
+          );
 
-          const checked=
-            !!r.points?.[
-              `${cr.id}_${ii}`
-            ];
 
-          body+=`
-            <li
-              class="${
+        let html=`
+
+          <td class="criterion-cell">
+
+            <div class="criterion-inner">
+
+              <h3>
+
+                Critère
+                ${question.criteres.indexOf(cr)+1}
+
+                — ${escPrint(cr.nom)}
+
+                <span class="criterion-points">
+                  ${earned} / ${possible} pt
+                </span>
+
+              </h3>
+
+
+              <p class="status">
+
+                <strong>
+                  ${
+                    st.validated
+                      ?"✅ Critère validé"
+                      :"❌ Critère non validé"
+                  }
+                </strong>
+
+                · ${st.checked||0}
+                / ${st.count||0}
+                indicateur(s) coché(s)
+
+                — ${st.percent||0}%
+
+              </p>
+
+
+              <ul>
+        `;
+
+
+        if(indicators.length){
+
+          indicators.forEach((it,ii)=>{
+
+            const checked=
+              !!r.points?.[
+                `${cr.id}_${ii}`
+              ];
+
+
+            html+=`
+
+              <li class="${
                 checked
                   ?"checked"
                   :"unchecked"
-              }"
-            >
-              ${checked?"✓":"✗"}
-              ${escPrint(it.nom)}
+              }">
 
-              <span>
-                ${Number(it.points||0)} pt
-              </span>
+                <span class="indicator-mark">
+                  ${checked?"✓":"✗"}
+                </span>
+
+                <span class="indicator-name">
+                  ${escPrint(it.nom)}
+                </span>
+
+                <span class="indicator-points">
+                  ${Number(it.points||0)} pt
+                </span>
+
+              </li>
+
+            `;
+          });
+
+        }else{
+
+          html+=`
+
+            <li>
+              Aucun indicateur.
             </li>
+
           `;
-        });
+        }
 
-      }else{
 
-        body+=`
-          <li>
-            Aucun indicateur.
-          </li>
+        html+=`
+
+              </ul>
+
+            </div>
+
+          </td>
+
         `;
 
+        return html;
       }
 
-      body+=`
-          </ul>
 
-        </div>
+      body+=`
+
+        <tr>
+
+          ${renderCriterion(cr1)}
+
+          ${renderCriterion(cr2)}
+
+        </tr>
+
       `;
-    });
+    }
 
 
     body+=`
+
+          </tbody>
+
+        </table>
+
+
         <div class="mastery">
 
-          Maîtrise de la question :
+         ${isTransversalLanguageCompetency(question.nom)
+  ? "Maîtrise de la compétence :"
+  : "Maîtrise de la question :"}
 
           <strong>
             ${qm.mastery.code}
-            — ${escPrint(qm.mastery.label)}
+            —
+            ${escPrint(qm.mastery.label)}
           </strong>
 
           (
@@ -5560,7 +6350,9 @@ function correctionGridHtml(ev,c,selectedClass=""){
 
         </div>
 
+
       </section>
+
     `;
   });
 
@@ -5573,9 +6365,11 @@ function correctionGridHtml(ev,c,selectedClass=""){
 
   const comment=r.commentaire||"";
 
+
   if(comment){
 
     body+=`
+
       <div
         class="comment"
         style="
@@ -5584,6 +6378,7 @@ function correctionGridHtml(ev,c,selectedClass=""){
           margin-top:12px
         "
       >
+
         <strong>
           Commentaire :
         </strong>
@@ -5593,17 +6388,22 @@ function correctionGridHtml(ev,c,selectedClass=""){
         ${escPrint(comment)}
 
       </div>
+
     `;
   }
 
 
   body+=`
+
+      </div>
+
     </div>
+
   `;
+
 
   return body;
 }
-
 async function generateCorrectionPDF(evalId){
   try{
     let ev=currentCorrectionEvaluation;
@@ -5922,14 +6722,24 @@ if(correctionId){
         return `<section>
 
           <h3>
-            📝 Question ${question.questionNumero}
-            — ${escPrint(question.nom)}
+            
+📝 ${isTransversalLanguageCompetency(question.nom)
+  ? "Maîtrise de la langue — Compétence transversale"
+  : "Question " + question.questionNumero + " — " + escPrint(question.nom)}
+
           </h3>
 
-          ${criteriaHtml}
+          
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;align-items:start">
+  ${criteriaHtml}
+</div>
 
           <div class="mastery">
-            Maîtrise de la question :
+
+${isTransversalLanguageCompetency(question.nom)
+  ? "Maîtrise de la compétence :"
+  : "Maîtrise de la question :"}
+
             <strong>
               ${m.mastery.code}
               — ${escPrint(m.mastery.label)}
@@ -6582,12 +7392,452 @@ async function doLogin(){
   }
 }
 async function logout(){clearTimeout(autosaveTimer);await sb.auth.signOut()}
+  function qcuEsc(v){
+  return String(v ?? "").replace(/[&<>"']/g, c => ({
+    "&":"&amp;", "<":"&lt;", ">":"&gt;",
+    '"':"&quot;", "'":"&#39;"
+  }[c]));
+}
 
-async function home(){
+function qcuNote(correct, total){
+  return Math.round(Number(correct) / Number(total) * 2000) / 100;
+}
+
+
+async function openQCU(){
+  await flushPendingAutosave();
+  clearTimeout(autosaveTimer);
+  niveau = null;
+  classe = null;
+  label.textContent = "QCU – Mémorisation";
+  updateQuickNav();
+
+  window.qcuSelectedClass = null;
+
+  content.innerHTML = `
+    <button onclick="home()">← Accueil</button>
+
+    <section class="hero" style="margin-top:14px">
+      <span class="eyebrow">Mémorisation active</span>
+      <h2>🧠 QCU – Mémorisation</h2>
+      <p class="muted">
+        Choisis une classe pour gérer ses QCU et consulter ses moyennes.
+      </p>
+    </section>
+
+    <div id="qcuList">Chargement…</div>
+    <div id="qcuDetail"></div>
+    <div id="qcuAverages"></div>
+  `;
+
+  await qcuLoad();
+}
+
+function qcuOpenClass(c){
+  window.qcuSelectedClass = c;
+
+  const host = document.getElementById("qcuList");
+  if(!host) return;
+
+  host.innerHTML = `
+    <section class="hero">
+      <button onclick="qcuBackToClasses()">← Toutes les classes</button>
+      <h3 style="margin-top:12px">${qcuEsc(c)} — QCU de mémorisation</h3>
+
+      <h4>Créer un QCU</h4>
+      <input id="qcuClasse" type="hidden" value="${qcuEsc(c)}">
+
+      <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr))">
+        <label>Trimestre
+          <select id="qcuTrim">
+            <option value="1">Trimestre 1</option>
+            <option value="2">Trimestre 2</option>
+            <option value="3">Trimestre 3</option>
+          </select>
+        </label>
+
+        <label>Titre du QCU
+          <input id="qcuTitre" placeholder="Ex. Mémo 1 + 2">
+        </label>
+
+        <label>Nombre de questions
+          <input id="qcuTotal" type="number" min="1" step="1" value="20">
+        </label>
+
+        <label>Date
+          <input id="qcuDate" type="date" value="${new Date().toISOString().slice(0,10)}">
+        </label>
+      </div>
+
+      <button class="primary" onclick="qcuCreate()">＋ Créer le QCU</button>
+    </section>
+
+    <section class="hero">
+      <h3>QCU de ${qcuEsc(c)}</h3>
+      <div id="qcuClassItems"></div>
+    </section>
+  `;
+
+  qcuRenderClassItems();
+  qcuRenderAverages();
+}
+
+function qcuBackToClasses(){
+  window.qcuSelectedClass = null;
+  document.getElementById("qcuDetail").innerHTML = "";
+  document.getElementById("qcuAverages").innerHTML = "";
+  qcuLoad();
+}
+
+function qcuRenderClassItems(){
+  const host = document.getElementById("qcuClassItems");
+  if(!host) return;
+
+  const items = (window.qcuItems || [])
+    .filter(q => q.classe === window.qcuSelectedClass);
+
+  if(!items.length){
+    host.innerHTML = '<p class="muted">Aucun QCU pour cette classe. Crée le premier ci-dessus.</p>';
+    return;
+  }
+
+  host.innerHTML = `
+    <div class="grid">
+      ${items.map(q => `
+        <article class="card">
+          <span class="tag">Trimestre ${q.trimestre}</span>
+          <h3>${qcuEsc(q.titre)}</h3>
+          <p class="muted">${qcuEsc(q.date_qcu)} · ${q.total_questions} questions</p>
+          <button class="primary" onclick="qcuOpen('${q.id}')">Saisir les scores</button>
+          <button onclick="qcuDelete('${q.id}')">Supprimer</button>
+        </article>
+      `).join("")}
+    </div>
+  `;
+}
+
+async function qcuLoad(){
+  const host = document.getElementById("qcuList");
+  if(!host) return;
+
+  const {data, error} = await sb
+    .from("qcu_memorisation")
+    .select("*")
+    .order("date_qcu", {ascending:false});
+
+  if(error){
+    host.innerHTML = `
+      <section class="hero">
+        <h3>Erreur de chargement</h3>
+        <p>${qcuEsc(error.message)}</p>
+      </section>`;
+    return;
+  }
+
+  window.qcuItems = data || [];
+
+  const {data:eleves, error:elevesError} = await sb
+    .from("Eleves")
+    .select("id,classe,nom,prenom");
+
+  window.qcuStudentsAll = elevesError ? [] : (eleves || []);
+
+  if(window.qcuSelectedClass){
+    qcuOpenClass(window.qcuSelectedClass);
+    return;
+  }
+
+  const classes = [...new Set([
+    ...Object.values(CLASSES).flat(),
+    ...window.qcuItems.map(q => q.classe)
+  ])].sort();
+
+  host.innerHTML = `
+    <section class="hero">
+      <h3>Choisir une classe</h3>
+      <div class="grid"
+        style="grid-template-columns:repeat(auto-fit,minmax(120px,1fr))">
+
+        ${classes.map(c => {
+          const n = window.qcuItems.filter(q => q.classe === c).length;
+
+          return `
+            <button class="card"
+              style="text-align:center;padding:20px"
+              onclick="qcuOpenClass('${qcuEsc(c)}')">
+
+              <strong style="font-size:1.15rem">
+                ${qcuEsc(c)}
+              </strong>
+
+              <p class="muted">
+                ${n} QCU
+              </p>
+            </button>`;
+        }).join("")}
+
+      </div>
+    </section>`;
+}
+
+async function qcuCreate(){
+  const classe = document.getElementById("qcuClasse").value;
+  const trimestre = Number(document.getElementById("qcuTrim").value);
+  const titre = document.getElementById("qcuTitre").value.trim();
+  const total_questions = Number(document.getElementById("qcuTotal").value);
+  const date_qcu = document.getElementById("qcuDate").value;
+
+  if(!titre || !Number.isInteger(total_questions) || total_questions < 1){
+    alert("Indique un titre et un nombre de questions valide.");
+    return;
+  }
+
+  const {data:{user:u}} = await sb.auth.getUser();
+
+  const {error} = await sb.from("qcu_memorisation").insert({
+    classe, trimestre, titre, total_questions, date_qcu,
+    resultats:{},
+    created_by:u?.id
+  });
+
+  if(error){
+    alert("Création impossible : " + error.message);
+    return;
+  }
+
+  document.getElementById("qcuTitre").value = "";
+  await qcuLoad();
+}
+
+async function qcuOpen(id){
+  const q = window.qcuItems.find(x => x.id === id);
+  if(!q) return;
+  window.qcuCurrent = q;
+
+  document.getElementById("qcuDetail").innerHTML = `
+    <section class="hero">
+      <h3>${qcuEsc(q.titre)} — ${qcuEsc(q.classe)}</h3>
+      <p class="muted">Trimestre ${q.trimestre} · ${q.total_questions} questions</p>
+      <input id="qcuSearch" placeholder="Rechercher un élève…" oninput="qcuFilter()">
+      <div style="overflow-x:auto">
+        <table>
+          <thead><tr>
+            <th>Élève</th>
+            <th>Bonnes réponses / ${q.total_questions}</th>
+            <th>Pourcentage</th>
+            <th>Note /20</th>
+          </tr></thead>
+          <tbody id="qcuRows"><tr><td colspan="4">Chargement…</td></tr></tbody>
+        </table>
+      </div>
+      <button class="primary" onclick="qcuSave()">Enregistrer les scores</button>
+      <button onclick="document.getElementById('qcuDetail').innerHTML=''">Fermer</button>
+    </section>`;
+
+  const {data, error} = await sb.from("Eleves")
+    .select("id,classe,nom,prenom")
+    .eq("classe", q.classe)
+    .order("nom");
+
+  if(error){
+    document.getElementById("qcuRows").innerHTML =
+      `<tr><td colspan="4">${qcuEsc(error.message)}</td></tr>`;
+    return;
+  }
+
+  window.qcuCurrentStudents = data || [];
+  qcuDrawRows();
+}
+
+function qcuDrawRows(){
+  const q = window.qcuCurrent;
+  const host = document.getElementById("qcuRows");
+  if(!host || !q) return;
+
+  host.innerHTML = (window.qcuCurrentStudents || []).map(e => {
+    const v = q.resultats?.[e.id];
+    const n = v == null ? "" : Number(v);
+    return `<tr data-name="${qcuEsc((e.nom+" "+e.prenom).toLowerCase())}">
+      <td>${qcuEsc(e.nom+" "+e.prenom)}</td>
+      <td><input class="qcuScore" data-id="${e.id}"
+        type="number" min="0" max="${q.total_questions}" step="1"
+        value="${n}" style="width:100px" oninput="qcuPreview(this)"></td>
+      <td class="qcuPct">${n==="" ? "—" : (n/q.total_questions*100).toFixed(1)+" %"}</td>
+      <td class="qcuGrade">${n==="" ? "—" : qcuNote(n,q.total_questions).toFixed(2).replace(".",",")}</td>
+    </tr>`;
+  }).join("") || '<tr><td colspan="4">Aucun élève trouvé dans la table Eleves.</td></tr>';
+}
+
+function qcuPreview(input){
+  const q = window.qcuCurrent;
+  const tr = input.closest("tr");
+  const n = Number(input.value);
+
+  if(input.value === "" || !Number.isInteger(n) || n < 0 || n > q.total_questions){
+    tr.querySelector(".qcuPct").textContent = "—";
+    tr.querySelector(".qcuGrade").textContent = "—";
+    return;
+  }
+
+  tr.querySelector(".qcuPct").textContent =
+    (n/q.total_questions*100).toFixed(1)+" %";
+  tr.querySelector(".qcuGrade").textContent =
+    qcuNote(n,q.total_questions).toFixed(2).replace(".",",");
+}
+
+function qcuFilter(){
+  const v = (document.getElementById("qcuSearch")?.value || "").toLowerCase();
+  document.querySelectorAll("#qcuRows tr[data-name]").forEach(tr => {
+    tr.style.display = tr.dataset.name.includes(v) ? "" : "none";
+  });
+}
+
+async function qcuSave(){
+  const q = window.qcuCurrent;
+  if(!q) return;
+
+  const resultats = {...(q.resultats || {})};
+  let invalide = false;
+
+  document.querySelectorAll(".qcuScore").forEach(input => {
+    if(input.value === ""){
+      delete resultats[input.dataset.id];
+      return;
+    }
+
+    const n = Number(input.value);
+    if(!Number.isInteger(n) || n < 0 || n > q.total_questions){
+      invalide = true;
+    }else{
+      resultats[input.dataset.id] = n;
+    }
+  });
+
+  if(invalide){
+    alert("Chaque score doit être un entier compris entre 0 et "+q.total_questions+".");
+    return;
+  }
+
+  const {error} = await sb.from("qcu_memorisation")
+    .update({resultats})
+    .eq("id", q.id);
+
+  if(error){
+    alert("Enregistrement impossible : "+error.message);
+    return;
+  }
+
+  q.resultats = resultats;
+  alert("Scores enregistrés.");
+  qcuRenderAverages();
+}
+
+async function qcuDelete(id){
+  const q = window.qcuItems.find(x => x.id === id);
+  if(!q || !confirm("Supprimer ce QCU et tous ses scores ?")) return;
+
+  const {error} = await sb.from("qcu_memorisation").delete().eq("id", id);
+  if(error){
+    alert("Suppression impossible : "+error.message);
+    return;
+  }
+
+  document.getElementById("qcuDetail").innerHTML = "";
+  await qcuLoad();
+}
+
+
+function qcuRenderAverages(){
+  const host = document.getElementById("qcuAverages");
+  if(!host) return;
+
+  const c = window.qcuSelectedClass;
+  if(!c){
+    host.innerHTML = "";
+    return;
+  }
+
+  const items = (window.qcuItems || [])
+    .filter(q => q.classe === c);
+
+  if(!items.length){
+    host.innerHTML = "";
+    return;
+  }
+
+  host.innerHTML = `
+    <details class="hero">
+      <summary style="cursor:pointer;font-weight:700">
+        📊 Moyennes trimestrielles — ${qcuEsc(c)}
+      </summary>
+
+      <p class="muted">
+        Moyenne des notes sur 20.
+        Les QCU sans score pour un élève ne sont pas comptés.
+      </p>
+
+      <label>Trimestre
+        <select id="qcuAvgTrim" onchange="qcuDrawAverages()">
+          <option value="1">Trimestre 1</option>
+          <option value="2">Trimestre 2</option>
+          <option value="3">Trimestre 3</option>
+        </select>
+      </label>
+
+      <div id="qcuAvgRows"></div>
+    </details>
+  `;
+
+  qcuDrawAverages();
+}
+
+function qcuDrawAverages(){
+  const host = document.getElementById("qcuAvgRows");
+  if(!host) return;
+
+  const c = window.qcuSelectedClass;
+if(!c) return;
+  const t = Number(document.getElementById("qcuAvgTrim").value);
+  const qs = (window.qcuItems || []).filter(q =>
+    q.classe === c && Number(q.trimestre) === t
+  );
+
+  if(!qs.length){
+    host.innerHTML = '<p class="muted">Aucun QCU pour cette sélection.</p>';
+    return;
+  }
+
+  const eleves = (window.qcuStudentsAll || []).filter(e => e.classe === c);
+  const rows = eleves.map(e => {
+    const notes = qs.filter(q => q.resultats?.[e.id] !== undefined)
+      .map(q => qcuNote(q.resultats[e.id], q.total_questions));
+    return {
+      nom:e.nom+" "+e.prenom,
+      notes,
+      moyenne:notes.length ? notes.reduce((a,b)=>a+b,0)/notes.length : null
+    };
+  });
+
+  host.innerHTML = `<p>${qs.length} QCU dans ce trimestre.</p>
+    <div style="overflow-x:auto"><table>
+      <thead><tr><th>Élève</th><th>QCU notés</th><th>Moyenne /20</th></tr></thead>
+      <tbody>${rows.map(e => `<tr>
+        <td>${qcuEsc(e.nom)}</td>
+        <td>${e.notes.length} / ${qs.length}</td>
+        <td><strong>${e.moyenne===null ? "—" : e.moyenne.toFixed(2).replace(".",",")}</strong></td>
+      </tr>`).join("")}</tbody>
+    </table></div>`;
+}
+ async function home(){
   await flushPendingAutosave();
   clearTimeout(autosaveTimer);try{localStorage.removeItem(EVAL_NAV_KEY)}catch(e){}niveau=null;classe=null;currentClassData=null;currentChapterIndex=-1;clearNav();label.textContent="Éditeur professeur";updateQuickNav();
   content.innerHTML=`<section class="hero" style="text-align:center;padding:40px 25px"><span class="eyebrow">Espace professeur</span><h2>🧪 Cahier numérique de SVT</h2><p class="muted">Gère tes cahiers et tes évaluations depuis un espace professeur sécurisé.</p></section>
   <div class="grid">
+      <article class="card" onclick="openQCU()">
+      <span class="tag">🧠 Mémorisation</span>
+      <h3>QCU – Mémorisation</h3>
+      <p class="muted">Saisir les scores, calculer les notes sur 20 et suivre les moyennes trimestrielles.</p>
+    </article>
     <article class="card" onclick="openEvaluations()"><span class="tag">📝 Correction</span><h3>Mes évaluations</h3><p class="muted">Créer des barèmes, corriger les élèves et générer automatiquement les grilles.</p></article>
     <article class="card" onclick="openPP()"><span class="tag">👨‍🏫 Professeur principal</span><h3>Suivi PP</h3><p class="muted">Élèves, aménagements, familles, actions et conseil de classe.</p></article>
     ${Object.keys(CLASSES).map(n=>`<article class="card" onclick="openNiveau('${n}')"><span class="tag">🧪 Niveau</span><h3>${n}</h3><p class="muted">Choisir une classe →</p></article>`).join("")}
