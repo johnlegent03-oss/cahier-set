@@ -1350,17 +1350,15 @@ function renderClassTracking(){
     <section class="hero" style="margin-top:14px"><div class="tracking-summary"><div class="tracking-stat"><strong>${roster.length}</strong><span>élève(s)</span></div><div class="tracking-stat"><strong>${classAverage}</strong><span>moyenne de classe /20</span></div>
 <div class="tracking-stat"><strong>${totalEvaluations}</strong><span>correction(s)</span></div></div>
       ${rows.length?`<div style="overflow:auto">
-<table class="mastery-table">
+
+<table class="mastery-table" style="width:100%;table-layout:auto">
   <thead>
     <tr>
-      <th>Élève</th>
-      <th>Évaluations</th>
+      <th>Nom de l’élève</th>
+      <th>Nombre d’évaluations</th>
       <th>Moyenne /20</th>
-      ${allCompetencies.map(name =>
-        `<th style="min-width:180px;white-space:normal;vertical-align:bottom">
-          ${esc(name)}
-        </th>`
-      ).join("")}
+      <th>Position par rapport à la moyenne de classe</th>
+      <th>Maîtrise des compétences</th>
     </tr>
   </thead>
   <tbody>${studentRows}</tbody>
