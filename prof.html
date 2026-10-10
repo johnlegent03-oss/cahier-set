@@ -4661,7 +4661,23 @@ const savedValidated=result.criteriaStats||{};
   <section class="hero teacher" style="margin-top:14px">
 <span class="eyebrow">${esc(correctionClass||"Classe")}</span>    <div class="row"><span class="score-pill" id="liveScore">0 / ${Number(ev.total||0)}</span><span id="livePercent" class="status"></span></div>
     <div id="correctionCriteria">${comps.map((comp,co)=>`<div class="eval-card"><h3>📝 Question ${comp.questionNumero} — ${esc(comp.nom)}</h3>${comp.criteres.map((cr,ci)=>`<div class="criteria-box"><h4 style="margin:0 0 8px">Critère ${ci+1} — ${esc(cr.nom)}</h4><div class="criterion-auto-status" data-criterion-status="${esc(cr.id)}"><span class="small-note">Validation automatique : au moins 2/3 des indicateurs cochés (≥ 66,7 %).</span></div>${(cr.indicateurs||[]).map((it,ii)=>{const key=`${cr.id}_${ii}`,checked=!!result.points?.[key]||!!result.points?.[`${cr.id}_${ii}`];return `<div class="check-row"><label><input type="checkbox" class="correction-check" data-key="${key}" data-points="${Number(it.points||0)}" data-criterion="${esc(cr.id)}" ${checked?"checked":""} onchange="refreshCorrectionScore('${esc(ev.id)}')"> ${esc(it.nom)}</label><span class="small-note">${Number(it.points||0)} pt</span></div>`}).join("")||`<p class="muted">Aucun indicateur pour ce critère.</p>`}</div>`).join("")}</div>`).join("")}</div>
-    <div class="editbox"><label>Appréciation / remarque</label><textarea id="corrComment" style="width:100%;min-height:90px;border:1px solid var(--b);border-radius:10px;padding:10px;font:inherit">${esc(result.commentaire||"")}</textarea></div>
+    
+<div class="editbox">
+  <div class="entry-head">
+    <label style="margin:0">Appréciation / remarque</label>
+    <button type="button" onclick="generateEvaluationComment()">
+      ✨ Générer une appréciation
+    </button>
+  </div>
+  <p class="small-note">
+    L'appréciation est construite à partir des critères et
+    indicateurs de cette évaluation. Tu peux la modifier avant
+    d'enregistrer la correction.
+  </p>
+  <textarea id="corrComment"
+    style="width:100%;min-height:90px;border:1px solid var(--b);border-radius:10px;padding:10px;font:inherit">${esc(result.commentaire||"")}</textarea>
+</div>
+
     <div id="masteryPreview"></div>
     <div class="row"><button type="button" class="primary" onclick="event.preventDefault();saveCorrection(${jsArg(evalId)},${jsArg(correctionId||"")},${jsArg(corr.eleve||"")},${jsArg(corr.eleve_id||"")})">💾 Enregistrer la correction</button><button type="button" onclick="event.preventDefault();generateCorrectionPDF('${esc(evalId)}')">📥 Exporter cette grille en PDF</button><button type="button" onclick="event.preventDefault();printAllCorrectionGrids('${esc(evalId)}')">📥 Exporter toutes les grilles de la classe en PDF</button></div>
   </section>`;
@@ -4745,6 +4761,90 @@ function refreshCorrectionScore(evalId){
       ? `<span class="small-note">${st.checked} / ${st.count} indicateur(s) coché(s) — ${st.percent}%</span> <strong>${st.validated?"✅ Critère validé":"❌ Critère non validé"}</strong>`
       : `<span class="small-note">Aucun indicateur</span>`;
   });
+}
+
+function generateEvaluationComment(){
+  const ev = currentCorrectionEvaluation;
+  const textarea = document.getElementById("corrComment");
+
+  if (!ev || !textarea) {
+    alert("La correction n'est pas chargée.");
+    return;
+  }
+
+  if (textarea.value.trim() &&
+      !confirm("Remplacer l'appréciation actuelle ?")) {
+    return;
+  }
+
+  const result = computeCorrection(ev);
+  const criteria = criteriaFromLegacy(ev);
+  const evaluated = criteria.filter(
+    cr => (cr.indicateurs || []).length > 0
+  );
+
+  if (!evaluated.length) {
+    alert("Aucun indicateur disponible pour générer l'appréciation.");
+    return;
+  }
+
+  const validated = evaluated.filter(
+    cr => result.criteriaStats[cr.id]?.validated
+  );
+
+  const ratio = validated.length / evaluated.length;
+  let comment = "";
+
+  if (ratio >= 0.85) {
+    comment = "Très bon travail : les critères de cette évaluation sont largement maîtrisés. ";
+  } else if (ratio >= 0.5) {
+    comment = "Le travail montre des acquis, mais plusieurs points restent à consolider. ";
+  } else {
+    comment = "Les résultats montrent que plusieurs apprentissages évalués restent fragiles. ";
+  }
+
+  if (validated.length) {
+    const successes = validated.slice(0, 2).map(cr =>
+      "« " + cr.nom + " »"
+    );
+
+    comment += "Réussites : tu maîtrises notamment " +
+      successes.join(" et ") + ". ";
+  }
+
+  const difficulties = [];
+
+  evaluated.forEach((cr, index) => {
+    const stats = result.criteriaStats[cr.id] || {};
+
+    if (stats.validated) return;
+
+    const unchecked = (cr.indicateurs || [])
+      .filter((it, ii) => !result.points[cr.id + "_" + ii])
+      .map(it => it.nom)
+      .filter(Boolean);
+
+    if (unchecked.length) {
+      difficulties.push({
+        question: cr.questionNumero || index + 1,
+        indicators: unchecked
+      });
+    }
+  });
+
+  if (difficulties.length) {
+    const advice = difficulties.slice(0, 2).map(item =>
+      "à la question " + item.question +
+      ", retravaille « " + item.indicators[0] + " »"
+    );
+
+    comment += "Pour progresser, " + advice.join(" et ") +
+      ". Reprends les éléments correspondants du cours et entraîne-toi à appliquer la méthode.";
+  } else {
+    comment += "Tous les critères comportant des indicateurs sont validés. Continue ainsi en conservant la précision de tes réponses.";
+  }
+
+  textarea.value = comment;
 }
 
 async function generateEvaluationSummaryPDF(evalId){
