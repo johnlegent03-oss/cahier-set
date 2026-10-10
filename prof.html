@@ -1280,15 +1280,34 @@ function renderClassTracking(){
     return `<label class="behavior-roster-row" style="display:grid;grid-template-columns:24px minmax(0,1fr) auto;align-items:center;gap:10px;padding:9px 10px;border-bottom:1px solid #eee;cursor:pointer"><input type="checkbox" class="behavior-student-check" value="${esc(s.id)}"><span style="min-width:0"><strong>${esc(s.nom||"Élève")}</strong></span><span class="small-note">${events.length?`${events.length} observation(s)`:"—"}</span></label>`;
   }).join("");
   const behaviorButtons=BEHAVIOR_TYPES.map(m=>`<button type="button" onclick="addBehaviorEventToSelected('${esc(m.code)}')">${m.icon} ${esc(m.label)}</button>`).join("");
+
   const studentRows=rows.map(s=>{
-    const counts={TBM:0,MS:0,MF:0,MI:0};
-    s.competencies.forEach(x=>counts[x.mastery.code]=(counts[x.mastery.code]||0)+1);
-    const latest={}; s.competencies.forEach(x=>{latest[x.competence]=x});
-    const scores=s.evaluations.map(trackingScore20); const studentAverage=formatAverage20(scores);
-    const compHtml=allCompetencies.map(name=>{const x=latest[name];return x?`<span class="competency-pill" tabindex="0" data-competence="${esc(x.competence)}" aria-label="Compétence : ${esc(x.competence)} — ${esc(x.mastery.code)}" title="${esc(x.competence)}"><span class="mastery-result ${x.mastery.cls}" style="margin:0;display:inline-block">${x.mastery.code}</span></span>`:`<span class="small-note" style="margin-right:6px">—</span>`;}).join("");
-    const last=s.evaluations.slice().sort((a,b)=>{const da=a.created_at?new Date(a.created_at).getTime():0;const db=b.created_at?new Date(b.created_at).getTime():0;return db-da;})[0];
-    return `<tr><td><strong>${esc(s.name)}</strong></td><td>${s.evaluations.length}</td><td>${studentAverage}</td><td>${counts.TBM}</td><td>${counts.MS}</td><td>${counts.MF}</td><td>${counts.MI}</td><td>${last?esc(last.evaluation?.titre||""):"—"}</td><td>${compHtml||"—"}</td></tr>`;
+    const latest={};
+    s.competencies.forEach(x=>{latest[x.competence]=x});
+    const scores=s.evaluations.map(trackingScore20);
+    const studentAverage=formatAverage20(scores);
+
+    const competencyCells=allCompetencies.map(name=>{
+      const x=latest[name];
+      return x
+        ? `<td style="text-align:center;min-width:90px">
+             <span class="mastery-result ${x.mastery.cls}"
+               title="${esc(name)} — ${esc(x.mastery.label||x.mastery.code)}"
+               style="margin:0;display:inline-block">
+               ${esc(x.mastery.code)}
+             </span>
+           </td>`
+        : `<td style="text-align:center;color:#999">—</td>`;
+    }).join("");
+
+    return `<tr>
+      <td><strong>${esc(s.name)}</strong></td>
+      <td>${s.evaluations.length}</td>
+      <td>${studentAverage}</td>
+      ${competencyCells}
+    </tr>`;
   }).join("");
+
   const competencyLegend=allCompetencies.length?`<div class="criteria-box" style="margin-top:16px"><h3 style="margin-top:0">🎯 Compétences suivies</h3><div class="small-note">${allCompetencies.map(x=>`<strong style="display:inline-block;margin:3px 12px 3px 0">${esc(x)}</strong>`).join("")}</div></div>`:"";
   content.innerHTML=`<button onclick="openEvaluations()">← Mes évaluations</button>
     <section class="hero" style="margin-top:14px"><span class="eyebrow">Suivi des acquis</span><h2>🏫 Suivi de classe</h2><p class="muted">Toutes les classes et tous les élèves sont disponibles ici. Tu peux enregistrer une observation sur plusieurs élèves en une seule fois.</p>
@@ -1299,8 +1318,24 @@ function renderClassTracking(){
       <div style="display:grid;grid-template-columns:repeat(4,minmax(130px,1fr));gap:8px;margin:12px 0" class="behavior-actions">${behaviorButtons}</div>
       ${roster.length?`<div style="border:1px solid #ddd;border-radius:10px;overflow:hidden"><label class="behavior-roster-header" style="display:flex;align-items:center;gap:10px;padding:9px 10px;background:#f7f7f7;cursor:pointer"><input type="checkbox" onchange="toggleAllBehaviorStudents(this.checked)"><strong>Toute la classe</strong><span class="small-note">${roster.length} élève(s)</span></label>${rosterRows}</div>`:`<p class="muted">Aucun élève enregistré dans la banque pour cette classe.</p>`}
     </section>
-    <section class="hero" style="margin-top:14px"><div class="tracking-summary"><div class="tracking-stat"><strong>${roster.length}</strong><span>élève(s)</span></div><div class="tracking-stat"><strong>${classAverage}</strong><span>moyenne de classe /20</span></div><div class="tracking-stat"><strong>${totalEvaluations}</strong><span>correction(s)</span></div><div class="tracking-stat"><strong>${distribution.TBM}</strong><span>TBM</span></div><div class="tracking-stat"><strong>${distribution.MS}</strong><span>MS</span></div><div class="tracking-stat"><strong>${distribution.MF}</strong><span>MF</span></div><div class="tracking-stat"><strong>${distribution.MI}</strong><span>MI</span></div></div>
-      ${rows.length?`<div style="overflow:auto"><table class="mastery-table"><thead><tr><th>Élève</th><th>Évaluations</th><th>Moyenne /20</th><th>TBM</th><th>MS</th><th>MF</th><th>MI</th><th>Dernière évaluation</th><th>Dernière maîtrise par compétence</th></tr></thead><tbody>${studentRows}</tbody></table></div>`:`<p class="muted">Aucune correction enregistrée pour cette sélection.</p>`}</section>${competencyLegend}`;
+    <section class="hero" style="margin-top:14px"><div class="tracking-summary"><div class="tracking-stat"><strong>${roster.length}</strong><span>élève(s)</span></div><div class="tracking-stat"><strong>${classAverage}</strong><span>moyenne de classe /20</span></div><div class="tracking-stat"><strong>${totalEvaluations}</strong><span>correction(s)</span></div><div class="tracking-stat">
+      ${rows.length?`<div style="overflow:auto">
+<table class="mastery-table">
+  <thead>
+    <tr>
+      <th>Élève</th>
+      <th>Évaluations</th>
+      <th>Moyenne /20</th>
+      ${allCompetencies.map(name =>
+        `<th style="min-width:180px;white-space:normal;vertical-align:bottom">
+          ${esc(name)}
+        </th>`
+      ).join("")}
+    </tr>
+  </thead>
+  <tbody>${studentRows}</tbody>
+</table>
+</div>`:`<p class="muted">Aucune correction enregistrée pour cette sélection.</p>`}</section>${competencyLegend}`;
 }
 async function openClassTracking(){
   try{
