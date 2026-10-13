@@ -3461,19 +3461,18 @@ function printHtmlInCurrentWindow(title,bodyHtml,extraCss=""){
               print-color-adjust:exact
             }
 
-            
-
 .print-preview-page .correction-student-page{
   width:100%!important;
-  min-height:0!important;
-  height:auto!important;
-  max-height:none!important;
+  min-height:287mm!important;
+  height:287mm!important;
+  max-height:287mm!important;
   margin:0!important;
   padding:2mm!important;
-  overflow:visible!important;
+  overflow:hidden!important;
   page-break-after:always!important;
   break-after:page!important;
   break-inside:avoid!important;
+  box-sizing:border-box!important;
 }
 
             .print-preview-page .correction-student-page:last-child{
