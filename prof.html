@@ -3462,6 +3462,7 @@ function printHtmlInCurrentWindow(title,bodyHtml,extraCss=""){
             }
 
             
+
 .print-preview-page .correction-student-page{
   width:100%!important;
   min-height:0!important;
@@ -3470,11 +3471,10 @@ function printHtmlInCurrentWindow(title,bodyHtml,extraCss=""){
   margin:0!important;
   padding:2mm!important;
   overflow:visible!important;
-  page-break-after:auto!important;
-  break-after:auto!important;
+  page-break-after:always!important;
+  break-after:page!important;
   break-inside:avoid!important;
 }
-
 
             .print-preview-page .correction-student-page:last-child{
               page-break-after:auto!important;
