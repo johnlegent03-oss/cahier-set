@@ -3457,6 +3457,39 @@ function printHtmlInCurrentWindow(title,bodyHtml,extraCss=""){
   page-break-after:always!important;
   break-inside:auto!important;
 }
+.print-preview-page .svt-a4-grid .a4-recap{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:2mm;
+  margin:0 0 2mm;
+}
+
+.print-preview-page .svt-a4-grid .a4-recap-box{
+  border:1px solid #999;
+  padding:1.5mm;
+  font-size:10.5pt;
+  line-height:1.15;
+}
+
+.print-preview-page .svt-a4-grid .a4-ok{
+  background:#eef7ef;
+}
+
+.print-preview-page .svt-a4-grid .a4-todo{
+  background:#fff4e8;
+}
+
+.print-preview-page .svt-a4-grid .a4-recap-box strong{
+  display:block;
+  margin-bottom:1mm;
+}
+
+@media print{
+  .print-preview-page .svt-a4-grid .a4-recap{
+    break-inside:avoid!important;
+    page-break-inside:avoid!important;
+  }
+}
 .print-preview-page .svt-a4-grid .a4-question{
   break-inside:avoid!important;
   page-break-inside:avoid!important;
@@ -5994,7 +6027,32 @@ function correctionGridHtml(ev,c,selectedClass=""){
    * 6. CONSTRUIRE LA PAGE
    * =========================================================
    */
+const acquired=[];
+const toConsolidate=[];
 
+Object.values(competenceGroups).forEach(comp=>{
+  const m=masteryForCompetence(comp);
+  const item=`${comp.nom} (${m.code})`;
+
+  if(m.code==="TBM"||m.code==="MS"){
+    acquired.push(item);
+  }else if(m.code==="MF"||m.code==="MI"){
+    toConsolidate.push(item);
+  }
+});
+
+const summaryHtml=`
+  <div class="a4-recap">
+    <div class="a4-recap-box a4-ok">
+      <strong>✅ Acquis</strong>
+      <div>${acquired.length?acquired.map(escPrint).join("<br>"):"—"}</div>
+    </div>
+    <div class="a4-recap-box a4-todo">
+      <strong>🎯 À consolider</strong>
+      <div>${toConsolidate.length?toConsolidate.map(escPrint).join("<br>"):"—"}</div>
+    </div>
+  </div>
+`;
 
   const blocks=questions.map(question=>{
     const qm=masteryForQuestion(question);
@@ -6010,6 +6068,13 @@ function correctionGridHtml(ev,c,selectedClass=""){
     return `<section class="a4-question"><h2>${isTransversalLanguageCompetency(question.nom)?'Compétence transversale':'Question '+question.questionNumero} — ${escPrint(question.nom)} <small>(${qm.mastery.code} · ${qm.validated}/${qm.total} critères)</small></h2><table><colgroup><col style="width:24%"><col style="width:38%"><col style="width:38%"></colgroup><thead><tr><th>Critère / bilan</th><th>✓ Validé : indicateurs réussis</th><th>Reste à valider : indicateurs à travailler</th></tr></thead><tbody>${rows}</tbody></table></section>`;
   }).join('');
   return `<div class="print-page svt-a4-grid"><div class="svt-a4-content"><h1>${escPrint(ev.titre||'Évaluation')}</h1><div class="a4-identity"><strong>${escPrint(c.eleve||'Élève')}</strong> — ${escPrint(selectedClass||c.classe||ev.classe)} <strong>Note : ${score} / ${total}</strong></div><table class="a4-summary"><tbody>${masterySummary}</tbody></table>${blocks}${r.commentaire?`<div class="a4-comment"><strong>Commentaire :</strong> ${escPrint(r.commentaire)}</div>`:''}</div></div>`;
+      <table class="a4-summary">
+      <tbody>${masterySummary}</tbody>
+    </table>
+
+    ${summaryHtml}
+
+    ${blocks}
 }
 async function generateCorrectionPDF(evalId){
   try{
