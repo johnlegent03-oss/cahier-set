@@ -3450,7 +3450,28 @@ function printHtmlInCurrentWindow(title,bodyHtml,extraCss=""){
 .print-preview-page .svt-a4-grid.a4-dense{font-size:10pt!important;line-height:1.12!important}
 .print-preview-page .svt-a4-grid.a4-dense td,.print-preview-page .svt-a4-grid.a4-dense th{padding:.7mm!important}
 @media print{
-.print-preview-page .svt-a4-grid{width:200mm!important;margin:0!important;break-after:page!important;page-break-after:always!important;break-inside:avoid!important}
+.print-preview-page .svt-a4-grid{
+  width:200mm!important;
+  margin:0!important;
+  break-after:page!important;
+  page-break-after:always!important;
+  break-inside:auto!important;
+}
+.print-preview-page .svt-a4-grid .a4-question{
+  break-inside:avoid!important;
+  page-break-inside:avoid!important;
+}
+
+.print-preview-page .svt-a4-grid .a4-summary,
+.print-preview-page .svt-a4-grid .a4-identity{
+  break-inside:avoid!important;
+  page-break-inside:avoid!important;
+}
+
+.print-preview-page .svt-a4-grid .a4-comment{
+  break-inside:avoid!important;
+  page-break-inside:avoid!important;
+}
 .print-preview-page .svt-a4-grid:last-child{break-after:auto!important;page-break-after:auto!important}
 }
 </style>
@@ -3470,16 +3491,16 @@ function printHtmlInCurrentWindow(title,bodyHtml,extraCss=""){
 
   window.preparePrintPages=function(){
     const compactPages=[...overlay.querySelectorAll('.svt-a4-grid')];
-    if(compactPages.length){
-      const limit=285/25.4*96;
-      compactPages.forEach(page=>{page.classList.remove('a4-dense');if(page.scrollHeight>limit)page.classList.add('a4-dense');});
-      const tooLong=compactPages.filter(page=>page.scrollHeight>limit);
-      if(tooLong.length){
-        alert("Certaines grilles sont trop longues pour une seule page A4 lisible ("+tooLong.length+"). Réduis le texte des indicateurs ou le nombre de critères. Aucun contenu n'a été masqué.");
-        return false;
-      }
-      return true;
+if(compactPages.length){
+  const limit=285/25.4*96;
+  compactPages.forEach(page=>{
+    page.classList.remove('a4-dense');
+    if(page.scrollHeight>limit){
+      page.classList.add('a4-dense');
     }
+  });
+  return true;
+}
 
     const pages=[
       ...overlay.querySelectorAll(
