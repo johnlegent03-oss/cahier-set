@@ -1289,7 +1289,6 @@ function evalRememberFromEvaluation(ev,view,extra={}){
 
 async function openEvaluations(options={}){
   await flushPendingAutosave();
-  clearTimeout(autosaveTimer);
   const previous=loadEvalNav();
   const requestedClass=options.classe!==undefined?String(options.classe||"").trim():String(previous.classe||localStorage.getItem("EVAL_SELECTED_CLASS")||"").trim();
   saveEvalNav({view:"list",classe:requestedClass,evaluationId:null,correctionId:null});
@@ -6018,7 +6017,7 @@ function ppStatusBadges(s,stats){
 async function openPP(){
   await flushPendingAutosave();
   try{localStorage.setItem(EVAL_NAV_KEY,JSON.stringify({view:"pp",classe:ppClass,period:ppPeriod}))}catch(e){}
-  clearTimeout(autosaveTimer);niveau=null;classe=null;currentClassData=null;currentChapterIndex=-1;label.textContent="Suivi PP";updateQuickNav();
+niveau=null;classe=null;currentClassData=null;currentChapterIndex=-1;label.textContent="Suivi PP";updateQuickNav();
   content.innerHTML=`<button type="button" onclick="home()">← Accueil</button><section class="hero" style="margin-top:14px"><span class="eyebrow">Professeur principal</span><h2>👨‍🏫 Suivi PP</h2><p class="muted">Un espace dédié au suivi des élèves, des familles, des aménagements et des actions de la classe.</p><div class="pp-toolbar"><div><label>Classe suivie</label><div class="editbox" style="margin-top:6px;padding:10px 12px"><strong>6e3</strong><span class="small-note" style="margin-left:8px">Professeur principal</span></div></div><div><label>Période</label><select id="ppPeriodSelect" onchange="ppPeriod=this.value;renderPPDashboard()"><option value="year">Année</option><option value="t1">Trimestre 1</option><option value="t2">Trimestre 2</option><option value="t3">Trimestre 3</option></select></div></div></section><div id="ppDashboard"><p class="muted">Chargement…</p></div>`;
   try{ppClass="6e3";await ppLoadStudents();const per=document.getElementById("ppPeriodSelect");if(per)per.value=ppPeriod;await renderPPDashboard();}catch(e){showError("Suivi PP : "+e.message)}
 }
@@ -6380,7 +6379,7 @@ async function doLogin(){
     }
   }
 }
-async function logout(){clearTimeout(autosaveTimer);await sb.auth.signOut()}
+async function logout(){await sb.auth.signOut()}
   function qcuEsc(v){
   return String(v ?? "").replace(/[&<>"']/g, c => ({
     "&":"&amp;", "<":"&lt;", ">":"&gt;",
@@ -6395,8 +6394,7 @@ function qcuNote(correct, total){
 
 async function openQCU(){
   await flushPendingAutosave();
-  clearTimeout(autosaveTimer);
-  niveau = null;
+ niveau = null;
   classe = null;
   label.textContent = "QCU – Mémorisation";
   updateQuickNav();
