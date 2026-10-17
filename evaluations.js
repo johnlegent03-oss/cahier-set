@@ -3976,13 +3976,11 @@ function copiesBoardRows(ctx){
     return {student,corr,saved,status,closed,drafts:local,draft:local[0]||null,unknown:!corr&&!!ctx.absenceError,pending:!corr&&!closed&&!ctx.absenceError,conflict:!!corr&&statuses.length>0};
   });
   const visibleRows = ctx.assignmentFilterEnabled
-    ? rows.filter(r =>
-        (ctx.assignedStudentIds instanceof Set && ctx.assignedStudentIds.has(String(r.student.id))) ||
-        String(r.corr?.evaluation_id || '') === String(ctx.ev.id) ||
-        r.drafts.some(d => String(d.evalId) === String(ctx.ev.id)) ||
-        r.closed || r.unknown
-      )
-    : rows;
+  ? rows.filter(r =>
+      ctx.assignedStudentIds instanceof Set &&
+      ctx.assignedStudentIds.has(String(r.student.id))
+    )
+  : rows;
   return {rows:visibleRows,unlinked,warning:drafts.warning};
 }
 function copiesBoardFilter(filter){
