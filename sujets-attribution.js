@@ -21,8 +21,8 @@
 
   // Doit correspondre aux identifiants attribués en base lors de la migration.
   function getWorkId(subject) {
-    return String(subject.evaluationGroupId || `evaluation_${subject.id}`);
-  }
+  return String(subject.evaluationGroupId || subject.id);
+}
 
   function getWorkTitle(subjects, type) {
     const titles = subjects
