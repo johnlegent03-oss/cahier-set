@@ -1,0 +1,6522 @@
+function getMasteryFromValidatedCriteria(validatedCount){
+  const n=Number(validatedCount)||0;
+  if(n>=4)return {code:"TBM",label:"Très bonne maîtrise",cls:"tbm"};
+  if(n===3)return {code:"MS",label:"Maîtrise satisfaisante",cls:"ms"};
+  if(n===2)return {code:"MF",label:"Maîtrise fragile",cls:"mf"};
+  return {code:"MI",label:"Maîtrise insuffisante",cls:"mi"};
+}
+;
+const sb=supabase.createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY,{auth:{persistSession:true,autoRefreshToken:true,storage:window.sessionStorage}});
+let mfaBusy = false;
+
+function mfaRender(title, html) {
+  label.textContent = "Espace professeur";
+  content.innerHTML = `
+    <section class="hero login">
+      <span class="eyebrow">Espace sécurisé</span>
+      <h2>${title}</h2>
+      ${html}
+    </section>
+  `;
+}
+
+async function mfaGetAal() {
+  const { data, error } = await sb.auth.mfa.getAuthenticatorAssuranceLevel();
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+async function mfaGetVerifiedFactor() {
+  const { data, error } = await sb.auth.mfa.listFactors();
+  if (error) throw new Error(error.message);
+  return (data?.totp || []).find(f => f.status === "verified") || null;
+}
+
+function mfaEnterProfSpace() {
+  logoutBtn?.classList.remove("hidden");
+  globalHome?.classList.add("show");
+  restoreLastPosition();
+}
+
+async function mfaShowEnrollment() {
+  if (mfaBusy) return;
+  mfaBusy = true;
+
+  try {
+    const { data, error } = await sb.auth.mfa.enroll({
+      factorType: "totp",
+      friendlyName: "Espace professeur"
+    });
+    if (error) throw new Error(error.message);
+
+    const qr = data?.totp?.qr_code || "";
+    const secret = data?.totp?.secret || "";
+    const factorId = data?.id;
+
+    mfaRender("Active la double validation", `
+      <p class="muted">Scanne ce QR code avec Google Authenticator, Authy ou l’application Authenticator de ton téléphone.</p>
+      <div style="text-align:center;margin:16px 0;">
+        ${qr ? `<img src="${qr}" alt="QR code MFA" style="max-width:240px;width:100%;background:#fff;padding:10px;border-radius:12px;">` : ""}
+      </div>
+      ${secret ? `<p class="small-note">Si tu ne peux pas scanner, entre cette clé dans l’application :<br><code>${secret}</code></p>` : ""}
+      <div class="editbox">
+        <label>Code à 6 chiffres</label>
+        <input id="mfaCode" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="123456">
+        <button id="mfaVerifyBtn" class="primary" style="width:100%;margin-top:5px;">Valider</button>
+      </div>
+      <div id="mfaStatus" class="status" style="margin-top:10px;"></div>
+    `);
+
+    document.getElementById("mfaVerifyBtn").onclick = async () => {
+      const code = document.getElementById("mfaCode").value.trim();
+      const status = document.getElementById("mfaStatus");
+      const btn = document.getElementById("mfaVerifyBtn");
+
+      if (!/^\d{6}$/.test(code)) {
+        status.textContent = "Entre les 6 chiffres affichés par l’application.";
+        return;
+      }
+
+      btn.disabled = true;
+      status.textContent = "Vérification…";
+
+      try {
+        const { error } = await sb.auth.mfa.challengeAndVerify({
+          factorId,
+          code
+        });
+        if (error) throw new Error(error.message);
+
+        status.textContent = "Double validation activée.";
+        mfaEnterProfSpace();
+      } catch (e) {
+        status.textContent = "Code incorrect : " + e.message;
+        btn.disabled = false;
+      }
+    };
+  } catch (e) {
+    mfaRender("Double validation indisponible", `
+      <p class="muted">${e.message}</p>
+      <button class="primary" onclick="location.reload()">Réessayer</button>
+    `);
+  } finally {
+    mfaBusy = false;
+  }
+}
+
+async function mfaShowChallenge() {
+  const factor = await mfaGetVerifiedFactor();
+  if (!factor) {
+    await mfaShowEnrollment();
+    return;
+  }
+
+  mfaRender("Validation en deux étapes", `
+    <p class="muted">Entre le code à 6 chiffres généré par ton application d’authentification.</p>
+    <div class="editbox">
+      <label>Code à 6 chiffres</label>
+      <input id="mfaCode" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="123456">
+      <button id="mfaVerifyBtn" class="primary" style="width:100%;margin-top:5px;">Valider</button>
+    </div>
+    <div id="mfaStatus" class="status" style="margin-top:10px;"></div>
+  `);
+
+  document.getElementById("mfaVerifyBtn").onclick = async () => {
+    const code = document.getElementById("mfaCode").value.trim();
+    const status = document.getElementById("mfaStatus");
+    const btn = document.getElementById("mfaVerifyBtn");
+
+    if (!/^\d{6}$/.test(code)) {
+      status.textContent = "Entre les 6 chiffres affichés par l’application.";
+      return;
+    }
+
+    btn.disabled = true;
+    status.textContent = "Vérification…";
+
+    try {
+      const { error } = await sb.auth.mfa.challengeAndVerify({
+        factorId: factor.id,
+        code
+      });
+      if (error) throw new Error(error.message);
+
+      mfaEnterProfSpace();
+    } catch (e) {
+      status.textContent = "Code incorrect : " + e.message;
+      btn.disabled = false;
+    }
+  };
+}
+
+async function openProfSpaceIfMfaReady() {
+  const { data, error } = await sb.auth.getSession();
+  if (error) {
+    console.error("Erreur de session :", error);
+    login();
+    return;
+  }
+
+  const currentUser = data?.session?.user || null;
+  user = currentUser;
+
+  if (!currentUser) {
+    logoutBtn?.classList.add("hidden");
+    globalHome?.classList.remove("show");
+    login();
+    return;
+  }
+
+  try {
+    const factor = await mfaGetVerifiedFactor();
+
+    if (!factor) {
+      await mfaShowEnrollment();
+      return;
+    }
+
+    const aal = await mfaGetAal();
+
+    if (aal.currentLevel !== "aal2") {
+      await mfaShowChallenge();
+      return;
+    }
+
+    mfaEnterProfSpace();
+  } catch (e) {
+    console.error("Vérification MFA impossible :", e);
+    mfaEnterProfSpace();
+  }
+}
+const CLASSES={"6e":["6e1","6e2","6e3","6e4","6e5"],"5e":["5e1","5e3","5e5"],"3e":["3e2","3e3"]};
+const content=document.getElementById("content"),label=document.getElementById("label"),logoutBtn=document.getElementById("logoutBtn"),globalHome=document.getElementById("globalHome");
+let user=null;
+let currentCorrectionEvaluation=null;
+  function masteryForCompetencyQuestions(criteria, criteriaStats){
+  const questions={};
+  (criteria||[]).forEach(cr=>{
+    const questionKey=String(
+      cr.questionId ||
+      `q${cr.questionNumero||1}`
+    );
+    if(!questions[questionKey]){
+      questions[questionKey]={
+        questionNumero:Number(cr.questionNumero||1),
+        criteres:[]
+      };
+    }
+    questions[questionKey].criteres.push(cr);
+  });
+  const occurrences=Object.values(questions).map(q=>{
+    const validated=q.criteres.filter(cr=>
+      !!criteriaStats?.[cr.id]?.validated
+    ).length;
+    const mastery=getMasteryFromValidatedCriteria(validated);
+    return {
+      questionNumero:q.questionNumero,
+      validated,
+      total:q.criteres.length,
+      mastery
+    };
+  });
+  const values=occurrences
+    .map(x=>masteryValue(x.mastery.code))
+    .filter(Number.isFinite);
+  const average=values.length
+    ?values.reduce((a,b)=>a+b,0)/values.length
+    :null;
+  return {
+    occurrences,
+    average,
+    mastery:masteryFromAverage(average)
+  };
+}
+const EVAL_NAV_KEY="cahierSVT.prof.evaluations.navigation.v1";
+const esc=v=>String(v??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#039;"}[m]));
+const safe=v=>v==null?"":String(v);
+function jsArg(v){
+  const x=String(v??"")
+    .replace(/\\/g,"\\\\")
+    .replace(/\r/g,"\\r")
+    .replace(/\n/g,"\\n")
+    .replace(/\t/g,"\\t")
+    .replace(/'/g,"\\'");
+  return "&#39;"+x.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;")+"&#39;";
+}
+function showError(msg){content.innerHTML='<section class="hero error"><h2>⚠️ Une erreur est survenue</h2><p>'+esc(msg)+'</p><button onclick="restoreLastPosition()">Retour</button></section>'}
+document.addEventListener("input",e=>{if(e.target.matches(".pp-grade[data-discipline=\"Physique-Chimie\"],.pp-grade[data-discipline=\"SVT\"]"))ppUpdateScienceAverage()});
+/* =========================================================
+   MODULE ÉVALUATIONS / CORRECTIONS — V1
+   Les données de correction utilisent des tables Supabase
+   séparées du cahier. L'interface reste uniquement dans
+   prof.html : aucune donnée n'est exposée à l'interface élève.
+   ========================================================= */
+let evaluationsCache=[];
+let studentTrackingCache=[];
+let studentTrackingClass="";
+let studentTrackingStudent="";
+let studentTrackingStudentId="";
+let studentTrackingPeriod="year";
+let behaviorEventsCache=[];
+function behaviorUnavailable(){alert("Le suivi comportemental n'est pas disponible : vérifie le chargement de behavior-supabase.js. Aucune observation n'a été enregistrée.");}
+window.loadBehaviorEvents=()=>behaviorEventsCache;
+window.addBehaviorEvent=behaviorUnavailable;
+window.addBehaviorEventToSelected=behaviorUnavailable;
+window.deleteBehaviorEvent=behaviorUnavailable;
+let behaviorStudentsCache=[];
+let classTrackingPeriod="year";
+let classTrackingClass="";
+let studentsCache=[];
+let competenciesCache=[];
+let currentCorrectionGroupIds=[];
+function isHistoricalEvaluation(e){
+  return !!(e && Array.isArray(e.exercices) && e.exercices.some(x=>x&&x.historique===true));
+}
+function historicalMeta(e){
+  const x=(Array.isArray(e?.exercices)?e.exercices:[]).find(v=>v&&v.historique===true)||{};
+  return {
+    date:x.date||e?.created_at||null,
+    competence:safe(x.competence||"Compétence non renseignée")
+  };
+}
+function evalNormalize(e){
+  const x=e&&typeof e==="object"?e:{};
+  const meta=Array.isArray(x.exercices)
+    ?x.exercices.find(v=>v&&v.__evaluationMeta)
+    :null;
+  const assignedClasses=(()=>{
+    const a=Array.isArray(meta?.classes)
+      ?meta.classes
+          .map(v=>String(v||"").trim())
+          .filter(Boolean)
+      :[];
+    return [...new Set(
+      a.length
+        ?a
+        :[safe(x.classe||"")].filter(Boolean)
+    )];
+  })();
+  /*
+   * Nouvelle structure :
+   * les questions sont enregistrées dans __evaluationMeta.questions.
+   *
+   * Si elles existent, on les reconstruit à partir des critères
+   * enregistrés avec leur questionId / questionNumero.
+   */
+  let competences=[];
+  if(Array.isArray(meta?.questions) && meta.questions.length){
+    const criteres=Array.isArray(x.criteres)
+      ?x.criteres
+      :[];
+    competences=meta.questions.map((q,qi)=>{
+      const questionId=String(
+        q.id||`comp${qi+1}`
+      );
+      const questionCriteres=criteres
+        .filter(cr=>String(
+          cr.questionId||cr.competenceId||""
+        )===questionId)
+        .map(cr=>({
+          ...cr,
+          competenceId:questionId,
+          competenceNom:safe(
+            cr.competenceNom||q.nom||""
+          )
+        }));
+      return {
+        id:questionId,
+        nom:safe(
+          q.nom||"Compétence non renseignée"
+        ),
+        bankId:q.bankId||null,
+        questionNumero:Number(
+          q.questionNumero||qi+1
+        ),
+        criteres:questionCriteres
+      };
+    });
+  }else if(Array.isArray(x.competences) && x.competences.length){
+    /*
+     * Compatibilité avec les évaluations déjà enregistrées
+     * avec l'ancienne structure.
+     */
+    competences=x.competences;
+  }else{
+    /*
+     * Compatibilité avec les anciennes évaluations
+     * qui ne possédaient pas encore de tableau competences.
+     */
+    const crits=Array.isArray(x.criteres)
+      ?x.criteres
+      :[];
+    const groups={};
+    crits.forEach(cr=>{
+      const id=cr.competenceId||"comp1";
+      if(!groups[id]){
+        groups[id]={
+          id,
+          nom:cr.competenceNom||"Compétence évaluée",
+          criteres:[]
+        };
+      }
+      groups[id].criteres.push(cr);
+    });
+    competences=Object.values(groups);
+  }
+  return {
+  id:x.id||null,
+  titre:safe(x.titre||"Nouvelle évaluation"),
+  classe:safe(x.classe||""),
+  assignedClasses,
+  evaluationGroupId:safe(meta?.evaluationGroupId||""),
+  // Informations pédagogiques de l'évaluation
+  chapitre:Number(meta?.chapitre||0),
+  typeEvaluation:safe(meta?.typeEvaluation||"evaluation"),
+  coefficient:Number(
+    meta?.coefficient ??
+    (["activite","exercice"].includes(meta?.typeEvaluation) ? 0.5 : 1)
+  ),
+  total:Number(x.total||0),
+    // Nouvelle structure question par question
+    competences,
+    // Conservation des critères pour compatibilité
+    criteres:Array.isArray(x.criteres)
+      ?x.criteres
+      :[],
+    exercices:Array.isArray(x.exercices)
+      ?x.exercices
+      :[],
+    created_at:x.created_at||null
+  };
+}
+function criterionDefaults(){
+  return [
+    {id:"c1",nom:"Choix adaptés",indicateurs:[]},
+    {id:"c2",nom:"Qualité du travail",indicateurs:[]},
+    {id:"c3",nom:"Travail complet",indicateurs:[]},
+    {id:"c4",nom:"Respect des consignes",indicateurs:[]}
+  ];
+}
+function normalizeCriteria(ev){
+  let crits=Array.isArray(ev.criteres)?ev.criteres:[];
+  if(!crits.length) crits=criterionDefaults();
+  return crits.map((c,i)=>({
+    id:safe(c.id)||`c${i+1}`,
+    nom:safe(c.nom)||`Critère ${i+1}`,
+    /*
+     * Informations permettant de rattacher
+     * le critère à sa question.
+     */
+    questionId:safe(c.questionId||""),
+    questionNumero:Number(c.questionNumero||0),
+    competenceId:safe(c.competenceId||"comp1"),
+    competenceNom:safe(c.competenceNom||""),
+    indicateurs:
+      Array.isArray(c.indicateurs)
+        ?c.indicateurs
+        :[]
+  }));
+}
+function criteriaFromLegacy(ev){
+  // Migration douce de la V1 : les anciens éléments/exercices sont convertis
+  // en indicateurs rattachés à leur critère quand leur identifiant est connu.
+  const crits=normalizeCriteria(ev);
+  if(crits.some(c=>c.indicateurs.length)) return crits;
+  const oldMap={choix:0,qualite:1,completude:2,consignes:3};
+  const legacy=Array.isArray(ev.exercices)?ev.exercices:[];
+  legacy.forEach(ex=>{
+    (Array.isArray(ex.items)?ex.items:[]).forEach(it=>{
+      const ids=Array.isArray(it.criteres)?it.criteres:[];
+      const target=ids.map(id=>oldMap[id]).filter(i=>Number.isInteger(i));
+      const indices=target.length?target:[0];
+      indices.forEach((ci)=>{
+        if(crits[ci]) crits[ci].indicateurs.push({nom:safe(it.nom),points:Number(it.points||0)});
+      });
+    });
+  });
+  return crits;
+}
+async function loadStudentTracking(){
+  const {data,error}=await sb.from("EvaluationCorrections").select("id,evaluation_id,eleve,eleve_id,resultat,created_at").order("created_at",{ascending:true});
+  if(error)throw new Error(error.message);
+  if(!studentsCache.length){
+    const {data:students,error:studentsError}=await sb.from("Eleves").select("id,classe,nom,prenom,created_at").order("nom").order("prenom");
+    if(studentsError)throw new Error(studentsError.message);
+    studentsCache=students||[];
+  }
+  const studentById=new Map(studentsCache.map(st=>[String(st.id),st]));
+  const normalizeStudentName=(value)=>String(value||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[-']/g," ").replace(/\s+/g," ").trim().toLocaleLowerCase("fr");
+  const studentAliases=new Map();
+  studentsCache.forEach(st=>{
+    const nom=safe(st?.nom||"").trim(), prenom=safe(st?.prenom||"").trim();
+    const aliases=[`${nom} ${prenom}`,`${prenom} ${nom}`,nom,prenom].map(normalizeStudentName).filter(Boolean);
+    aliases.forEach(a=>{if(a&&!studentAliases.has(a))studentAliases.set(a,st);});
+  });
+  const byId={};
+  evaluationsCache.forEach(e=>byId[String(e.id)]=e);
+  studentTrackingCache=(data||[]).map(c=>{
+    let st=c.eleve_id?studentById.get(String(c.eleve_id)):null;
+    const fallback=safe(c.eleve||"Élève").trim()||"Élève";
+    if(!st){
+      const evalClass=String(byId[String(c.evaluation_id)]?.classe||"").trim();
+      const candidate=studentAliases.get(normalizeStudentName(fallback));
+      if(candidate && (!evalClass || String(candidate.classe||"").trim()===evalClass)) st=candidate;
+    }
+    const nom=safe(st?.nom||"").trim();
+    const prenom=safe(st?.prenom||"").trim();
+    const display=nom ? `${nom} ${prenom}`.trim() : fallback;
+    return {
+      id:c.id,
+      evaluationId:c.evaluation_id,
+      eleve:display,
+      eleveId:c.eleve_id||null,
+      nom,
+      prenom,
+      sortKey:nom ? `${nom} ${prenom}`.toLocaleLowerCase("fr") : fallback.toLocaleLowerCase("fr"),
+      resultat:c.resultat||{},
+      created_at:c.created_at||null,
+      evaluation:byId[String(c.evaluation_id)]||null
+    };
+  }).filter(x=>x.evaluation);
+  return studentTrackingCache;
+}
+function evaluationAppliesToClass(ev,classe){
+  const target=String(classe||"").trim();
+  if(!target)return true;
+  const assigned=Array.isArray(ev?.assignedClasses)
+    ? ev.assignedClasses.map(v=>String(v||"").trim()).filter(Boolean)
+    : [];
+  return assigned.length
+    ? assigned.includes(target)
+    : String(ev?.classe||"").trim()===target;
+}
+  function correctionAppliesToClass(c,classe){
+  const target=String(classe||"").trim();
+  if(!target)return true;
+  const studentId=String(c?.eleveId||"").trim();
+  if(studentId){
+    const student=studentsCache.find(
+      s=>String(s?.id||"").trim()===studentId
+    );
+    if(student){
+      return String(student.classe||"").trim()===target;
+    }
+  }
+  return evaluationAppliesToClass(c?.evaluation,target);
+}
+function trackingPeriodLabel(period){
+  return period==="t1"?"Trimestre 1":period==="t2"?"Trimestre 2":period==="t3"?"Trimestre 3":"Année";
+}
+function trackingRecordDate(c){
+  return isHistoricalEvaluation(c?.evaluation)?historicalMeta(c.evaluation).date:(c?.created_at||null);
+}
+function trackingScore20(c){
+  const r=c?.resultat||{}, ev=c?.evaluation||{};
+  const note=Number(r.note);
+  if(!Number.isFinite(note))return null;
+  const total=Number(ev.total||0);
+  if(total>0)return note/total*20;
+  return null;
+}
+function trackingNoteLabel(c){
+  const r=c?.resultat||{}, ev=c?.evaluation||{};
+  const note=Number(r.note);
+  if(!Number.isFinite(note))return "—";
+  const total=Number(ev.total||0);
+  return total>0 ? `${note} / ${total}` : `${note}`;
+}
+function formatAverage20(values){
+  const nums=values.filter(v=>Number.isFinite(v));
+  if(!nums.length)return "—";
+  const avg=nums.reduce((a,b)=>a+b,0)/nums.length;
+  return `${avg.toFixed(2).replace(".",",")} / 20`;
+}
+function normalizeTrackingDate(dateValue){
+  if(!dateValue)return null;
+  const s=String(dateValue).trim();
+  const m=s.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);
+  if(m){
+    const dd=String(m[1]).padStart(2,"0"),mm=String(m[2]).padStart(2,"0"),yyyy=m[3];
+    return `${yyyy}-${mm}-${dd}T12:00:00`;
+  }
+  return s;
+}
+function schoolYearStartYear(dateValue=new Date()){
+  const d=dateValue instanceof Date?dateValue:new Date(dateValue);
+  if(Number.isNaN(d.getTime()))return new Date().getFullYear()-(new Date().getMonth()+1<9?1:0);
+  const y=d.getFullYear(),m=d.getMonth()+1;
+  return m>=9?y:y-1;
+}
+function trackingPeriodRange(period,dateValue=new Date()){
+  if(period==="year")return {start:null,end:null};
+  const y=schoolYearStartYear(dateValue);
+  if(period==="t1")return {start:new Date(y,8,1,0,0,0,0),end:new Date(y,11,31,23,59,59,999)};
+  if(period==="t2")return {start:new Date(y+1,0,1,0,0,0,0),end:new Date(y+1,2,31,23,59,59,999)};
+  if(period==="t3")return {start:new Date(y+1,3,1,0,0,0,0),end:new Date(y+1,7,31,23,59,59,999)};
+  return {start:null,end:null};
+}
+function trackingPeriodMatch(dateValue,period){
+  if(period==="year")return true;
+  if(!dateValue)return false;
+  const d=new Date(normalizeTrackingDate(dateValue));
+  if(Number.isNaN(d.getTime()))return false;
+  const range=trackingPeriodRange(period,new Date());
+  return (!range.start||d>=range.start)&&(!range.end||d<=range.end);
+}
+function trackingDate(dateValue){
+  if(!dateValue)return "Date non renseignée";
+  const d=new Date(normalizeTrackingDate(dateValue));
+  if(Number.isNaN(d.getTime()))return "Date non renseignée";
+  return d.toLocaleDateString("fr-FR");
+}
+function trackingRows(){
+  return studentTrackingCache.filter(c=>{
+    const date=trackingRecordDate(c);
+    return correctionAppliesToClass(c,studentTrackingClass)
+      &&(!studentTrackingStudentId ? (!studentTrackingStudent||c.eleve===studentTrackingStudent) : String(c.eleveId||"")===String(studentTrackingStudentId))
+      &&trackingPeriodMatch(date,studentTrackingPeriod);
+  }).sort((a,b)=>{
+    const ad=trackingRecordDate(a),bd=trackingRecordDate(b);
+    const da=ad?new Date(ad).getTime():0,db=bd?new Date(bd).getTime():0;
+    return da-db;
+  });
+}
+function trackingStudentOptions(){
+  const out=new Map();
+  const targetClass=String(studentTrackingClass||"").trim();
+  studentsCache.filter(s=>!targetClass||String(s.classe||"").trim()===targetClass).forEach(s=>{
+    if(!s?.id)return;
+    out.set(String(s.id),{id:String(s.id),name:studentDisplayName(s)});
+  });
+  studentTrackingCache.filter(c=>correctionAppliesToClass(c,targetClass)).forEach(c=>{
+    const id=c.eleveId?String(c.eleveId):"";
+    if(id&&!out.has(id))out.set(id,{id,name:c.eleve||"Élève"});
+  });
+  return [...out.values()].filter(x=>x.name).sort((a,b)=>a.name.localeCompare(b.name,"fr",{numeric:true,sensitivity:"base"}));
+}
+function normalizeTrackingStudentName(value){
+  return String(value||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[-']/g," ").replace(/\s+/g," ").trim().toLocaleLowerCase("fr");
+}
+function trackingCompetencyRows(rows){
+  const out=[];
+  rows.forEach(c=>{
+    const ev=c.evaluation, stats=c.resultat?.criteriaStats||{};
+    if(isHistoricalEvaluation(ev)){
+      const meta=historicalMeta(ev);
+      const masteryCode=c.resultat?.masteryCode||"";
+      const mastery=masteryCode?getMasteryByCode(masteryCode):null;
+      if(mastery){
+        out.push({date:meta.date,evaluation:ev.titre,competence:meta.competence||"Compétence non renseignée",validated:null,total:null,mastery});
+      }
+      return;
+    }
+    const crits=criteriaFromLegacy(ev), groups={};
+    crits.forEach(cr=>{
+      const gid=cr.competenceId||"comp1";
+      if(!groups[gid])groups[gid]={nom:cr.competenceNom||"Compétence évaluée",total:0,validated:0};
+      groups[gid].total++;
+      if(stats[cr.id]?.validated)groups[gid].validated++;
+    });
+    Object.values(groups).forEach(g=>{
+      const mastery=getMasteryFromValidatedCriteria(g.validated);
+      out.push({date:c.created_at,evaluation:ev.titre,competence:g.nom,validated:g.validated,total:g.total,mastery});
+    });
+  });
+  return out;
+}
+function masteryValue(code){
+  return ({TBM:4,MS:3,MF:2,MI:1})[String(code||"").toUpperCase()]||null;
+}
+function masteryFromAverage(value){
+  const n=Number(value);
+  if(!Number.isFinite(n))return null;
+  if(n>=3.5)return getMasteryByCode("TBM");
+  if(n>=2.5)return getMasteryByCode("MS");
+  if(n>=1.5)return getMasteryByCode("MF");
+  return getMasteryByCode("MI");
+}
+function formatMasteryAverage(value){
+  const n=Number(value);
+  return Number.isFinite(n)?`${n.toFixed(2).replace(".",",")} / 4`:"—";
+}
+function trackingSummary(rows){
+  const total=rows.length;
+  const competencies=trackingCompetencyRows(rows);
+  const counts={TBM:0,MS:0,MF:0,MI:0};
+  competencies.forEach(x=>counts[x.mastery.code]=(counts[x.mastery.code]||0)+1);
+  const byComp={};
+  competencies.forEach(x=>{
+    const key=String(x.competence||"Compétence non renseignée");
+    if(!byComp[key])byComp[key]=[];
+    byComp[key].push(x);
+  });
+  const competencySummaries=Object.entries(byComp).map(([competence,items])=>{
+    const values=items.map(x=>masteryValue(x.mastery?.code)).filter(Number.isFinite);
+    const average=values.length?values.reduce((a,b)=>a+b,0)/values.length:null;
+    const ordered=[...items].sort((a,b)=>{
+      const da=a.date?new Date(normalizeTrackingDate(a.date)).getTime():0;
+      const db=b.date?new Date(normalizeTrackingDate(b.date)).getTime():0;
+      return da-db;
+    });
+    const latest=ordered[ordered.length-1]||items[items.length-1];
+    return {competence,evaluations:items.length,average,averageMastery:masteryFromAverage(average),latest};
+  }).sort((a,b)=>a.competence.localeCompare(b.competence,"fr"));
+  return {total,competencies,counts,competencySummaries};
+}
+async function loadBehaviorStudents(){
+  // Source unique pour le suivi de classe : la table Eleves.
+  // ProfessorStudents est une ancienne banque et ne doit plus alimenter
+  // la liste des élèves du suivi, afin d'éviter les doublons entre les deux sources.
+  const byId=new Map();
+  (studentsCache||[]).forEach(s=>{
+    if(!s?.id)return;
+    const id=String(s.id);
+    if(byId.has(id))return;
+    byId.set(id,{
+      id:s.id,
+      classe:String(s.classe||"").trim(),
+      nom:studentDisplayName(s)
+    });
+  });
+  behaviorStudentsCache=[...byId.values()].sort((a,b)=>{
+    const c=String(a.classe||"").localeCompare(String(b.classe||""),"fr",{numeric:true,sensitivity:"base"});
+    return c||String(a.nom||"").localeCompare(String(b.nom||""),"fr",{numeric:true,sensitivity:"base"});
+  });
+  return behaviorStudentsCache;
+}
+const BEHAVIOR_TYPES=[
+ {code:"bavardage",label:"Bavardage",icon:"💬",negative:true},
+ {code:"oubli_materiel",label:"Oubli de matériel",icon:"🎒",negative:true},
+ {code:"travail_non_fait",label:"Travail non fait",icon:"📚",negative:true},
+ {code:"participation",label:"Participation",icon:"⭐",negative:false}
+];
+function behaviorMeta(code){return BEHAVIOR_TYPES.find(x=>x.code===code)||BEHAVIOR_TYPES[BEHAVIOR_TYPES.length-1];}
+function behaviorEventsForStudent(name,classe,period,studentId=""){
+  return behaviorEventsCache.filter(e=>
+    (!studentId ? e.student===name : (e.studentId&&String(e.studentId)===String(studentId))) &&
+    (!classe||String(e.classe||"").trim()===String(classe||"").trim()) &&
+    (period==="year"||trackingPeriodMatch(e.date,period))
+  ).sort((a,b)=>new Date(b.date)-new Date(a.date));
+}
+function behaviorStudentsForClass(classe){
+  const target=String(classe||"").trim();
+  return behaviorStudentsCache.filter(s=>String(s.classe||"").trim()===target).sort((a,b)=>String(a.nom||"").localeCompare(String(b.nom||""),"fr",{numeric:true,sensitivity:"base"}));
+}
+function toggleAllBehaviorStudents(checked){document.querySelectorAll('.behavior-student-check').forEach(el=>{el.checked=checked;});}
+function behaviorCounts(events){const out={};events.forEach(e=>out[e.type]=(out[e.type]||0)+1);return out;}
+function behaviorSummary(events){const negative=events.filter(e=>behaviorMeta(e.type).negative).length;return {negative,positive:events.length-negative,total:events.length};}
+function behaviorPeriodName(period){return period==="t1"?"du 1er trimestre":period==="t2"?"du 2e trimestre":period==="t3"?"du 3e trimestre":"de l'année";}
+function behaviorGenerateAppreciation(events,competencySummaries){
+ const s=behaviorSummary(events),parts=[];const cs=competencySummaries||[];
+ if(cs.length){const strong=cs.filter(x=>x.average>=3.5).map(x=>x.competence),fragile=cs.filter(x=>x.average<2.5).map(x=>x.competence);if(strong.length)parts.push(`Les compétences scientifiques sont globalement bien maîtrisées, notamment ${strong.slice(0,2).join(" et ")}.`);else if(fragile.length)parts.push(`Les compétences scientifiques restent encore fragiles, notamment ${fragile.slice(0,2).join(" et ")}.`);else parts.push("Les compétences scientifiques sont en cours de consolidation.");}
+ if(!s.total)parts.push("Le travail et l'attitude en classe sont satisfaisants sur la période observée.");
+ else{if(s.positive>s.negative)parts.push("L'investissement et l'attitude sont globalement positifs.");if(events.some(e=>e.type==="participation"))parts.push("La participation en classe est appréciable.");if(events.some(e=>e.type==="effort_progres"))parts.push("Les efforts et les progrès sont à souligner.");if(events.some(e=>e.type==="bavardage"))parts.push("Il faut toutefois veiller à limiter les bavardages afin de rester pleinement concentré en classe.");if(events.some(e=>e.type==="oubli_materiel"))parts.push("Il faut penser à apporter le matériel nécessaire.");if(events.some(e=>e.type==="travail_non_fait"||e.type==="devoir_oublie"))parts.push("Le travail personnel doit être rendu plus régulier.");if(events.some(e=>e.type==="manque_ecoute"))parts.push("Une meilleure attention aux consignes est attendue.");if(events.some(e=>e.type==="non_respect_consignes"))parts.push("Les consignes doivent être davantage respectées.");}
+ return parts.join(" ").replace(/\s+/g," ").trim();
+}
+function generateCurrentAppreciation(){
+  try{
+    const rows=trackingRows();
+    const summary=trackingSummary(rows);
+    const events=studentTrackingStudent?behaviorEventsForStudent(studentTrackingStudent,studentTrackingClass,studentTrackingPeriod,studentTrackingStudentId):[];
+    return behaviorGenerateAppreciation(events,summary.competencySummaries);
+  }catch(e){alert("Impossible de générer l’appréciation : "+e.message);return "";}
+}
+function saveAppreciationDraft(){const el=document.getElementById("generatedAppreciation");if(!el)return;try{localStorage.setItem("svt_appreciation_"+studentTrackingClass+"_"+studentTrackingStudent+"_"+studentTrackingPeriod,el.value);alert("Appréciation enregistrée sur cet appareil.");}catch(e){alert("Impossible d'enregistrer l'appréciation : "+e.message);}}
+function loadAppreciationDraft(){try{return localStorage.getItem("svt_appreciation_"+studentTrackingClass+"_"+studentTrackingStudent+"_"+studentTrackingPeriod)||"";}catch(e){return "";}}
+function renderStudentTracking(){
+  if(loadEvalNav().view==='behaviorTracking'){renderBehaviorTracking();return;}
+  label.textContent="Suivi d’un élève";
+  saveEvalNav({view:"tracking",classe:studentTrackingClass,student:studentTrackingStudent,studentId:studentTrackingStudentId,period:studentTrackingPeriod});
+  const studentOptions=trackingStudentOptions();
+  if(studentTrackingStudentId&&!studentOptions.some(x=>x.id===String(studentTrackingStudentId)))studentTrackingStudentId="";
+  if(!studentTrackingStudentId&&studentTrackingStudent){
+    const found=studentOptions.find(x=>x.name===studentTrackingStudent);
+    if(found)studentTrackingStudentId=found.id;
+  }
+  if(studentTrackingStudentId){
+    const found=studentOptions.find(x=>x.id===String(studentTrackingStudentId));
+    studentTrackingStudent=found?.name||"";
+  }else if(studentTrackingStudent&&!studentOptions.some(x=>x.name===studentTrackingStudent)){
+    studentTrackingStudent="";
+  }
+  const rows=trackingRows(),summary=trackingSummary(rows);
+  const scoreValues=rows.map(trackingScore20);
+  const studentAverage=formatAverage20(scoreValues);
+  const classes=[...new Set([
+  ...studentTrackingCache.flatMap(c=>
+    Array.isArray(c.evaluation?.assignedClasses)&&c.evaluation.assignedClasses.length
+      ? c.evaluation.assignedClasses
+      : [c.evaluation?.classe]
+  ),
+  ...behaviorStudentsCache.map(s=>s.classe)
+].filter(Boolean))]
+  loadBehaviorEvents();
+  const behaviorEvents=studentTrackingStudent?behaviorEventsForStudent(studentTrackingStudent,studentTrackingClass,studentTrackingPeriod,studentTrackingStudentId):[];
+  const behaviorCountsMap=behaviorCounts(behaviorEvents),behaviorPeriodSummary=behaviorSummary(behaviorEvents);
+  const competencyTable=summary.competencies.length?summary.competencies.map(x=>{
+    const source=rows.find(c=>c.evaluation?.titre===x.evaluation);
+    const note=source?trackingNoteLabel(source):"—";
+    return `<tr><td>${esc(trackingDate(x.date))}</td><td>${esc(x.evaluation)}</td><td>${esc(x.competence)}</td><td>${note}</td><td>${x.validated} / ${x.total}</td><td><span class="mastery-result ${x.mastery.cls}">${x.mastery.code} — ${esc(x.mastery.label)}</span></td></tr>`;
+  }).join(""): `<tr><td colspan="6" class="muted">Aucune évaluation correspondant aux filtres.</td></tr>`;
+  const competencySummaries=summary.competencySummaries;
+  const latestHtml=competencySummaries.length?competencySummaries.map(x=>{
+    const latest=x.latest;
+    const avgMastery=x.averageMastery;
+    const latestMastery=latest?.mastery||null;
+    return `<div class="tracking-competency"><div><strong>${esc(x.competence)}</strong><div class="small-note">${x.evaluations} évaluation(s) · Moyenne : <strong>${formatMasteryAverage(x.average)}</strong> · Dernière : ${latest?esc(latest.evaluation):"—"}</div></div><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end">${avgMastery?`<span class="competency-pill" tabindex="0" aria-label="Maîtrise moyenne : ${esc(avgMastery.code)}" title="Maîtrise moyenne calculée sur toutes les évaluations de cette compétence"><span class="mastery-result ${avgMastery.cls}" style="margin:0">${avgMastery.code}</span></span>`:""}${latestMastery?`<span class="competency-pill" tabindex="0" aria-label="Dernière maîtrise : ${esc(latestMastery.code)}" title="Dernière maîtrise obtenue"><span class="mastery-result ${latestMastery.cls}" style="margin:0">${latestMastery.code}</span></span>`:""}</div></div>`;
+  }).join(""):`<p class="muted">Aucune compétence évaluée pour cette sélection.</p>`;
+  content.innerHTML=`<button type="button" onclick="home()">← Accueil</button>
+    <section class="hero" style="margin-top:14px">
+      <span class="eyebrow">Suivi des acquis</span><h2>📊 Suivi des élèves</h2>
+      <p class="muted">Chaque correction enregistrée alimente automatiquement l'historique de l'élève. Les niveaux de maîtrise reprennent exactement les règles de tes évaluations.</p>
+      <div class="tracking-filters">
+        <div><label>Classe</label><select id="trackingClass" onchange="studentTrackingClass=this.value;studentTrackingStudent='';studentTrackingStudentId='';renderStudentTracking()"><option value="">Toutes les classes</option>${classes.map(c=>`<option value="${esc(c)}" ${c===studentTrackingClass?"selected":""}>${esc(c)}</option>`).join("")}</select></div>
+        <div><label>Élève</label><select id="trackingStudent" onchange="studentTrackingStudentId=this.value;studentTrackingStudent=(trackingStudentOptions().find(x=>x.id===String(this.value))||{}).name||'';renderStudentTracking()"><option value="">${studentOptions.length?"Sélectionner un élève":"Aucun élève corrigé"}</option>${studentOptions.map(o=>`<option value="${esc(o.id)}" ${String(o.id)===String(studentTrackingStudentId)?"selected":""}>${esc(o.name)}</option>`).join("")}</select></div>
+        <div><label>Période</label><select onchange="studentTrackingPeriod=this.value;renderStudentTracking()"><option value="year" ${studentTrackingPeriod==="year"?"selected":""}>Année</option><option value="t1" ${studentTrackingPeriod==="t1"?"selected":""}>Trimestre 1</option><option value="t2" ${studentTrackingPeriod==="t2"?"selected":""}>Trimestre 2</option><option value="t3" ${studentTrackingPeriod==="t3"?"selected":""}>Trimestre 3</option></select></div>
+      </div>
+    </section>
+    ${studentTrackingStudent?`<section class="hero" style="margin-top:14px"><div class="entry-head"><div><span class="eyebrow">${esc(studentTrackingClass||"Toutes les classes")}</span><h2>👤 ${esc(studentTrackingStudent)}</h2><p class="muted">${trackingPeriodLabel(studentTrackingPeriod)} · ${summary.total} évaluation(s) enregistrée(s)</p></div></div>
+      <div class="tracking-summary"><div class="tracking-stat"><strong>${summary.total}</strong><span>évaluation(s)</span></div><div class="tracking-stat"><strong>${studentAverage}</strong><span>moyenne élève /20</span></div><div class="tracking-stat"><strong>${summary.counts.TBM}</strong><span>TBM</span></div><div class="tracking-stat"><strong>${summary.counts.MS}</strong><span>MS</span></div><div class="tracking-stat"><strong>${summary.counts.MF}</strong><span>MF</span></div><div class="tracking-stat"><strong>${summary.counts.MI}</strong><span>MI</span></div></div>
+      <div class="criteria-box" style="margin-top:16px"><h3 style="margin-top:0">📈 Suivi des compétences</h3><p class="small-note">La moyenne de maîtrise utilise TBM = 4, MS = 3, MF = 2 et MI = 1. Le niveau moyen est ensuite converti en TBM à partir de 3,5 ; MS à partir de 2,5 ; MF à partir de 1,5 ; sinon MI. Les deux indicateurs affichés sont : <strong>moyenne sur toutes les évaluations</strong> puis <strong>dernière maîtrise</strong>.</p>${latestHtml}</div>
+      <p><button type="button" onclick="openBehaviorTracking(${jsArg(studentTrackingClass)},${jsArg(studentTrackingStudentId)},${jsArg(studentTrackingPeriod)})">📝 Voir le suivi du comportement de cet élève</button></p><div class="appreciation-box"><div class="entry-head"><div><h3 style="margin:0">✨ Appréciation du trimestre</h3><p class="small-note">Proposition fondée sur les compétences et les observations saisies. Tu peux la modifier.</p></div><div class="row" style="margin:0"><button type="button" class="primary" onclick="document.getElementById('generatedAppreciation').value=generateCurrentAppreciation()">✨ Générer</button><button type="button" onclick="saveAppreciationDraft()">💾 Enregistrer</button></div></div><textarea id="generatedAppreciation" placeholder="L'appréciation apparaîtra ici…">${esc(loadAppreciationDraft())}</textarea></div>
+      <div class="criteria-box" style="margin-top:16px"><h3 style="margin-top:0">📋 Historique des évaluations</h3><div style="overflow:auto"><table class="mastery-table"><thead><tr><th>Date</th><th>Évaluation</th><th>Compétence</th><th>Note</th><th>Critères validés</th><th>Maîtrise</th></tr></thead><tbody>${competencyTable}</tbody></table></div></div>
+    </section>`:`<section class="hero" style="margin-top:14px"><h3>👤 Sélectionne un élève</h3><p class="muted">Les élèves apparaissent automatiquement dès qu'une correction est enregistrée.</p></section>`}`;
+}
+function classTrackingRows(){
+  const rows=studentTrackingCache.filter(c=>{
+    const date=trackingRecordDate(c);
+    return correctionAppliesToClass(c,classTrackingClass)
+      &&trackingPeriodMatch(date,classTrackingPeriod);
+  });
+  const byStudent={};
+  rows.forEach(c=>{
+    const name=c.eleve||"Élève";
+    const studentKey=c.eleveId?String(c.eleveId):name;
+    if(!byStudent[studentKey])byStudent[studentKey]={name,sortKey:c.sortKey||name.toLocaleLowerCase("fr"),evaluations:[],competencies:[]};
+    byStudent[studentKey].evaluations.push(c);
+    const stats=c.resultat?.criteriaStats||{};
+    if(isHistoricalEvaluation(c.evaluation)){
+      const meta=historicalMeta(c.evaluation);
+      const mastery=getMasteryByCode(c.resultat?.masteryCode||"");
+      if(mastery){
+        byStudent[studentKey].competencies.push({competence:meta.competence||"Compétence non renseignée",validated:null,total:null,mastery});
+      }
+    }else{
+      const crits=criteriaFromLegacy(c.evaluation),groups={};
+      crits.forEach(cr=>{
+        const gid=cr.competenceId||"comp1";
+        if(!groups[gid])groups[gid]={nom:cr.competenceNom||"Compétence évaluée",total:0,validated:0};
+        groups[gid].total++;
+        if(stats[cr.id]?.validated)groups[gid].validated++;
+      });
+      Object.values(groups).forEach(g=>{
+        byStudent[studentKey].competencies.push({
+          competence:g.nom,
+          validated:g.validated,
+          total:g.total,
+          mastery:getMasteryFromValidatedCriteria(g.validated)
+        });
+      });
+    }
+  });
+  return Object.values(byStudent).sort((a,b)=>{
+    const ak=(a.sortKey||a.name||"").toLocaleLowerCase("fr");
+    const bk=(b.sortKey||b.name||"").toLocaleLowerCase("fr");
+    return ak.localeCompare(bk,"fr",{numeric:true});
+  });
+}
+function renderClassTracking(){
+  if(loadEvalNav().view==='behaviorTracking'){renderBehaviorTracking();return;}
+  label.textContent="Suivi de classe";
+  saveEvalNav({view:"classTracking",classe:classTrackingClass,period:classTrackingPeriod});
+  loadBehaviorEvents();
+  const classes=[...new Set([
+    ...Object.values(CLASSES).flat(),
+    ...studentsCache.map(s=>s.classe),
+    ...studentTrackingCache.flatMap(c=>
+  Array.isArray(c.evaluation?.assignedClasses)&&c.evaluation.assignedClasses.length
+    ? c.evaluation.assignedClasses
+    : [c.evaluation?.classe]
+),
+    ...behaviorStudentsCache.map(s=>s.classe),
+    ...behaviorEventsCache.map(e=>e.classe)
+  ].map(x=>String(x||"").trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b,"fr",{numeric:true,sensitivity:"base"}));
+  if(classTrackingClass && !classes.includes(classTrackingClass))classTrackingClass=classes[0]||"";
+  const rows=classTrackingRows();
+  const roster=behaviorStudentsForClass(classTrackingClass);
+  const allCompetencies=[...new Set(rows.flatMap(s=>s.competencies.map(x=>x.competence)))]
+    .sort((a,b)=>a.localeCompare(b,"fr"));
+  let totalEvaluations=0;
+  const distribution={TBM:0,MS:0,MF:0,MI:0};
+  const classScores=[];
+  rows.forEach(s=>{
+    totalEvaluations+=s.evaluations.length;
+    s.evaluations.forEach(c=>{const v=trackingScore20(c);if(v!==null)classScores.push(v);});
+    s.competencies.forEach(x=>distribution[x.mastery.code]=(distribution[x.mastery.code]||0)+1);
+  });
+  const classAverage=formatAverage20(classScores);
+  const rosterRows=roster.map(s=>{
+    const events=behaviorEventsForStudent(s.nom,s.classe,classTrackingPeriod,s.id);
+    const counts=behaviorCounts(events);
+    return `<label class="behavior-roster-row" style="display:grid;grid-template-columns:24px minmax(0,1fr) auto;align-items:center;gap:10px;padding:9px 10px;border-bottom:1px solid #eee;cursor:pointer"><input type="checkbox" class="behavior-student-check" value="${esc(s.id)}"><span style="min-width:0"><strong>${esc(s.nom||"Élève")}</strong></span><span class="small-note">${events.length?`${events.length} observation(s)`:"—"}</span></label>`;
+  }).join("");
+  const behaviorButtons=BEHAVIOR_TYPES.map(m=>`<button type="button" onclick="addBehaviorEventToSelected('${esc(m.code)}')">${m.icon} ${esc(m.label)}</button>`).join("");
+  const studentRows=rows.map(s=>{
+    const latest={};
+    s.competencies.forEach(x=>{
+      latest[x.competence]=x;
+    });
+    const scores=s.evaluations
+      .map(trackingScore20)
+      .filter(v=>v!==null && Number.isFinite(v));
+    const avg=scores.length
+      ? scores.reduce((a,b)=>a+b,0)/scores.length
+      : null;
+    const classAvg=classScores.length
+      ? classScores.reduce((a,b)=>a+b,0)/classScores.length
+      : null;
+    const position=avg===null || classAvg===null
+      ? "—"
+      : avg>classAvg+0.05
+        ? "🟢 Au-dessus"
+        : avg<classAvg-0.05
+          ? "🔴 En dessous"
+          : "⚪ Dans la moyenne";
+    const mastered=[];
+    const fragile=[];
+    const notEvaluated=[];
+    allCompetencies.forEach(name=>{
+      const x=latest[name];
+      if(!x){
+        notEvaluated.push(name);
+        return;
+      }
+      const code=x.mastery?.code||"";
+      const label=x.mastery?.label||code||"Non renseignée";
+      const item=`${name} (${label})`;
+      if(code==="TBM"||code==="MS"){
+        mastered.push(item);
+      }else if(code==="MF"||code==="MI"){
+        fragile.push(item);
+      }else{
+        notEvaluated.push(item);
+      }
+    });
+    const competencySummary=`
+      ${mastered.length?`
+        <div style="margin-bottom:6px">
+          <strong style="color:#247447">✓ Maîtrisées</strong>
+          <div>${mastered.map(esc).join("<br>")}</div>
+        </div>`:""}
+      ${fragile.length?`
+        <div style="margin-bottom:6px">
+          <strong style="color:#a34b36">⚠ À retravailler</strong>
+          <div>${fragile.map(esc).join("<br>")}</div>
+        </div>`:""}
+      ${notEvaluated.length?`
+        <details style="margin-top:5px">
+          <summary style="cursor:pointer;color:#666">
+            Non évaluées ou non renseignées (${notEvaluated.length})
+          </summary>
+          <div style="margin-top:5px">
+            ${notEvaluated.map(esc).join("<br>")}
+          </div>
+        </details>`:""}
+      ${!mastered.length&&!fragile.length&&!notEvaluated.length
+        ?"—":""}
+    `;
+    return `<tr>
+      <td><strong>${esc(s.name)}</strong></td>
+      <td>${scores.length}</td>
+      <td style="white-space:nowrap">
+        ${avg===null?"—":avg.toLocaleString("fr-FR",{
+          minimumFractionDigits:2,
+          maximumFractionDigits:2
+        })+" /20"}
+      </td>
+      <td style="white-space:nowrap">${position}</td>
+      <td style="min-width:230px">
+        ${competencySummary||"—"}
+      </td>
+    </tr>`;
+  }).join("");
+  const competencyLegend=allCompetencies.length?`<div class="criteria-box" style="margin-top:16px"><h3 style="margin-top:0">🎯 Compétences suivies</h3><div class="small-note">${allCompetencies.map(x=>`<strong style="display:inline-block;margin:3px 12px 3px 0">${esc(x)}</strong>`).join("")}</div></div>`:"";
+  content.innerHTML=`<button type="button" onclick="home()">← Accueil</button>
+    <section class="hero" style="margin-top:14px"><span class="eyebrow">Suivi des acquis</span><h2>🏫 Suivi de classe</h2><p class="muted">Consulte les résultats, les moyennes et la maîtrise des compétences. Les observations sont accessibles dans le suivi du comportement.</p>
+      <div class="tracking-filters"><div><label>Classe</label><select onchange="classTrackingClass=this.value;renderClassTracking()"><option value="">Toutes les classes</option>${classes.map(c=>`<option value="${esc(c)}" ${c===classTrackingClass?"selected":""}>${esc(c)}</option>`).join("")}</select></div><div><label>Période</label><select onchange="classTrackingPeriod=this.value;renderClassTracking()"><option value="year" ${classTrackingPeriod==="year"?"selected":""}>Année</option><option value="t1" ${classTrackingPeriod==="t1"?"selected":""}>Trimestre 1</option><option value="t2" ${classTrackingPeriod==="t2"?"selected":""}>Trimestre 2</option><option value="t3" ${classTrackingPeriod==="t3"?"selected":""}>Trimestre 3</option></select></div></div>
+    </section>
+    <section class="hero" style="margin-top:14px"><div class="tracking-summary"><div class="tracking-stat"><strong>${roster.length}</strong><span>élève(s)</span></div><div class="tracking-stat"><strong>${classAverage}</strong><span>moyenne de classe /20</span></div>
+<div class="tracking-stat"><strong>${totalEvaluations}</strong><span>correction(s)</span></div></div>
+      ${rows.length?`<div style="overflow:auto">
+
+<table class="mastery-table" style="width:100%;table-layout:auto">
+  <thead>
+    <tr>
+      <th>Nom de l’élève</th>
+      <th>Nombre d’évaluations</th>
+      <th>Moyenne /20</th>
+      <th>Position par rapport à la moyenne de classe</th>
+      <th>Maîtrise des compétences</th>
+    </tr>
+  </thead>
+  <tbody>${studentRows}</tbody>
+</table>
+</div>`:`<p class="muted">Aucune correction enregistrée pour cette sélection.</p>`}</section>${competencyLegend}`;
+}
+async function openClassTracking(){
+  if(!correctionAllowLeave())return;
+  try{
+    try{localStorage.setItem(EVAL_NAV_KEY,JSON.stringify({view:"classTracking",classe:classTrackingClass,period:classTrackingPeriod}))}catch(e){}
+    if(!evaluationsCache.length)evaluationsCache=await loadEvaluations();
+    await loadStudentTracking();
+    loadBehaviorEvents();
+    await loadBehaviorStudents();
+    renderClassTracking();
+  }catch(e){showError(e.message)}
+}
+async function openStudentTracking(){
+  if(!correctionAllowLeave())return;
+  try{
+    try{localStorage.setItem(EVAL_NAV_KEY,JSON.stringify({view:"tracking",classe:studentTrackingClass,student:studentTrackingStudent,studentId:studentTrackingStudentId,period:studentTrackingPeriod}))}catch(e){}
+    if(!evaluationsCache.length)evaluationsCache=await loadEvaluations();
+    await loadStudentTracking();
+    loadBehaviorEvents();
+    await loadBehaviorStudents();
+    renderStudentTracking();
+  }catch(e){showError(e.message)}
+}
+function flattenIndicators(ev){
+  const crits=criteriaFromLegacy(ev),items=[];
+  crits.forEach((c,ci)=>{
+    (c.indicateurs||[]).forEach((it,ii)=>items.push({criterionId:c.id,ci,ii,nom:safe(it.nom),points:Number(it.points||0)}));
+  });
+  return {crits,items};
+}
+async function loadEvaluations(){
+  const {data,error}=await sb.from("Evaluations")
+    .select("id,titre,classe,total,criteres,exercices,created_at")
+    .order("created_at",{ascending:false});
+  if(error)throw new Error(error.message);
+  return (data||[]).map(evalNormalize);
+}
+async function saveEvaluationObject(ev){
+  const questions=Array.isArray(ev.competences)
+    ? ev.competences
+    : [];
+  const flatCriteres=questions.flatMap((question,qi)=>
+    (question.criteres||[]).map((cr,ci)=>({
+      ...cr,
+      competenceId:question.bankId||question.id||`comp${qi+1}`,
+      competenceNom:question.nom||"Compétence non renseignée",
+      questionNumero:Number(question.questionNumero||qi+1),
+      questionId:question.id||`comp${qi+1}`
+    }))
+  );
+  const existingExercises=Array.isArray(ev.exercices)
+    ? ev.exercices.filter(x=>!(x&&x.__evaluationMeta))
+    : [];
+  const meta={
+    __evaluationMeta:true,
+    chapitre:Number(ev.chapitre||0),
+typeEvaluation:
+  ["activite","exercice"].includes(ev.typeEvaluation)
+    ?ev.typeEvaluation
+    :"evaluation",
+coefficient:
+  ["activite","exercice"].includes(ev.typeEvaluation)
+    ?0.5
+    :1,
+    evaluationGroupId:ev.evaluationGroupId||null,
+    classes:Array.isArray(ev.assignedClasses)
+      ? [...new Set(
+          ev.assignedClasses
+            .map(v=>String(v||"").trim())
+            .filter(Boolean)
+        )]
+      : (ev.classe
+          ? [String(ev.classe).trim()]
+          : []),
+    // Nouvelle structure : on conserve les questions séparément.
+    questions:questions.map((question,qi)=>({
+      id:question.id||`comp${qi+1}`,
+      questionNumero:Number(question.questionNumero||qi+1),
+      bankId:question.bankId||null,
+      nom:question.nom||"Compétence non renseignée"
+    }))
+  };
+  const payload={
+    titre:ev.titre,
+    classe:ev.classe,
+    total:Number(ev.total||0),
+    criteres:flatCriteres,
+    exercices:[meta,...existingExercises]
+  };
+  if(ev.id){
+    const {data,error}=await sb
+      .from("Evaluations")
+      .update(payload)
+      .eq("id",ev.id)
+      .select()
+      .maybeSingle();
+    if(error)throw new Error(error.message);
+    return evalNormalize(data);
+  }
+  const {data,error}=await sb
+    .from("Evaluations")
+    .insert(payload)
+    .select()
+    .maybeSingle();
+  if(error)throw new Error(error.message);
+  return evalNormalize(data);
+}
+function loadEvalNav(){
+  try{
+    const raw=JSON.parse(localStorage.getItem(EVAL_NAV_KEY)||"null");
+    return raw&&typeof raw==="object"?raw:{view:"list",classe:"",evaluationId:null,correctionId:null};
+  }catch(e){return {view:"list",classe:"",evaluationId:null,correctionId:null};}
+}
+function saveEvalNav(patch={}){
+  const current=loadEvalNav();
+  const next={...current,...patch};
+  try{localStorage.setItem(EVAL_NAV_KEY,JSON.stringify(next));}catch(e){}
+  return next;
+}
+function evalCurrentListContext(){
+  const nav=loadEvalNav();
+  const selected=(document.getElementById("evaluationClassSelect")?.value||nav.classe||localStorage.getItem("EVAL_SELECTED_CLASS")||"").trim();
+  return {classe:selected,};
+}
+function evalReturnToList(extra={}){
+  const ctx=evalCurrentListContext();
+  saveEvalNav({view:"list",classe:extra.classe!==undefined?extra.classe:ctx.classe,evaluationId:null,correctionId:null});
+  if(extra.classe!==undefined){try{localStorage.setItem("EVAL_SELECTED_CLASS",String(extra.classe||""));}catch(e){}}
+  return openEvaluations();
+}
+function evalRememberFromEvaluation(ev,view,extra={}){
+  const current=loadEvalNav();
+  return saveEvalNav({
+    view,
+    classe:String(extra.classe!==undefined?extra.classe:(ev?.classe||current.classe||"")).trim(),
+    evaluationId:extra.evaluationId!==undefined?extra.evaluationId:(ev?.id||current.evaluationId||null),
+    correctionId:extra.correctionId!==undefined?extra.correctionId:(current.correctionId||null)
+  });
+}
+async function openEvaluations(options={}){
+  if(!correctionAllowLeave())return;
+  const previous=loadEvalNav();
+  const requestedClass=options.classe!==undefined?String(options.classe||"").trim():String(previous.classe||localStorage.getItem("EVAL_SELECTED_CLASS")||"").trim();
+  saveEvalNav({view:"list",classe:requestedClass,evaluationId:null,correctionId:null});
+  try{localStorage.setItem("EVAL_SELECTED_CLASS",requestedClass);}catch(e){}
+  label.textContent="Évaluations";
+  content.innerHTML=`
+    <div class="eval-nav">
+      <div class="row"><button type="button" onclick="home()">🏠 Accueil</button></div>
+      <div class="row">
+        <button type="button" class="primary" onclick="newEvaluation()">＋ Nouvelle évaluation</button>
+      </div>
+    </div>
+    <section class="hero">
+      <span class="eyebrow">Évaluations</span>
+      <h2>📝 Mes évaluations</h2>
+      <p class="muted">Choisis une classe pour afficher les évaluations qui lui sont attribuées.</p>
+      <div style="max-width:320px;margin-top:16px">
+        <label for="evaluationClassSelect" style="display:block;font-weight:800;margin-bottom:6px">Classe</label>
+        <select id="evaluationClassSelect" style="width:100%;padding:11px 13px;border:1px solid var(--b);border-radius:10px;background:#fff;font:inherit">
+          <option value="">Choisir une classe…</option>
+        </select>
+      </div>
+      <div class="eval-toolbar" style="margin-top:16px">
+        <button class="primary" onclick="newEvaluation()">＋ Nouvelle évaluation</button>
+        <button type="button" onclick="newHistoricalEvaluation()">🕘 Ajouter une évaluation antérieure</button>
+      </div>
+    </section>
+    <div id="evaluationList">
+      <section class="hero"><p class="muted" style="margin:0">Sélectionne une classe pour afficher ses évaluations.</p></section>
+    </div>`;
+  try{
+    evaluationsCache=await loadEvaluations();
+    const select=document.getElementById("evaluationClassSelect");
+    if(!select)return;
+    const evalClasses=evaluationsCache.map(e=>String(e.classe||"").trim()).filter(Boolean);
+    const knownClasses=typeof CLASSES!=="undefined" ? Object.values(CLASSES).flat().filter(Boolean) : [];
+    const classes=[...new Set([...knownClasses,...evalClasses])].sort((a,b)=>a.localeCompare(b,"fr",{numeric:true}));
+    select.innerHTML='<option value="">Choisir une classe…</option>'+classes.map(c=>`<option value="${esc(c)}">${esc(c)}</option>`).join("");
+    const nav=loadEvalNav();
+    const savedClass=String(options.classe!==undefined?options.classe:(nav.classe||localStorage.getItem("EVAL_SELECTED_CLASS")||"")).trim();
+  if(savedClass && classes.includes(savedClass)){
+  select.value=savedClass;
+  saveEvalNav({
+    view:"list",
+    classe:savedClass,
+    evaluationId:null,
+    correctionId:null
+  });
+  try{
+    localStorage.setItem("EVAL_SELECTED_CLASS",savedClass);
+  }catch(e){}
+  evaluationStatisticsCache =
+    await loadEvaluationStatistics(
+      evaluationsCache,
+      savedClass
+    );
+  renderEvaluationClass(savedClass);
+}
+ select.addEventListener("change",async ()=>{
+  const selected=select.value||"";
+  saveEvalNav({
+    view:"list",
+    classe:selected,
+    evaluationId:null,
+    correctionId:null
+  });
+  try{
+    localStorage.setItem("EVAL_SELECTED_CLASS",selected);
+  }catch(e){}
+  evaluationStatisticsCache={};
+  if(selected){
+    try{
+      evaluationStatisticsCache =
+        await loadEvaluationStatistics(evaluationsCache,selected);
+    }catch(e){
+      console.error("Erreur statistiques évaluations :",e);
+      evaluationStatisticsCache={};
+    }
+  }
+  renderEvaluationClass(selected);
+});
+  }catch(e){showError(e.message)}
+}
+async function loadEvaluationStatistics(evaluations, classe){
+  const selectedClass = String(classe || "").trim();
+  if(!selectedClass){
+    return {};
+  }
+  /*
+   * =========================================================
+   * 1. Récupérer uniquement les élèves de la classe sélectionnée
+   * =========================================================
+   */
+  const studentsQ = await sb
+    .from("Eleves")
+    .select("id,classe,nom,prenom")
+    .eq("classe", selectedClass);
+  if(studentsQ.error){
+    throw new Error(studentsQ.error.message);
+  }
+  const students = studentsQ.data || [];
+  const studentIds = new Set(
+    students.map(s => String(s.id))
+  );
+  /*
+   * =========================================================
+   * 2. Garder uniquement les évaluations de chapitre
+   * =========================================================
+   */
+  const normalEvaluations = evaluations.filter(e =>
+    !isHistoricalEvaluation(e) &&
+    Array.isArray(e.assignedClasses) &&
+    e.assignedClasses.includes(selectedClass) &&
+    String(e.typeEvaluation || "") === "evaluation" &&
+    Number(e.chapitre || 0) > 0
+  );
+  if(!normalEvaluations.length){
+    return {};
+  }
+  const ids = normalEvaluations.map(e => e.id);
+  /*
+   * =========================================================
+   * 3. Récupérer toutes les corrections de ces évaluations
+   * =========================================================
+   */
+  const {data,error} = await sb
+    .from("EvaluationCorrections")
+    .select(
+      "id,evaluation_id,eleve,eleve_id,resultat,created_at"
+    )
+    .in("evaluation_id", ids);
+  if(error){
+    throw new Error(error.message);
+  }
+  /*
+   * =========================================================
+   * 4. FILTRE ESSENTIEL :
+   *    on ne garde que les copies des élèves de la classe
+   * =========================================================
+   */
+  const correctionsByEval = {};
+  (data || []).forEach(c => {
+    if(!c.eleve_id){
+      return;
+    }
+    const studentId = String(c.eleve_id);
+    if(!studentIds.has(studentId)){
+      return;
+    }
+    const evaluationId = String(c.evaluation_id);
+    if(!correctionsByEval[evaluationId]){
+      correctionsByEval[evaluationId] = [];
+    }
+    correctionsByEval[evaluationId].push(c);
+  });
+  /*
+   * =========================================================
+   * 5. Calcul des statistiques
+   * =========================================================
+   */
+  const result = {};
+  normalEvaluations.forEach(ev => {
+    const corrections =
+      correctionsByEval[String(ev.id)] || [];
+    /*
+     * -----------------------------
+     * Moyenne de la classe
+     * -----------------------------
+     */
+    const scores = corrections
+      .map(c =>
+        trackingScore20({
+          evaluation: ev,
+          resultat: c.resultat
+        })
+      )
+      .filter(Number.isFinite);
+    const average = scores.length
+      ? scores.reduce((a,b)=>a+b,0) / scores.length
+      : null;
+    /*
+     * -----------------------------
+     * Regroupement des critères
+     * par compétence
+     * -----------------------------
+     */
+    const criteria = criteriaFromLegacy(ev);
+    const groups = {};
+    criteria.forEach(cr => {
+      const gid = cr.competenceId || "comp1";
+      if(!groups[gid]){
+        groups[gid] = {
+          nom: cr.competenceNom || "Compétence évaluée",
+          criteres: []
+        };
+      }
+      groups[gid].criteres.push(cr);
+    });
+    /*
+     * -----------------------------
+     * Pourcentage de réussite
+     * par compétence
+     * -----------------------------
+     */
+    const competencies = {};
+    Object.entries(groups).forEach(([gid,comp]) => {
+      const values = [];
+      corrections.forEach(c => {
+        const stats =
+          c.resultat?.criteriaStats || {};
+        const r = masteryForCompetencyQuestions(
+          comp.criteres,
+          stats
+        );
+        if(r.mastery){
+          values.push({
+            studentId: c.eleve_id
+              ? String(c.eleve_id)
+              : String(c.eleve || ""),
+            value: masteryValue(r.mastery.code),
+            mastery: r.mastery
+          });
+        }
+      });
+      /*
+       * Réussite = MS ou TBM
+       */
+      const success = values.filter(x =>
+        x.mastery.code === "TBM" ||
+        x.mastery.code === "MS"
+      ).length;
+      competencies[gid] = {
+        nom: comp.nom,
+        total: values.length,
+        success,
+        percentage: values.length
+          ? success / values.length * 100
+          : null
+      };
+    });
+    /*
+     * -----------------------------
+     * Résultat final du sujet
+     * -----------------------------
+     */
+    result[String(ev.id)] = {
+      evaluation: ev,
+      corrected: corrections.length,
+      average,
+      competencies
+    };
+  });
+  return result;
+}
+function evaluationChapterSummaryCard(chapterEvaluations, classe, chapitre){
+  const statsList = chapterEvaluations
+    .map(e => evaluationStatisticsCache[String(e.id)])
+    .filter(Boolean);
+  /*
+   * =========================================================
+   * Moyenne de l'évaluation de chapitre
+   * = moyenne des moyennes de chaque sujet
+   * =========================================================
+   */
+  const averages = statsList
+    .map(s => Number(s.average))
+    .filter(Number.isFinite);
+  const chapterAverage = averages.length
+    ? averages.reduce((a,b)=>a+b,0) / averages.length
+    : null;
+  /*
+   * =========================================================
+   * Nombre total de copies corrigées
+   * =========================================================
+   */
+  const correctedCopies = statsList
+    .reduce(
+      (total,s) => total + Number(s.corrected || 0),
+      0
+    );
+  /*
+   * =========================================================
+   * Regroupement des compétences
+   *
+   * Une compétence peut apparaître dans plusieurs sujets.
+   * On fait ici la moyenne des pourcentages de réussite
+   * disponibles pour cette compétence.
+   * =========================================================
+   */
+  const competencyMap = {};
+  statsList.forEach(stats => {
+    Object.values(stats.competencies || {}).forEach(comp => {
+      if(comp.percentage === null ||
+         !Number.isFinite(Number(comp.percentage))){
+        return;
+      }
+      const key = String(comp.nom || "Compétence évaluée")
+        .trim()
+        .toLowerCase();
+      if(!competencyMap[key]){
+        competencyMap[key] = {
+          nom: comp.nom || "Compétence évaluée",
+          percentages: []
+        };
+      }
+      competencyMap[key].percentages.push(
+        Number(comp.percentage)
+      );
+    });
+  });
+  const competencyHtml =
+    Object.values(competencyMap).length
+      ? Object.values(competencyMap)
+          .map(comp => {
+            const percentages = comp.percentages;
+            const percentage = percentages.length
+              ? percentages.reduce((a,b)=>a+b,0)
+                / percentages.length
+              : null;
+            return `
+              <span class="tag">
+                ${esc(comp.nom)} :
+                ${percentage !== null
+                  ? Math.round(percentage) + " %"
+                  : "—"}
+              </span>
+            `;
+          })
+          .join(" ")
+      : `<span class="small-note">
+           Aucune compétence corrigée
+         </span>`;
+  const averageText =
+    chapterAverage !== null
+      ? chapterAverage.toFixed(2).replace(".",",") + " /20"
+      : "—";
+  return `
+    <section
+      class="eval-card"
+      style="
+        margin-bottom:18px;
+        border:2px solid var(--accent,#2b8a78);
+      "
+    >
+
+      <div class="entry-head">
+
+        <div>
+
+          <span class="tag">
+            ${esc(classe)}
+          </span>
+
+          <h3 style="margin-top:7px">
+            📊 Évaluation de chapitre ${chapitre}
+          </h3>
+
+          <p class="small-note">
+            ${chapterEvaluations.length}
+            sujet${chapterEvaluations.length>1 ? "s" : ""}
+            ·
+            ${correctedCopies}
+            copie${correctedCopies>1 ? "s" : ""}
+            corrigée${correctedCopies>1 ? "s" : ""}
+          </p>
+
+        </div>
+
+      </div>
+
+      <div
+        class="small-note"
+        style="
+          margin-top:12px;
+          padding:10px 12px;
+          background:var(--surface,#f7faf9);
+          border-radius:10px;
+        "
+      >
+
+        <strong>📊 Résultats de l'évaluation</strong>
+
+        · Moyenne :
+        <strong>${averageText}</strong>
+
+        ·
+        ${correctedCopies}
+        copie${correctedCopies>1 ? "s" : ""}
+        corrigée${correctedCopies>1 ? "s" : ""}
+
+      </div>
+
+      <div
+        class="row"
+        style="
+          margin-top:10px;
+          gap:6px;
+          flex-wrap:wrap;
+        "
+      >
+
+        ${competencyHtml}
+
+      </div>
+
+      <details open style="margin-top:16px">
+
+        <summary
+          style="
+            cursor:pointer;
+            font-weight:800;
+            padding:8px 0;
+          "
+        >
+          📝 Sujets de l'évaluation
+          (${chapterEvaluations.length})
+        </summary>
+
+        <div style="margin-top:10px">
+
+          ${chapterEvaluations
+            .map(evaluationCard)
+            .join("")}
+
+        </div>
+
+      </details>
+
+    </section>
+  `;
+}
+async function printAllBlankChapterGrids(chapitre, classe){
+  try{
+    const selectedClass = String(classe || "").trim();
+    const chapterNumber = Number(chapitre || 0);
+    if(!selectedClass || !chapterNumber){
+      alert("Classe ou chapitre introuvable.");
+      return;
+    }
+    /*
+     * =========================================================
+     * 1. Récupérer les sujets du chapitre pour cette classe
+     * =========================================================
+     */
+    const chapterEvaluations = evaluationsCache
+      .filter(e => {
+        const classes =
+          Array.isArray(e.assignedClasses)
+            ? e.assignedClasses
+            : String(e.classe || "")
+                .split(",")
+                .map(x => x.trim())
+                .filter(Boolean);
+        return (
+          classes.includes(selectedClass) &&
+          Number(e.chapitre || 0) === chapterNumber &&
+          String(e.typeEvaluation || "") === "evaluation" &&
+          !isHistoricalEvaluation(e)
+        );
+      })
+      .sort((a,b) =>
+        String(a.titre || "").localeCompare(
+          String(b.titre || ""),
+          "fr",
+          {
+            numeric:true,
+            sensitivity:"base"
+          }
+        )
+      );
+    if(!chapterEvaluations.length){
+      alert(
+        `Aucune évaluation trouvée pour ${selectedClass}, chapitre ${chapterNumber}.`
+      );
+      return;
+    }
+    /*
+     * =========================================================
+     * 2. Élèves de la classe sélectionnée
+     * =========================================================
+     */
+    const studentsQ = await sb
+      .from("Eleves")
+      .select("id,classe,nom,prenom")
+      .eq("classe",selectedClass)
+      .order("nom")
+      .order("prenom");
+    if(studentsQ.error){
+      throw new Error(studentsQ.error.message);
+    }
+    const students = studentsQ.data || [];
+    const studentById = new Map(
+      students.map(s => [
+        String(s.id),
+        s
+      ])
+    );
+    const studentIds = new Set(
+      students.map(s => String(s.id))
+    );
+    /*
+     * =========================================================
+     * 3. Récupérer toutes les corrections des sujets
+     * =========================================================
+     */
+    const evaluationIds =
+      chapterEvaluations.map(e => e.id);
+    const correctionsQ = await sb
+      .from("EvaluationCorrections")
+      .select(
+        "id,evaluation_id,eleve,eleve_id,resultat,created_at"
+      )
+      .in("evaluation_id",evaluationIds)
+      .order("created_at",{ascending:true});
+    if(correctionsQ.error){
+      throw new Error(correctionsQ.error.message);
+    }
+    /*
+     * UNIQUEMENT les corrections des élèves
+     * de la classe sélectionnée.
+     */
+    const corrections =
+      (correctionsQ.data || [])
+        .filter(c =>
+          c.eleve_id &&
+          studentIds.has(String(c.eleve_id))
+        )
+        .map(c => {
+          const student =
+            studentById.get(String(c.eleve_id));
+          return {
+            ...c,
+            eleve:
+              student
+                ? studentDisplayName(student)
+                : String(c.eleve || "Élève"),
+            classe:selectedClass
+          };
+        });
+    if(!corrections.length){
+      alert(
+        `Aucune grille corrigée pour ${selectedClass} dans le chapitre ${chapterNumber}.`
+      );
+      return;
+    }
+    /*
+     * =========================================================
+     * 4. Construire les grilles corrigées
+     * =========================================================
+     */
+    const pages = [];
+    chapterEvaluations.forEach(ev => {
+      const evaluationCorrections =
+        corrections.filter(c =>
+          String(c.evaluation_id) ===
+          String(ev.id)
+        );
+      /*
+       * Rien de corrigé pour ce sujet :
+       * on ne met pas de page vide.
+       */
+      if(!evaluationCorrections.length){
+        return;
+      }
+      evaluationCorrections.forEach(c => {
+        pages.push(
+          correctionGridHtml(
+            ev,
+            c,
+            selectedClass
+          )
+        );
+      });
+    });
+    if(!pages.length){
+      alert(
+        `Aucune grille corrigée trouvée pour ${selectedClass} dans le chapitre ${chapterNumber}.`
+      );
+      return;
+    }
+    /*
+     * =========================================================
+     * 5. Un seul PDF contenant toutes les corrections
+     * =========================================================
+     */
+    printHtmlInCurrentWindow(
+      `Grilles corrigées — Chapitre ${chapterNumber} — ${selectedClass}`,
+      pages.join("")
+    );
+  }catch(e){
+    alert(
+      "Génération des grilles corrigées impossible : " +
+      e.message
+    );
+  }
+}
+async function groupChapterEvaluations(chapitre, classe, selectedType="evaluation"){
+  try{
+    const selectedClass=String(classe||"").trim();
+    const chapterNumber=Number(chapitre||0);
+    if(!selectedClass || !chapterNumber){alert("Classe ou chapitre introuvable.");return;}
+    const items=evaluationsCache.filter(e=>{
+      const classes=Array.isArray(e.assignedClasses)?e.assignedClasses:String(e.classe||"").split(",").map(x=>x.trim()).filter(Boolean);
+      return classes.includes(selectedClass) && Number(e.chapitre||0)===chapterNumber && String(e.typeEvaluation||"evaluation")===selectedType && !isHistoricalEvaluation(e);
+    }).sort((a,b)=>String(a.titre||"").localeCompare(String(b.titre||""),"fr",{numeric:true,sensitivity:"base"}));
+    if(!items.length){alert(`Aucun ${selectedType==="exercice"?"exercice":selectedType==="activite"?"activité":"sujet d’évaluation"} trouvé pour ${selectedClass}, chapitre ${chapterNumber}.`);return;}
+    const existing=document.getElementById("groupChapterModal");
+    if(existing)existing.remove();
+    const modal=document.createElement("div");
+    modal.id="groupChapterModal";
+    modal.className="pp-modal";
+    modal.innerHTML=`<div class="pp-modal-card" style="max-width:720px">
+      <div class="section-heading"><div><span class="eyebrow">${selectedType==="exercice"?"Exercices":selectedType==="activite"?"Activités":"Évaluation de chapitre"}</span><h3 style="margin:4px 0 0">🔗 Regrouper les versions</h3></div><button type="button" onclick="document.getElementById('groupChapterModal')?.remove()">✕</button></div>
+      <p class="muted">Sélectionne uniquement les versions qui correspondent au même travail. Ne mélange pas des exercices, activités ou évaluations différents.</p>
+      <div style="display:grid;gap:8px;margin:14px 0">${items.map(e=>`<label style="display:flex;align-items:center;gap:10px;padding:10px;border:1px solid var(--b);border-radius:10px;background:#fff"><input type="checkbox" class="group-chapter-check" value="${esc(e.id)}" checked style="width:auto"><span>${esc(e.titre||"Sans titre")}</span></label>`).join("")}</div>
+      <div class="row" style="justify-content:flex-end;margin-top:18px"><button type="button" onclick="document.getElementById('groupChapterModal')?.remove()">Annuler</button><button type="button" class="primary" id="confirmGroupChapter">🔗 Regrouper les sujets</button></div>
+    </div>`;
+    document.body.appendChild(modal);
+    document.getElementById("confirmGroupChapter").onclick=async()=>{
+      const ids=[...document.querySelectorAll(".group-chapter-check:checked")].map(x=>String(x.value));
+      if(!ids.length){alert("Sélectionne au moins un sujet.");return;}
+      const groupId=`${selectedType}group_${Date.now()}`;
+      try{
+        for(const id of ids){
+          const q=await sb.from("Evaluations").select("id,exercices").eq("id",id).maybeSingle();
+          if(q.error)throw new Error(q.error.message);
+          if(!q.data)throw new Error("Évaluation introuvable.");
+          const old=Array.isArray(q.data.exercices)?q.data.exercices:[];
+          const previousMeta=old.find(x=>x&&x.__evaluationMeta)||{};
+          const exercises=old.filter(x=>!(x&&x.__evaluationMeta));
+          const meta={...previousMeta,__evaluationMeta:true,evaluationGroupId:groupId};
+          const upd=await sb.from("Evaluations").update({exercices:[meta,...exercises]}).eq("id",id);
+          if(upd.error)throw new Error(upd.error.message);
+        }
+        evaluationsCache=await loadEvaluations();
+        modal.remove();
+        await openEvaluations({classe:selectedClass});
+        alert(`Les ${ids.length} versions ont été regroupées pour ce travail.`);
+      }catch(e){alert("Regroupement impossible : "+e.message);}
+    };
+  }catch(e){alert("Regroupement impossible : "+e.message);}
+}
+async function generateChapterBilanPDF(chapitre, classe){
+  try{
+    const selectedClass=String(classe||"").trim();
+    const chapterNumber=Number(chapitre||0);
+    if(!selectedClass || !chapterNumber){
+      alert("Classe ou chapitre introuvable.");
+      return;
+    }
+    const chapterItems=evaluationsCache.filter(e=>{
+      const classes=Array.isArray(e.assignedClasses)
+        ?e.assignedClasses
+        :String(e.classe||"").split(",").map(x=>x.trim()).filter(Boolean);
+      return classes.includes(selectedClass)
+        && Number(e.chapitre||0)===chapterNumber
+        && !isHistoricalEvaluation(e)
+        && ["evaluation","activite","exercice"].includes(String(e.typeEvaluation||""));
+    });
+    if(!chapterItems.length){
+      alert(`Aucun élément évalué pour ${selectedClass}, chapitre ${chapterNumber}.`);
+      return;
+    }
+    /*
+     * On réutilise les statistiques déjà affichées dans l'onglet
+     * Évaluations afin que le bilan du chapitre donne exactement
+     * les mêmes taux de réussite que le récapitulatif.
+     */
+    const stats=await loadEvaluationStatistics(chapterItems,selectedClass);
+    Object.assign(evaluationStatisticsCache,stats);
+    const studentsQ=await sb.from("Eleves")
+      .select("id,classe,nom,prenom")
+      .eq("classe",selectedClass)
+      .order("nom").order("prenom");
+    if(studentsQ.error)throw new Error(studentsQ.error.message);
+    const students=studentsQ.data||[];
+    const studentIds=new Set(students.map(s=>String(s.id)));
+    const ids=chapterItems.map(e=>e.id);
+    const correctionsQ=await sb.from("EvaluationCorrections")
+      .select("id,evaluation_id,eleve,eleve_id,resultat,created_at")
+      .in("evaluation_id",ids)
+      .order("created_at",{ascending:true});
+    if(correctionsQ.error)throw new Error(correctionsQ.error.message);
+    const corrections=(correctionsQ.data||[])
+      .filter(c=>c.eleve_id && studentIds.has(String(c.eleve_id)));
+    const getGroupId=e=>{
+      const meta=(Array.isArray(e.exercices)?e.exercices:[])
+        .find(x=>x&&x.__evaluationMeta);
+      return String(
+        e.evaluationGroupId ||
+        meta?.evaluationGroupId ||
+        `item_${e.id}`
+      );
+    };
+    const groups={};
+    chapterItems.forEach(e=>{
+      const gid=String(e.typeEvaluation)==="evaluation"
+        ?getGroupId(e)
+        :`${String(e.typeEvaluation)}_${e.id}`;
+      if(!groups[gid])groups[gid]={id:gid,type:e.typeEvaluation,items:[]};
+      groups[gid].items.push(e);
+    });
+    const groupRows=[];
+    const competencyMap={};
+    const allGroupAverages=[];
+    Object.values(groups).forEach(group=>{
+      const itemStats=group.items
+        .map(e=>evaluationStatisticsCache[String(e.id)])
+        .filter(Boolean);
+      const averages=itemStats
+        .map(x=>Number(x.average))
+        .filter(Number.isFinite);
+      let average=averages.length
+        ?averages.reduce((a,b)=>a+b,0)/averages.length
+        :null;
+      /* Activités et exercices peuvent nécessiter un calcul direct depuis les corrections. */
+      if(["activite","exercice"].includes(group.type) && average===null){
+        const activityCorrections=corrections.filter(c=>
+          group.items.some(e=>String(e.id)===String(c.evaluation_id))
+        );
+        const scores=activityCorrections
+          .map(c=>trackingScore20({
+            evaluation:group.items.find(e=>String(e.id)===String(c.evaluation_id)),
+            resultat:c.resultat
+          }))
+          .filter(Number.isFinite);
+        average=scores.length
+          ?scores.reduce((a,b)=>a+b,0)/scores.length
+          :null;
+      }
+      const coefficient=["activite","exercice"].includes(group.type)?0.5:1;
+      if(average!==null)allGroupAverages.push({average,coefficient});
+      /*
+       * Une occurrence = une question portant la compétence.
+       * Elle ne dépend donc jamais du nombre d'élèves.
+       */
+      group.items.forEach(ev=>{
+        const criteria=criteriaFromLegacy(ev);
+        const compGroups={};
+        criteria.forEach(cr=>{
+          const key=String(cr.competenceId||"comp1");
+          if(!compGroups[key]){
+            compGroups[key]={
+              nom:cr.competenceNom||"Compétence évaluée",
+              criteres:[]
+            };
+          }
+          compGroups[key].criteres.push(cr);
+        });
+        Object.values(compGroups).forEach(comp=>{
+          const key=String(comp.nom||"Compétence évaluée").trim().toLowerCase();
+          const questionCount=new Set(
+            comp.criteres.map(cr=>String(cr.questionId||`q${cr.questionNumero||1}`))
+          ).size;
+          if(!competencyMap[key]){
+            competencyMap[key]={
+              nom:comp.nom||"Compétence évaluée",
+              occurrenceCount:0,
+              successValues:[],
+              masteryValues:[]
+            };
+          }
+          competencyMap[key].occurrenceCount+=questionCount;
+          const subjectStats=evaluationStatisticsCache[String(ev.id)];
+          const subjectComp=subjectStats
+            ?Object.values(subjectStats.competencies||{})
+              .find(x=>String(x.nom||"").trim().toLowerCase()===key)
+            :null;
+          if(subjectComp && Number.isFinite(Number(subjectComp.percentage))){
+            competencyMap[key].successValues.push(Number(subjectComp.percentage));
+          }
+          corrections
+            .filter(c=>String(c.evaluation_id)===String(ev.id))
+            .forEach(c=>{
+              const m=masteryForCompetencyQuestions(
+                comp.criteres,
+                c.resultat?.criteriaStats||{}
+              ).mastery;
+              if(m)competencyMap[key].masteryValues.push(masteryValue(m.code));
+            });
+        });
+      });
+     const corrected=group.items.reduce((sum,e)=>{
+  const statsCount=Number(
+    evaluationStatisticsCache[String(e.id)]?.corrected||0
+  );
+  if(statsCount>0) return sum+statsCount;
+  return sum+corrections.filter(c=>
+    String(c.evaluation_id)===String(e.id)
+  ).length;
+},0);
+      groupRows.push({
+        label:group.type==="activite"?"🧪 Activité":group.type==="exercice"?"✏️ Exercice":"📝 Évaluation",
+        title:group.items.length===1
+          ?group.items[0].titre
+          :`Évaluation de chapitre — ${group.items.length} sujets`,
+        average,
+        corrected
+      });
+    });
+    /* Moyenne pondérée du bilan : activité/exercice = 0,5 ; évaluation = 1. */
+    const totalPondere=allGroupAverages.reduce((s,x)=>s+x.average*x.coefficient,0);
+    const totalCoefficients=allGroupAverages.reduce((s,x)=>s+x.coefficient,0);
+    const chapterAverage=totalCoefficients>0
+      ?totalPondere/totalCoefficients
+      :null;
+    const competencyRows=Object.values(competencyMap)
+      .map(comp=>{
+        const success=comp.successValues.length
+          ?comp.successValues.reduce((a,b)=>a+b,0)/comp.successValues.length
+          :null;
+        const avg=comp.masteryValues.length
+          ?comp.masteryValues.reduce((a,b)=>a+b,0)/comp.masteryValues.length
+          :null;
+        return {
+          nom:comp.nom,
+          count:comp.occurrenceCount,
+          success,
+          mastery:masteryFromAverage(avg)
+        };
+      })
+      .sort((a,b)=>String(a.nom).localeCompare(String(b.nom),"fr"));
+    const escPrint=v=>String(v??"").replace(/[&<>]/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[m]||m));
+    const groupHtml=groupRows.map(g=>`
+      <tr>
+        <td>${escPrint(g.label)} — ${escPrint(g.title)}</td>
+        <td style="text-align:center">${g.corrected}</td>
+        <td style="text-align:center">${g.average!==null?g.average.toFixed(2).replace(".",",")+" /20":"—"}</td>
+      </tr>
+    `).join("");
+    const competencyHtml=competencyRows.length
+      ?competencyRows.map(c=>`
+        <tr>
+          <td>${escPrint(c.nom)}</td>
+          <td style="text-align:center">${c.count}</td>
+          <td style="text-align:center">${c.success!==null?Math.round(c.success)+" %":"—"}</td>
+          <td style="text-align:center"><strong>${c.mastery?escPrint(c.mastery.code):"—"}</strong>${c.mastery?` — ${escPrint(c.mastery.label)}`:""}</td>
+        </tr>
+      `).join("")
+      :`<tr><td colspan="4" style="text-align:center">Aucune compétence corrigée.</td></tr>`;
+    const body=`
+      <div class="print-page">
+        <h1>🧠 Bilan du chapitre ${chapterNumber}</h1>
+        <p><strong>Classe :</strong> ${escPrint(selectedClass)}</p>
+        <div class="total" style="font-size:16px">
+          Moyenne du chapitre :
+          <strong>${chapterAverage!==null?chapterAverage.toFixed(2).replace(".",",")+" /20":"—"}</strong>
+        </div>
+        <h2>📚 Éléments évalués</h2>
+        <table>
+          <thead><tr><th>Élément</th><th>Copies corrigées</th><th>Moyenne</th></tr></thead>
+          <tbody>${groupHtml}</tbody>
+        </table>
+        <h2>🎯 Maîtrise des compétences</h2>
+        <table>
+          <thead><tr><th>Compétence</th><th>Nombre de questions évaluées</th><th>Réussite (MS/TBM)</th><th>Maîtrise moyenne</th></tr></thead>
+          <tbody>${competencyHtml}</tbody>
+        </table>
+      </div>`;
+    printHtmlInCurrentWindow(`Bilan du chapitre ${chapterNumber} — ${selectedClass}`,body);
+  }catch(e){
+    alert("Génération du bilan du chapitre impossible : " + e.message);
+  }
+}
+async function generateChapterSummaryPDF(chapitre, classe){
+  const selectedClass =
+    String(classe || "").trim();
+  const chapterNumber =
+    Number(chapitre || 0);
+  const evaluation =
+    evaluationsCache.find(e => {
+      const classes =
+        Array.isArray(e.assignedClasses)
+          ? e.assignedClasses
+          : String(e.classe || "")
+              .split(",")
+              .map(x => x.trim())
+              .filter(Boolean);
+      return (
+        classes.includes(selectedClass) &&
+        Number(e.chapitre || 0) === chapterNumber &&
+        String(e.typeEvaluation || "") === "evaluation" &&
+        !isHistoricalEvaluation(e)
+      );
+    });
+  if(!evaluation){
+    alert(
+      `Aucune évaluation de chapitre ${chapterNumber} pour ${selectedClass}.`
+    );
+    return;
+  }
+  /*
+   * La fonction existante construit déjà le
+   * récapitulatif complet du chapitre et filtre
+   * les élèves de la classe sélectionnée.
+   */
+  await generateEvaluationSummaryPDF(
+    evaluation.id
+  );
+}
+function renderEvaluationChapter(chapter, classe){
+  const evaluations = chapter.evaluations || [];
+  const activities = chapter.activities || [];
+  const exercises = chapter.exercises || [];
+  let html = "";
+  /*
+   * =========================================================
+   * ÉVALUATIONS
+   * =========================================================
+   */
+  if(evaluations.length){
+    html += `
+      <div style="margin-top:14px">
+
+        <h4 style="
+          margin:0 0 10px;
+          font-size:15px;
+        ">
+          📝 Évaluations
+        </h4>
+
+        ${renderChapterEvaluationGroup(
+          evaluations,
+          classe,
+          chapter.numero
+        )}
+
+      </div>
+    `;
+  }
+  /*
+   * =========================================================
+   * ACTIVITÉS
+   * =========================================================
+   */
+  if(activities.length){
+    html += `
+      <div style="margin-top:18px">
+
+        <h4 style="
+          margin:0 0 10px;
+          font-size:15px;
+        ">
+          🧪 Activités
+        </h4>
+
+        <div>
+          ${activities
+            .map(evaluationCard)
+            .join("")}
+        </div>
+
+      </div>
+    `;
+  }
+  if(exercises.length){
+    html += `
+      <div style="margin-top:18px">
+        <h4 style="margin:0 0 10px;font-size:15px">✏️ Exercices</h4>
+        <div>${exercises.map(evaluationCard).join("")}</div>
+      </div>
+    `;
+  }
+  /*
+   * Si le chapitre ne contient rien
+   */
+  if(!html){
+    html = `
+      <p class="small-note">
+        Aucun élément enregistré dans ce chapitre.
+      </p>
+    `;
+  }
+  return `
+    <details
+      class="eval-card"
+      style="
+        margin-bottom:16px;
+        padding:0;
+        overflow:hidden;
+      "
+      open
+    >
+
+      <summary
+  style="
+    cursor:pointer;
+    list-style:none;
+    padding:18px;
+    font-size:17px;
+    font-weight:900;
+  "
+>
+
+  <span>
+    📖 Chapitre ${chapter.numero}
+
+    <span
+      class="small-note"
+      style="
+        font-weight:600;
+        margin-left:8px;
+      "
+    >
+      ${evaluations.length
+        ? `${evaluations.length}
+           évaluation${evaluations.length>1 ? "s" : ""}`
+        : ""}
+      ${evaluations.length && activities.length
+        ? " · "
+        : ""}
+      ${activities.length
+        ? `${activities.length}
+           activité${activities.length>1 ? "s" : ""}`
+        : ""}
+    </span>
+  </span>
+
+</summary>
+<div
+  class="row"
+  style="
+    padding:0 18px 12px;
+    gap:8px;
+    flex-wrap:wrap;
+  "
+>
+
+  ${
+    evaluations.length
+      ? `
+        <button
+          type="button"
+          onclick="
+            event.preventDefault();
+            event.stopPropagation();
+            printAllBlankChapterGrids(
+              ${chapter.numero},
+              '${esc(classe)}'
+            );
+          "
+        >
+          📥 Toutes les grilles
+        </button>
+
+        <button
+          type="button"
+          class="primary"
+          onclick="
+            event.preventDefault();
+            event.stopPropagation();
+            generateChapterSummaryPDF(
+              ${chapter.numero},
+              '${esc(classe)}'
+            );
+          "
+        >
+          📊 Récapitulatif
+        </button>
+
+        <button type="button" onclick="event.preventDefault();event.stopPropagation();groupChapterEvaluations(${chapter.numero},'${esc(classe)}','evaluation')">🔗 Regrouper les évaluations</button>
+        <button type="button" onclick="event.preventDefault();event.stopPropagation();groupChapterEvaluations(${chapter.numero},'${esc(classe)}','activite')">🔗 Regrouper les activités</button>
+        <button type="button" onclick="event.preventDefault();event.stopPropagation();groupChapterEvaluations(${chapter.numero},'${esc(classe)}','exercice')">🔗 Regrouper les exercices</button>
+
+        <button
+          type="button"
+          onclick="
+            event.preventDefault();
+            event.stopPropagation();
+            generateChapterBilanPDF(
+              ${chapter.numero},
+              '${esc(classe)}'
+            );
+          "
+        >
+          🧠 Bilan du chapitre
+        </button>
+      `
+      : ""
+  }
+
+</div>
+
+      <div
+        style="
+          padding:0 18px 18px;
+          border-top:1px solid var(--b);
+        "
+      >
+
+        ${html}
+
+      </div>
+
+    </details>
+  `;
+}
+function renderChapterEvaluationGroup(
+  evaluations,
+  classe,
+  chapitre
+){
+  /*
+   * On garde le regroupement des différents sujets
+   * dans une seule "Évaluation de chapitre".
+   */
+  return evaluationChapterSummaryCard(
+    evaluations,
+    classe,
+    chapitre
+  );
+}
+function renderEvaluationClass(selectedClass){
+  const target =
+    document.getElementById("evaluationList");
+  if(!target)return;
+  if(!selectedClass){
+    target.innerHTML = `
+      <section class="hero">
+
+        <p class="muted" style="margin:0">
+          Sélectionne une classe pour afficher les évaluations.
+        </p>
+
+      </section>
+    `;
+    return;
+  }
+  const cls =
+    String(selectedClass).trim();
+  /*
+   * =========================================================
+   * Toutes les évaluations/activités de la classe
+   * =========================================================
+   */
+  const classItems =
+    evaluationsCache.filter(e =>
+      Array.isArray(e.assignedClasses) &&
+      e.assignedClasses.includes(cls)
+    );
+  if(!classItems.length){
+    target.innerHTML = `
+      <section class="hero">
+
+        <h3>
+          Aucune évaluation pour ${esc(cls)}
+        </h3>
+
+        <p class="muted">
+          Crée une nouvelle évaluation et
+          attribue-la à cette classe.
+        </p>
+
+        <button
+          class="primary"
+          onclick="newEvaluation()"
+        >
+          ＋ Nouvelle évaluation
+        </button>
+
+      </section>
+    `;
+    return;
+  }
+  /*
+   * =========================================================
+   * ORGANISATION PAR CHAPITRE
+   * =========================================================
+   */
+  const chapters = {};
+  const withoutChapter = [];
+  classItems.forEach(e => {
+    const chapitre =
+      Number(e.chapitre || 0);
+    /*
+     * Les éléments sans numéro de chapitre
+     * restent en dehors des chapitres.
+     */
+    if(chapitre <= 0){
+      withoutChapter.push(e);
+      return;
+    }
+    const key =
+      String(chapitre);
+    if(!chapters[key]){
+      chapters[key] = {
+        numero: chapitre,
+        evaluations: [],
+        activities: [],
+        exercises: []
+      };
+    }
+    /*
+     * =======================================================
+     * ÉVALUATION DE CHAPITRE
+     * =======================================================
+     */
+    if(
+      String(e.typeEvaluation || "") === "evaluation" &&
+      !isHistoricalEvaluation(e)
+    ){
+      chapters[key].evaluations.push(e);
+      return;
+    }
+    /*
+     * =======================================================
+     * ACTIVITÉ
+     * =======================================================
+     */
+    if(String(e.typeEvaluation || "") === "activite"){
+      chapters[key].activities.push(e);
+      return;
+    }
+    if(String(e.typeEvaluation || "") === "exercice"){
+      chapters[key].exercises.push(e);
+      return;
+    }
+    /*
+     * Les évaluations antérieures ou autres éléments
+     * restent dans le chapitre mais dans les activités/
+     * éléments disponibles.
+     */
+    chapters[key].activities.push(e);
+  });
+  /*
+   * =========================================================
+   * AFFICHAGE DES CHAPITRES
+   * =========================================================
+   */
+  let html = "";
+  Object.values(chapters)
+    .sort((a,b) =>
+      a.numero - b.numero
+    )
+    .forEach(chapter => {
+      html += renderEvaluationChapter(
+        chapter,
+        cls
+      );
+    });
+  /*
+   * =========================================================
+   * ÉLÉMENTS SANS CHAPITRE
+   * =========================================================
+   */
+  if(withoutChapter.length){
+    html += `
+      <details
+        class="eval-card"
+        style="
+          margin-bottom:16px;
+          padding:0;
+          overflow:hidden;
+        "
+      >
+
+        <summary
+          style="
+            cursor:pointer;
+            list-style:none;
+            padding:18px;
+            font-size:17px;
+            font-weight:900;
+          "
+        >
+          📁 Sans chapitre
+        </summary>
+
+        <div
+          style="
+            padding:0 18px 18px;
+            border-top:1px solid var(--b);
+          "
+        >
+
+          ${withoutChapter
+            .map(evaluationCard)
+            .join("")}
+
+        </div>
+
+      </details>
+    `;
+  }
+  target.innerHTML = html;
+  target.querySelectorAll("details").forEach(details => {
+  details.removeAttribute("open");
+});
+}
+async function getEvaluationById(evalId){
+  const cached=evaluationsCache.find(x=>String(x.id)===String(evalId));
+  if(cached)return cached;
+  const {data,error}=await sb.from("Evaluations").select("*").eq("id",evalId).maybeSingle();
+  if(error)throw new Error(error.message);
+  if(!data)return null;
+  const ev=evalNormalize(data);
+  const idx=evaluationsCache.findIndex(x=>String(x.id)===String(evalId));
+  if(idx>=0)evaluationsCache[idx]=ev;else evaluationsCache.push(ev);
+  return ev;
+}
+/* Logo dans les documents exportés, indépendant du décor de l'écran. */
+function addExportLogos(root){
+  if(!root)return;
+  const source=document.querySelector('.brand .logo img');
+  if(!source?.src)return;
+  let targets=[...root.querySelectorAll('.print-page,.correction-student-page,.print-cover')];
+  targets=targets.filter(el=>!targets.some(parent=>parent!==el&&parent.contains(el)));
+  if(!targets.length)targets=[root.querySelector('.print-preview-page')||root];
+  targets.forEach(target=>{
+    if(target.querySelector('.svt-export-brand'))return;
+    const title=target.querySelector('h1');
+    const brand=document.createElement('div');brand.className='svt-export-brand';
+    const image=document.createElement('img');image.src=source.src;image.alt='Logo SVT';image.width=48;image.height=48;image.loading='eager';
+    brand.appendChild(image);
+    if(title){title.parentNode.insertBefore(brand,title);brand.appendChild(title);}
+    else{const text=document.createElement('span');text.textContent='SVT · John Legent';brand.appendChild(text);target.insertBefore(brand,target.firstChild);}
+  });
+}
+async function printDocumentWithLogo(root,prepare){
+  try{
+    addExportLogos(root);
+    await Promise.all([...root.querySelectorAll('.svt-export-brand img')].map(image=>image.decode?image.decode():new Promise((resolve,reject)=>{
+      if(image.complete){image.naturalWidth?resolve():reject(new Error('Logo non chargé.'));return;}
+      image.onload=resolve;image.onerror=()=>reject(new Error('Logo non chargé.'));
+    })));
+    await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+    if(prepare&&prepare()===false)return false;
+    window.print();return true;
+  }catch(e){alert('Impression non lancée : '+e.message);return false;}
+}
+function printHtmlInCurrentWindow(title,bodyHtml,extraCss=""){
+  const overlay=document.getElementById("printOverlay");
+  if(!overlay){alert("Zone d'impression introuvable.");return;}
+  const previousTitle=document.title;
+  document.title=title||previousTitle;
+  overlay.innerHTML=`
+    <div class="print-preview-wrap">
+      <div class="print-preview-toolbar">
+        <strong>${String(title||"Aperçu PDF").replace(/[&<>]/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[m]))}</strong>
+        <div class="row" style="gap:8px;margin:0">
+          <button type="button" class="primary" onclick="printDocumentWithLogo(document.getElementById('printOverlay'),()=>preparePrintPages())">📥 Télécharger / Enregistrer en PDF</button>
+          <button type="button" onclick="closePrintPreview()">✖️ Fermer</button>
+        </div>
+      </div>
+
+      <div class="print-preview-page">
+        <style>
+          @page{size:A4 portrait;margin:5mm}
+
+          .print-preview-wrap{
+            width:min(100%,1100px);
+            margin:0 auto;
+            background:#fff;
+            border-radius:12px;
+            box-shadow:0 20px 60px rgba(0,0,0,.25);
+            overflow:hidden
+          }
+
+          .print-preview-toolbar{
+            position:sticky;
+            top:0;
+            z-index:2;
+            display:flex;
+            align-items:center;
+            justify-content:space-between;
+            gap:12px;
+            padding:12px 16px;
+            background:#fff;
+            border-bottom:1px solid #ddd
+          }
+
+          .print-preview-toolbar .row{
+            display:flex;
+            align-items:center
+          }
+
+          *{box-sizing:border-box}
+
+          .print-preview-page{
+            background:#fff;
+            font-size:12px;
+            line-height:1.34
+          }
+
+          .print-preview-page h1{font-size:24px;margin:0 0 7px}
+          .print-preview-page h2{font-size:17px;margin:10px 0 6px;border-bottom:2px solid #333;padding-bottom:4px}
+          .print-preview-page h3{font-size:15px;margin:9px 0 5px}
+          .print-preview-page h4{font-size:14px;margin:0 0 4px}
+
+          .print-preview-page table{
+            width:100%;
+            border-collapse:collapse;
+            table-layout:fixed
+          }
+
+          .print-preview-page th,
+          .print-preview-page td{
+            border:1px solid #555;
+            padding:7px;
+            vertical-align:top
+          }
+
+          .print-preview-page th{
+            background:#f0f0f0;
+            text-align:left
+          }
+
+          .print-preview-page .points{font-size:10px;color:#555}
+          .print-preview-page .ipt{float:right;color:#555;font-size:10px}
+          .print-preview-page .scoreline{margin-bottom:8px}
+          .print-preview-page .total{margin-top:10px;border:1px solid #555;padding:8px;font-weight:bold}
+          .print-preview-page .blank{margin-top:10px;border:1px solid #555;padding:8px;min-height:25mm}
+          .print-preview-page .footer{margin-top:8px;font-size:9px;color:#666}
+
+          .print-preview-page .criterion{
+            border:1px solid #d8dfdc;
+            border-radius:7px;
+            padding:9px;
+            margin:8px 0
+          }
+
+          .print-preview-page .criterion ul{
+            list-style:none;
+            padding:0;
+            margin:5px 0
+          }
+
+          .print-preview-page .criterion li{padding:3px 0}
+          .print-preview-page .criterion li span{float:right;color:#667085}
+          .print-preview-page .checked{font-weight:600}
+          .print-preview-page .unchecked{color:#777}
+
+          .print-preview-page .mastery{
+            background:#f3f6f5;
+            border-radius:7px;
+            padding:9px;
+            margin-top:8px
+          }
+/* =========================================================
+   GRILLES CORRIGÉES — 1 TABLEAU PAR QUESTION
+   2 CRITÈRES PAR LIGNE
+   ========================================================= */
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+          /* Une grille corrigée = une feuille A4 */
+          
+
+          
+
+          
+
+          /* Réduction de la grille : elle reste lisible tout en tenant sur A4 */
+          
+
+          
+
+          
+
+          
+
+          
+
+          
+
+          
+
+          
+
+          
+
+          
+
+          
+
+          ${extraCss}
+
+          @media  print{
+            html,body{
+              margin:0!important;
+              padding:0!important;
+              background:#fff!important
+            }
+
+            body > *:not(#printOverlay){
+              display:none!important
+            }
+
+            #printOverlay{
+              display:block!important;
+              position:static!important;
+              width:100%!important;
+              margin:0!important;
+              padding:0!important;
+              background:#fff!important;
+              overflow:visible!important
+            }
+
+            .print-preview-wrap{
+              width:100%!important;
+              margin:0!important;
+              padding:0!important;
+              box-shadow:none!important;
+              border-radius:0!important;
+              overflow:visible!important
+            }
+
+            .print-preview-toolbar{
+              display:none!important
+            }
+
+            .print-preview-page{
+              width:100%!important;
+              margin:0!important;
+              padding:0!important;
+              background:#fff!important;
+              -webkit-print-color-adjust:exact;
+              print-color-adjust:exact
+            }
+
+            
+
+
+
+            
+          }
+        </style>
+
+        <style>
+.print-preview-page .svt-a4-grid{width:200mm!important;min-height:0!important;height:auto!important;padding:2mm!important;margin:0 auto 8mm!important;background:white;box-sizing:border-box;font:11pt/1.18 Arial,sans-serif!important;color:#111}
+.svt-a4-grid *{overflow-wrap:anywhere}
+.print-preview-page .svt-a4-grid h1{font-size:16pt!important;margin:0 0 3mm!important}
+.print-preview-page .svt-a4-grid h2{font-size:11pt!important;border:0!important;background:#edf2ef;padding:1.2mm!important;margin:2mm 0 1mm!important}
+.print-preview-page .svt-a4-grid small{font-size:10pt!important}
+.print-preview-page .svt-a4-grid table{width:100%!important;table-layout:fixed!important;border-collapse:collapse!important;font-size:inherit!important}
+.print-preview-page .svt-a4-grid td,.print-preview-page .svt-a4-grid th{padding:1.2mm!important;border:1px solid #999!important;font-size:inherit!important;line-height:inherit!important}
+.svt-a4-grid .a4-identity{display:flex;gap:3mm;flex-wrap:wrap;margin-bottom:2mm}
+.svt-a4-grid .a4-summary{margin-bottom:2mm}
+.print-preview-page .svt-a4-grid.a4-dense{font-size:10pt!important;line-height:1.12!important}
+.print-preview-page .svt-a4-grid.a4-dense td,.print-preview-page .svt-a4-grid.a4-dense th{padding:.7mm!important}
+@media  print{
+.print-preview-page .svt-a4-grid{
+  width:200mm!important;
+  margin:0!important;
+  break-after:page!important;
+  page-break-after:always!important;
+  break-inside:auto!important;
+}
+.print-preview-page .svt-a4-grid .a4-recap{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:2mm;
+  margin:0 0 2mm;
+}
+
+.print-preview-page .svt-a4-grid .a4-recap-box{
+  border:1px solid #999;
+  padding:1.5mm;
+  font-size:10.5pt;
+  line-height:1.15;
+}
+
+.print-preview-page .svt-a4-grid .a4-ok{
+  background:#eef7ef;
+}
+
+.print-preview-page .svt-a4-grid .a4-todo{
+  background:#fff4e8;
+}
+
+.print-preview-page .svt-a4-grid .a4-recap-box strong{
+  display:block;
+  margin-bottom:1mm;
+}
+
+@media  print{
+  .print-preview-page .svt-a4-grid .a4-recap{
+    break-inside:avoid!important;
+    page-break-inside:avoid!important;
+  }
+}
+.print-preview-page .svt-a4-grid .a4-question{
+  break-inside:avoid!important;
+  page-break-inside:avoid!important;
+}
+
+.print-preview-page .svt-a4-grid .a4-summary,
+.print-preview-page .svt-a4-grid .a4-identity{
+  break-inside:avoid!important;
+  page-break-inside:avoid!important;
+}
+
+.print-preview-page .svt-a4-grid:last-child{break-after:auto!important;page-break-after:auto!important}
+}
+</style>
+        ${bodyHtml}
+      </div>
+    </div>`;
+  addExportLogos(overlay);
+  overlay.style.display="block";
+  overlay.setAttribute("aria-hidden","false");
+  window.closePrintPreview=function(){
+    overlay.innerHTML="";
+    overlay.style.display="none";
+    overlay.setAttribute("aria-hidden","true");
+    document.title=previousTitle;
+  };
+  window.preparePrintPages=function(){
+    const compactPages=[...overlay.querySelectorAll('.svt-a4-grid')];
+if(compactPages.length){
+  const limit=285/25.4*96;
+  compactPages.forEach(page=>{
+    page.classList.remove('a4-dense');
+    if(page.scrollHeight>limit){
+      page.classList.add('a4-dense');
+    }
+  });
+  return true;
+}
+    return true;
+  };
+  // Prépare aussi l'aperçu avant que l'utilisateur clique sur PDF.
+  requestAnimationFrame(()=>{
+    setTimeout(()=>window.preparePrintPages(),100);
+  });
+  if(!window.__printPreviewKeyHandler){
+    window.__printPreviewKeyHandler=function(e){
+      if(e.key==="Escape")window.closePrintPreview?.();
+    };
+    document.addEventListener(
+      "keydown",
+      window.__printPreviewKeyHandler
+    );
+  }
+}
+async function generateBlankEvaluationGrid(evalId){
+  try{
+    const ev=await getEvaluationById(evalId);
+    if(!ev){alert("Évaluation introuvable.");return;}
+    const crits=criteriaFromLegacy(ev);
+    if(!crits.length){
+      alert("Aucun critère trouvé pour cette évaluation.");
+      return;
+    }
+    const questionGroups={};
+    crits.forEach((cr,i)=>{
+      const questionNumero=Number(cr.questionNumero||i+1);
+      const questionId=String(cr.questionId||`q${questionNumero}`);
+      if(!questionGroups[questionId]){
+        questionGroups[questionId]={
+          id:questionId,
+          questionNumero,
+          nom:cr.competenceNom||"Compétence évaluée",
+          criteres:[]
+        };
+      }
+      questionGroups[questionId].criteres.push(cr);
+    });
+    const questions=Object.values(questionGroups).sort(
+      (a,b)=>a.questionNumero-b.questionNumero
+    );
+    const escP=v=>String(v??"").replace(
+      /[&<>]/g,
+      m=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[m])
+    );
+    const questionHtml=questions.map(question=>{
+      const totalQuestion=question.criteres.reduce(
+        (sum,cr)=>sum+(Array.isArray(cr.indicateurs)
+          ?cr.indicateurs.reduce(
+              (s,it)=>s+Number(it.points||0),0
+            )
+          :0),
+        0
+      );
+      const criteresHtml=question.criteres.map((cr,i)=>{
+        const inds=(cr.indicateurs||[]).filter(x=>x&&x.nom);
+        const pts=inds.reduce((a,x)=>a+Number(x.points||0),0);
+        return `<div class="blank-criterion" style="border:1px solid #555;padding:7px;margin:0;break-inside:avoid">
+          <strong>Critère ${i+1} — ${escP(cr.nom)}</strong>
+          <div style="font-size:9px;margin:3px 0">Barème : / ${pts} pt</div>
+          <div style="margin:5px 0">
+            ${inds.map(x=>`☐ ${escP(x.nom)} <span style="float:right">${Number(x.points||0)} pt</span>`).join("<br>")||"—"}
+          </div>
+          <div style="border-top:1px solid #aaa;padding-top:5px;margin-top:5px">
+            Points : ______ / ${pts} pt
+            <br>☐ Critère validé
+          </div>
+        </div>`;
+      }).join("");
+      return `<section style="break-inside:avoid">
+       
+<h2>📝 ${isTransversalLanguageCompetency(question.nom)
+  ? "Maîtrise de la langue — Compétence transversale"
+  : "Question " + question.questionNumero + " — " + escP(question.nom)}</h2>
+
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;align-items:start">
+          ${criteresHtml}
+        </div>
+
+        <div class="total" style="margin-top:8px">
+          
+${isTransversalLanguageCompetency(question.nom)
+  ? "Total maîtrise de la langue"
+  : "Total Question " + question.questionNumero} : ______ / ${totalQuestion} pt
+
+        </div>
+
+        <div class="mastery" style="margin-top:8px">
+          
+${isTransversalLanguageCompetency(question.nom)
+  ? "Maîtrise de la compétence :"
+  : "Maîtrise de la question :"}
+
+          ☐ TBM &nbsp;&nbsp; ☐ MS &nbsp;&nbsp; ☐ MF &nbsp;&nbsp; ☐ MI
+        </div>
+      </section>`;
+    }).join("");
+    const body=`<div class="print-page">
+      <h1>📝 ${escP(ev.titre)}</h1>
+      <div class="meta" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:10px 0">
+        <div style="border-bottom:1px solid #555;padding:5px 2px"><strong>Nom / Prénom :</strong></div>
+        <div style="border-bottom:1px solid #555;padding:5px 2px"><strong>Classe :</strong> ${escP(ev.classe||"")}</div>
+      </div>
+      ${questionHtml}
+      <div class="total">Résultat final : __________ / ${Number(ev.total||0)} pt</div>
+    </div>`;
+    printHtmlInCurrentWindow(`Grille vierge — ${ev.titre}`,body);
+  }catch(e){
+    alert("Impression impossible : "+e.message);
+  }
+}
+let evaluationStatisticsCache = {};
+/* Bilan par indicateur — lecture seule */
+function indicatorNameKey(value){return String(value||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[-']/g,' ').replace(/\s+/g,' ').trim().toLocaleLowerCase('fr');}
+function buildIndicatorReport(ev,students,corrections){
+  const byId=new Map(students.map(st=>[String(st.id),st]));
+  const aliases=new Map();
+  students.forEach(st=>{
+    const keys=new Set([studentDisplayName(st),`${st.nom||''} ${st.prenom||''}`,`${st.prenom||''} ${st.nom||''}`].map(indicatorNameKey).filter(Boolean));
+    keys.forEach(key=>{if(!aliases.has(key))aliases.set(key,st);else if(String(aliases.get(key)?.id)!==String(st.id))aliases.set(key,null);});
+  });
+  const latest=new Map();let excluded=0,duplicates=0;
+  const ordered=[...corrections].sort((a,b)=>String(a.created_at||'').localeCompare(String(b.created_at||'')));
+  ordered.forEach(c=>{
+    const st=c.eleve_id ? byId.get(String(c.eleve_id)) : aliases.get(indicatorNameKey(c.eleve));
+    if(!st){excluded++;return;}
+    const id=String(st.id);if(latest.has(id))duplicates++;
+    latest.set(id,c);
+  });
+  const rows=[];
+  criteriaFromLegacy(ev).forEach((cr,ci)=>{
+    const indicators=Array.isArray(cr.indicateurs)?cr.indicateurs:[];
+    indicators.forEach((it,ii)=>{
+      const success=[],missed=[],unknown=[];
+      students.forEach(st=>{
+        const c=latest.get(String(st.id));if(!c)return;
+        const result=c.resultat||{},stats=result.criteriaStats?.[cr.id];
+        const points=result.points;
+        // A saved criterion must still have the same indicator count.
+        const usable=points && typeof points==='object' && !Array.isArray(points) && stats && Number(stats.count)===indicators.length;
+        if(!usable){unknown.push(st);return;}
+        (points[`${cr.id}_${ii}`] ? success : missed).push(st);
+      });
+      const total=success.length+missed.length;
+      rows.push({question:Number(cr.questionNumero||0),questionId:cr.questionId||cr.competenceId||'',competence:cr.competenceNom||'',criterion:cr.nom||`Critère ${ci+1}`,indicator:String(typeof it==='string'?it:it.nom||'Indicateur sans intitulé'),success,missed,unknown,total,percentage:total?Math.round(success.length/total*100):null});
+    });
+  });
+  return {rows,corrected:latest.size,missing:students.filter(st=>!latest.has(String(st.id))),excluded,duplicates};
+}
+function indicatorStudentList(students){
+  return students.length ? `<ul style="margin:6px 0;padding-left:20px">${students.map(st=>`<li>${esc(studentDisplayName(st))}</li>`).join('')}</ul>` : '<span class="small-note">Aucun élève.</span>';
+}
+async function openIndicatorReport(evalId,classOverride=''){
+  if(!correctionAllowLeave())return;
+  const selectedClass=String(classOverride||loadEvalNav().classe||localStorage.getItem('EVAL_SELECTED_CLASS')||'').trim();
+  if(!selectedClass){alert('Sélectionne une classe avant d’ouvrir le bilan.');return;}
+  content.innerHTML='<section class="hero"><p>Chargement du bilan des indicateurs…</p></section>';
+  try{
+    const eq=await sb.from('Evaluations').select('*').eq('id',evalId).maybeSingle();
+    if(eq.error)throw new Error(eq.error.message);
+    if(!eq.data)throw new Error('Évaluation introuvable.');
+    const ev=evalNormalize(eq.data);
+    if(isHistoricalEvaluation(ev))throw new Error('Cette évaluation antérieure ne possède pas de grille détaillée d’indicateurs.');
+    const [sq,cq]=await Promise.all([
+      sb.from('Eleves').select('id,classe,nom,prenom').eq('classe',selectedClass).order('nom').order('prenom'),
+      sb.from('EvaluationCorrections').select('id,eleve,eleve_id,resultat,created_at').eq('evaluation_id',evalId).order('created_at',{ascending:true})
+    ]);
+    if(sq.error)throw new Error(sq.error.message);if(cq.error)throw new Error(cq.error.message);
+    const students=sortStudents(sq.data||[]);
+    const report=buildIndicatorReport(ev,students,cq.data||[]);
+    saveEvalNav({view:'indicatorReport',evaluationId:evalId,classe:selectedClass});
+    label.textContent='Bilan des indicateurs';
+    const tableRows=report.rows.map(row=>`<tr>
+      <td>${row.question?'Q'+row.question:'—'}<div class="small-note">${esc(row.competence)}</div></td>
+      <td>${esc(row.criterion)}</td><td>${esc(row.indicator)}</td>
+      <td style="white-space:nowrap">${row.total?`${row.success.length} / ${row.total} — ${row.percentage} %`:'Non calculable'}</td>
+      <td><details><summary style="cursor:pointer">${row.missed.length} à accompagner</summary>${indicatorStudentList(row.missed)}</details>
+      ${row.unknown.length?`<details style="margin-top:6px"><summary style="cursor:pointer">${row.unknown.length} résultat(s) non exploitable(s)</summary>${indicatorStudentList(row.unknown)}</details>`:''}
+      </td></tr>`).join('');
+    content.innerHTML=`<div class="row"><button type="button" onclick="openEvaluations({classe:${jsArg(selectedClass)}})">← Mes évaluations</button><button type="button" onclick="openCorrection(${jsArg(evalId)},${jsArg(selectedClass)})">Voir les copies</button><button type="button" onclick="openIndicatorReport(${jsArg(evalId)},${jsArg(selectedClass)})">Actualiser le bilan</button></div>
+      <section class="hero"><span class="eyebrow">${esc(selectedClass)}</span><h2>Bilan des indicateurs — ${esc(ev.titre)}</h2>
+      <p>${students.length} élève(s) dans la classe · ${report.corrected} élève(s) avec une correction enregistrée · ${report.missing.length} sans correction.</p>
+      <p class="small-note">La réussite correspond aux indicateurs cochés dans les corrections enregistrées. Chaque ligne indique son nombre de résultats exploitables. Une copie absente n’est pas comptée comme un échec. Les listes servent à préparer des aides ponctuelles.</p>
+      <details><summary style="cursor:pointer">Élèves sans correction (${report.missing.length})</summary>${indicatorStudentList(report.missing)}</details>
+      ${report.duplicates?`<p class="small-note">${report.duplicates} correction(s) en doublon : seule la plus récente de chaque élève est prise en compte.</p>`:''}
+      <div style="overflow-x:auto;margin-top:15px"><table class="mastery-table"><thead><tr><th>Question / compétence</th><th>Critère</th><th>Indicateur</th><th>Réussite</th><th>Élèves concernés</th></tr></thead><tbody>${tableRows||'<tr><td colspan="5">Aucun indicateur disponible.</td></tr>'}</tbody></table></div>
+      <p class="small-note">Une ancienne correction sans données détaillées, ou dont le nombre d’indicateurs ne correspond plus à la grille actuelle, est affichée comme non exploitable.</p></section>`;
+  }catch(e){showError('Bilan des indicateurs : '+e.message);}
+}
+function evaluationCard(e){
+  const stats = evaluationStatisticsCache[String(e.id)] || null;
+  const currentEvalClass =
+    String(loadEvalNav().classe || e.classe || "").trim();
+  if(isHistoricalEvaluation(e)){
+    const meta=historicalMeta(e);
+    return `<article class="eval-card">
+      <div class="entry-head">
+        <div>
+          <span class="tag">${esc(currentEvalClass||"Classe")}</span>
+          <h3>🕘 ${esc(e.titre)}</h3>
+          <p class="small-note">
+            Évaluation antérieure ·
+            ${meta.date ? esc(trackingDate(meta.date)) : "date non renseignée"}
+            ${meta.competence ? ` · ${esc(meta.competence)}` : ""}
+          </p>
+        </div>
+
+        <div class="row" style="margin:0">
+          <button type="button"
+            class="primary"
+            onclick="event.stopPropagation();openHistoricalCorrection('${esc(e.id)}')">
+            📊 Renseigner les résultats
+          </button>
+
+          <button type="button"
+            class="danger"
+            onclick="event.stopPropagation();deleteEvaluation('${esc(e.id)}')">
+            🗑️ Supprimer
+          </button>
+        </div>
+      </div>
+    </article>`;
+  }
+  const {crits,items}=flattenIndicators(e);
+  const count=items.filter(i=>i.nom).length;
+  let statsHtml="";
+  if(stats){
+    const averageText =
+      stats.average !== null
+        ? stats.average.toFixed(2).replace(".",",")+" /20"
+        : "—";
+    const competencyEntries =
+      Object.values(stats.competencies || {});
+    const competencyHtml =
+      competencyEntries.length
+        ? competencyEntries.map(comp=>{
+            const percentage =
+              comp.percentage !== null
+                ? Math.round(comp.percentage)+" %"
+                : "—";
+            return `
+              <span class="tag">
+                ${esc(comp.nom)} : ${percentage}
+              </span>
+            `;
+          }).join(" ")
+        : `<span class="small-note">
+             Aucune compétence corrigée
+           </span>`;
+    statsHtml=`
+      <div class="small-note" style="margin-top:10px">
+        <strong>📊 Résultats</strong> ·
+        ${stats.corrected} copie(s) corrigée(s) ·
+        Moyenne :
+        <strong>${averageText}</strong>
+      </div>
+
+      <div class="row" style="margin-top:8px;gap:6px">
+        ${competencyHtml}
+      </div>
+    `;
+  }
+  return `<article class="eval-card">
+
+    <div class="entry-head">
+
+      <div>
+        <span class="tag">
+          ${esc(currentEvalClass||"Classe")}
+        </span>
+
+        <h3>${esc(e.titre)}</h3>
+
+        <p class="small-note">
+          ${crits.length} critère(s) ·
+          ${count} indicateur(s) ·
+          ${Number(e.total||0)} point(s)
+        </p>
+      </div>
+
+      <div class="row" style="margin:0">
+
+        <button type="button"
+          style="pointer-events:auto;position:relative;z-index:5"
+          onclick="event.stopPropagation();editEvaluation('${esc(e.id)}')">
+          ✏️ Modifier
+        </button>
+
+        <button type="button"
+          style="pointer-events:auto;position:relative;z-index:5"
+          onclick="event.stopPropagation();duplicateEvaluation('${esc(e.id)}')">
+          📋 Dupliquer
+        </button>
+
+        <button type="button"
+          style="pointer-events:auto;position:relative;z-index:5"
+          onclick="event.stopPropagation();generateBlankEvaluationGrid('${esc(e.id)}')">
+          📥 Grille vierge PDF
+        </button>
+
+        <button type="button"
+          style="pointer-events:auto;position:relative;z-index:5"
+          onclick="event.stopPropagation();generateEvaluationSummaryPDF('${esc(e.id)}')">
+          📊 Récapitulatif PDF
+        </button>
+
+        <button type="button" style="pointer-events:auto;position:relative;z-index:5"
+          onclick="event.stopPropagation();openIndicatorReport(${jsArg(e.id)},${jsArg(currentEvalClass)})">🎯 Bilan des indicateurs</button><button type="button" onclick="event.stopPropagation();openEvaluationAbsences(${jsArg(e.id)},${jsArg(currentEvalClass)})">Absences / non évalués</button>
+
+        <button type="button"
+          class="primary"
+          style="pointer-events:auto;position:relative;z-index:5"
+          onclick="event.stopPropagation();openCorrection('${esc(e.id)}')">
+          📝 Corriger
+        </button>
+
+        <button type="button"
+          class="danger"
+          style="pointer-events:auto;position:relative;z-index:5"
+          onclick="event.stopPropagation();deleteEvaluation('${esc(e.id)}')">
+          🗑️ Supprimer
+        </button>
+
+      </div>
+    </div>
+
+    ${statsHtml}
+
+  </article>`;
+}
+function newHistoricalEvaluation(){
+  const titre=prompt("Titre de l'évaluation antérieure :");
+  if(titre===null||!titre.trim())return;
+  const classe=prompt("Classe :", "");
+  if(classe===null||!classe.trim())return;
+  const date=prompt("Date de l'évaluation (JJ/MM/AAAA) :", "");
+  if(date===null)return;
+  const competence=prompt("Compétence évaluée (facultatif) :", "");
+  if(competence===null)return;
+  createHistoricalEvaluation({
+    titre:titre.trim(),
+    classe:classe.trim(),
+    date:date.trim(),
+    competence:competence.trim()||"Compétence non renseignée"
+  });
+}
+async function createHistoricalEvaluation(meta){
+  try{
+    const payload={
+      titre:meta.titre,
+      classe:meta.classe,
+      total:0,
+      competences:[],
+      criteres:[],
+      exercices:[{historique:true,date:meta.date,competence:meta.competence}]
+    };
+    const saved=await saveEvaluationObject(payload);
+    evaluationsCache.unshift(saved);
+    await openHistoricalCorrection(saved.id);
+  }catch(e){alert("Création impossible : "+e.message)}
+}
+function newEvaluation(){
+  const nav=loadEvalNav();
+  const selectedClass=String(nav.classe||localStorage.getItem("EVAL_SELECTED_CLASS")||"").trim();
+  editEvaluationObject({id:null,titre:"Nouvelle évaluation",classe:selectedClass,assignedClasses:selectedClass?[selectedClass]:[],total:0,competences:[{id:"comp1",nom:"",criteres:criterionDefaults()}],criteres:criterionDefaults(),exercices:[]});
+}
+async function deleteEvaluation(id){
+  const ev=evaluationsCache.find(x=>String(x.id)===String(id));
+  if(!ev)return;
+  if(!confirm(`Supprimer l'évaluation « ${ev.titre||"Sans titre"} » ?\n\nLes corrections associées seront également supprimées.`))return;
+  try{
+    const {error:corrError}=await sb.from("EvaluationCorrections").delete().eq("evaluation_id",id);
+    if(corrError)throw new Error(corrError.message);
+    const {error:evalError}=await sb.from("Evaluations").delete().eq("id",id);
+    if(evalError)throw new Error(evalError.message);
+    const nav=loadEvalNav();
+    evaluationsCache=evaluationsCache.filter(x=>String(x.id)!==String(id));
+    await openEvaluations({classe:nav.classe||ev.classe||""});
+  }catch(e){
+    alert("Suppression impossible : "+e.message);
+  }
+}
+async function duplicateEvaluation(id){
+  try{
+    const cached=evaluationsCache.find(x=>String(x.id)===String(id));
+    let ev=cached;
+    if(!ev){
+      const q=await sb.from("Evaluations").select("*").eq("id",id).maybeSingle();
+      if(q.error)throw new Error(q.error.message);
+      if(!q.data)throw new Error("Évaluation introuvable.");
+      ev=evalNormalize(q.data);
+    }
+    const defaultTitle=(ev.titre||"Nouvelle évaluation")+" — Sujet 2";
+    const title=prompt("Nom de la nouvelle évaluation / du sujet :",defaultTitle);
+    if(title===null)return;
+    const titre=title.trim()||defaultTitle;
+    // Liste des classes disponibles, avec la classe d'origine présélectionnée.
+    const knownClasses=typeof CLASSES!=="undefined"
+      ? Object.values(CLASSES).flat().filter(Boolean)
+      : [];
+    const evaluationClasses=evaluationsCache
+      .map(e=>String(e.classe||"").trim())
+      .filter(Boolean);
+    const classes=[...new Set([...knownClasses,...evaluationClasses,ev.classe||""])]
+      .filter(Boolean)
+      .sort((a,b)=>a.localeCompare(b,"fr",{numeric:true}));
+    const sourceClass=String(ev.classe||"").trim();
+    const classOptions=classes.map(c=>
+      `<option value="${esc(c)}" ${c===sourceClass?"selected":""}>${esc(c)}</option>`
+    ).join("");
+    // Petite fenêtre de choix de classe.
+    const existing=document.getElementById("duplicateClassModal");
+    if(existing)existing.remove();
+    const modal=document.createElement("div");
+    modal.id="duplicateClassModal";
+    modal.className="pp-modal";
+    modal.innerHTML=`
+      <div class="pp-modal-card" style="max-width:520px">
+        <div class="section-heading">
+          <div>
+            <span class="eyebrow">Duplication</span>
+            <h3 style="margin:4px 0 0">📋 Choisir la classe</h3>
+          </div>
+          <button type="button" onclick="document.getElementById('duplicateClassModal')?.remove()">✕</button>
+        </div>
+        <p class="muted">Dans quelle classe veux-tu placer cette nouvelle évaluation ?</p>
+        <label style="display:block;font-weight:800;margin:12px 0 6px">Classe de destination</label>
+        <select id="duplicateClassSelect" style="width:100%;padding:11px;border:1px solid var(--b);border-radius:10px;background:#fff;font:inherit">
+          <option value="">Choisir une classe…</option>
+          ${classOptions}
+        </select>
+        <div class="row" style="justify-content:flex-end;margin-top:18px">
+          <button type="button" onclick="document.getElementById('duplicateClassModal')?.remove()">Annuler</button>
+          <button type="button" class="primary" id="confirmDuplicateClass">Dupliquer</button>
+        </div>
+      </div>`;
+    document.body.appendChild(modal);
+    const destination=await new Promise(resolve=>{
+      document.getElementById("confirmDuplicateClass").onclick=()=>{
+        const value=document.getElementById("duplicateClassSelect").value;
+        if(!value){
+          alert("Choisis une classe de destination.");
+          return;
+        }
+        modal.remove();
+        resolve(value);
+      };
+      modal.querySelector('button[onclick*="duplicateClassModal"]')?.addEventListener("click",()=>resolve(null));
+    });
+    if(destination===null)return;
+    const copy={
+      titre,
+      classe:destination,
+      assignedClasses:[destination],
+      classe:destination,
+      total:Number(ev.total||0),
+      competences:Array.isArray(ev.competences)?JSON.parse(JSON.stringify(ev.competences)):[],
+      criteres:Array.isArray(ev.criteres)?JSON.parse(JSON.stringify(ev.criteres)):[],
+      exercices:Array.isArray(ev.exercices)?JSON.parse(JSON.stringify(ev.exercices)):[]
+    };
+    delete copy.id;
+    // La classe de destination doit être enregistrée explicitement dans Supabase.
+    // On vérifie également la valeur réellement retournée par Supabase pour éviter
+    // qu'une copie conserve par erreur la classe source.
+    copy.classe=String(destination).trim();
+    let saved0=await saveEvaluationObject(copy);
+    if(String(saved0?.classe||"").trim()!==String(destination).trim()){
+      const forced=await sb.from("Evaluations")
+        .update({classe:String(destination).trim()})
+        .eq("id",saved0.id)
+        .select("*")
+        .maybeSingle();
+      if(forced.error)throw new Error("La classe de destination n'a pas pu être enregistrée : "+forced.error.message);
+      if(!forced.data || String(forced.data.classe||"").trim()!==String(destination).trim()){
+        throw new Error("La classe de destination n'a pas été enregistrée correctement.");
+      }
+      saved0=evalNormalize(forced.data);
+    }
+    const saved=saved0;
+    evaluationsCache.unshift(saved);
+    alert("Évaluation dupliquée ✓\n\nLa structure, les compétences, les critères, les indicateurs et les points ont été copiés.\nLa nouvelle évaluation appartient maintenant à la classe « "+destination+" ».\nLes corrections des élèves n'ont pas été copiées.");
+    // Après duplication, on affiche directement la classe de DESTINATION.
+    try{localStorage.setItem("EVAL_SELECTED_CLASS",String(destination));}catch(e){}
+    await openEvaluations({classe:destination});
+  }catch(e){
+    alert("Duplication impossible : "+e.message);
+  }
+}
+async function editEvaluation(id){
+  try{
+    const cached=evaluationsCache.find(x=>String(x.id)===String(id));
+    if(cached){editEvaluationObject(cached);return;}
+    const {data,error}=await sb.from("Evaluations").select("*").eq("id",id).maybeSingle();
+    if(error)throw new Error(error.message);
+    if(!data)throw new Error("Évaluation introuvable.");
+    editEvaluationObject(evalNormalize(data));
+  }catch(e){alert("Impossible d'ouvrir l'évaluation : "+e.message)}
+}
+
+/* Brouillons locaux v1 : aucune écriture automatique dans Supabase. */
+let localDraftSession=null;
+function localDraftPrefix(){return 'svt.localDraft.v1:'+encodeURIComponent(String(SUPABASE_URL))+':'+encodeURIComponent(String(user?.id||''))+':';}
+function localDraftContext(mode,context){return mode==='editor'?'editor:'+String(context.evaluationId||'new'):'correction:'+JSON.stringify([String(context.evalId),String(context.classe||''),context.groupIds?.length?[...context.groupIds].map(String).sort():String(context.eleveId||context.correctionId||context.eleve||'anonymous')]);}
+function localDraftCapture(){
+  const s=localDraftSession;if(!s||!s.root.isConnected)return null;
+  if(s.mode==='correction')return {checks:[...s.root.querySelectorAll('.correction-check')].map(el=>[el.dataset.key,!!el.checked])};
+  return {
+    titre:document.getElementById('evTitre').value,
+    chapitre:document.getElementById('evChapitre').value,
+    type:document.getElementById('evType').value,
+    classes:[...document.querySelectorAll('#evClasses .ev-class-check:checked')].map(el=>el.value),
+    questions:[...document.querySelectorAll('#competenciesEditor .question-editor')].map(box=>({
+      id:box.dataset.competencyId,bankId:box.dataset.bankCompetencyId||'',
+      nom:box.dataset.competencyName||competenciesCache.find(c=>String(c.id)===String(box.dataset.bankCompetencyId))?.nom||'',
+      questionNumero:box.querySelector('.question-number')?.value??null,
+      criteres:[...box.querySelectorAll(':scope > .competency-criteria > .criterion-editor')].map(cb=>({
+        id:cb.dataset.criterionId,nom:cb.querySelector('.criterion-name').value,
+        indicateurs:[...cb.querySelectorAll('.indicator-row')].map(row=>({nom:row.querySelector('.indicator-name').value,points:row.querySelector('.indicator-points').value}))
+      }))
+    }))
+  };
+}
+function localDraftRead(s){
+  const raw=localStorage.getItem(s.key);if(!raw)return {raw:null,record:null};
+  const record=JSON.parse(raw);
+  if(record.version!==1||record.owner!==s.owner||record.context!==s.context||record.mode!==s.mode||!record.payload||typeof record.base!=='string')throw new Error('Brouillon illisible ou incompatible. Il ne sera pas écrasé automatiquement.');
+  return {raw,record};
+}
+function localDraftDisplay(text,error=false){
+  const s=localDraftSession;if(!s?.banner.isConnected)return;
+  s.banner.classList.toggle('draft-error',error);
+  s.banner.querySelector('.local-draft-message').textContent=text;
+}
+function localDraftActions(){
+  const s=localDraftSession;if(!s)return;
+  const pending=!!s.pending;
+  s.banner.querySelector('[data-draft-resume]').hidden=!pending||!s.record;
+  s.banner.querySelector('[data-draft-delete]').hidden=!pending;
+  s.banner.querySelector('[data-draft-export]').hidden=!pending;
+}
+function localDraftPending(found,message){
+  const s=localDraftSession;if(!s)return;
+  clearTimeout(s.timer);s.pending=true;s.record=found?.record||null;s.expected=found?.raw??s.expected;
+  localDraftDisplay(message||('Un brouillon du '+new Date(s.record.updatedAt).toLocaleString('fr-FR')+' est disponible sur cet appareil. Reprends-le ou supprime-le avant de continuer. Reprendre ne valide rien dans Supabase.'),true);
+  localDraftActions();
+}
+function localDraftFlush(){
+  const s=localDraftSession;if(!s||!s.root.isConnected||s.owner!==String(user?.id||''))return false;
+  clearTimeout(s.timer);if(s.pending)return false;
+  try{
+    const payload=localDraftCapture(),fingerprint=JSON.stringify(payload);
+    const found=localDraftRead(s);
+    if(found.raw!==s.expected){localDraftPending(found,'Un autre onglet a modifié ce brouillon. Sauvegarde automatique suspendue pour éviter de l’écraser. Tu peux exporter le travail de cette fenêtre ou reprendre le brouillon disponible.');return false;}
+    if(fingerprint===s.base){
+      if(found.raw)localStorage.removeItem(s.key);
+      s.expected=null;s.last=fingerprint;
+      localDraftDisplay('Aucune modification en attente. Les brouillons sont locaux à cet appareil.');return true;
+    }
+    if(fingerprint===s.last&&found.raw)return true;
+    const record={version:1,owner:s.owner,context:s.context,mode:s.mode,base:s.base,schema:s.schema,updatedAt:new Date().toISOString(),payload};
+    const raw=JSON.stringify(record);localStorage.setItem(s.key,raw);
+    if(localStorage.getItem(s.key)!==raw)throw new Error('La conservation du brouillon n’a pas été confirmée.');
+    s.expected=raw;s.last=fingerprint;
+    localDraftDisplay('Brouillon sauvegardé sur cet appareil à '+new Date().toLocaleTimeString('fr-FR')+' — non validé dans Supabase.');return true;
+  }catch(e){localDraftDisplay('Brouillon non sauvegardé : '+e.message+' Garde cette page ouverte et utilise l’enregistrement habituel.',true);return false;}
+}
+function localDraftSchedule(){
+  const s=localDraftSession;if(!s||s.pending||s.owner!==String(user?.id||''))return;
+  let current;try{current=JSON.stringify(localDraftCapture());}catch(e){localDraftDisplay('Brouillon non sauvegardé : '+e.message,true);return;}
+  if(current===s.last)return;
+  localDraftDisplay('Modifications en cours — sauvegarde locale…');clearTimeout(s.timer);s.timer=setTimeout(localDraftFlush,650);
+}
+function localDraftStop(flush=true){
+  const s=localDraftSession;if(!s)return;
+  if(flush)localDraftFlush();clearTimeout(s.timer);s.observer?.disconnect();s.root.removeEventListener('input',s.listener);s.root.removeEventListener('change',s.listener);
+  s.banner?.remove();localDraftSession=null;
+}
+function localDraftBegin(mode,context,root){
+  localDraftStop(true);if(!root)return;
+  const banner=document.createElement('aside');banner.className='local-draft-banner';
+  banner.innerHTML='<p class="local-draft-message" role="status" aria-live="polite"></p><div class="row local-draft-actions"><button type="button" data-draft-resume hidden onclick="localDraftResume()">Reprendre le brouillon</button><button type="button" data-draft-delete hidden onclick="localDraftDiscard()">Supprimer ce brouillon</button><button type="button" data-draft-export hidden onclick="localDraftExport()">Exporter le travail de cette fenêtre</button></div>';
+  root.prepend(banner);
+  const owner=String(user?.id||''),scope=localDraftContext(mode,context);
+  const s={mode,context:scope,evaluationId:context.evaluationId||null,owner,key:localDraftPrefix()+encodeURIComponent(scope),root,banner,expected:null,last:null,pending:false,record:null,timer:null,schema:mode==='correction'?JSON.stringify(criteriaFromLegacy(currentCorrectionEvaluation)):null};
+  localDraftSession=s;
+  s.base=JSON.stringify(localDraftCapture());s.last=s.base;
+  if(!owner){s.pending=true;localDraftDisplay('Connecte-toi pour activer les brouillons locaux associés à ton compte.',true);return;}
+  try{
+    const found=localDraftRead(s);s.expected=found.raw;
+    if(found.record&&JSON.stringify(found.record.payload)!==s.base)localDraftPending(found);
+    else if(found.record){localStorage.removeItem(s.key);s.expected=null;}
+    if(!s.pending)localDraftDisplay('Protection locale active : les modifications seront conservées sur cet appareil, sans valider l’évaluation ou la copie.');
+  }catch(e){s.pending=e instanceof SyntaxError||/Brouillon illisible/.test(e.message);localDraftDisplay('Brouillon local indisponible : '+e.message+' L’enregistrement habituel reste possible si aucun brouillon à reprendre n’est détecté.',true);localDraftActions();}
+  s.listener=()=>localDraftSchedule();root.addEventListener('input',s.listener);root.addEventListener('change',s.listener);
+  if(mode==='editor'){
+    s.observer=new MutationObserver(localDraftSchedule);
+    const area=document.getElementById('competenciesEditor');if(area)s.observer.observe(area,{childList:true,subtree:true});
+  }
+}
+function localDraftBeginEditor(id){localDraftBegin('editor',{evaluationId:id||null},document.getElementById('evTitre')?.closest('section'));}
+function localDraftBeginCorrection(){if(correctionSession)localDraftBegin('correction',correctionSession,document.getElementById('correctionSaveControls')?.closest('section'));}
+function localDraftResume(){
+  const s=localDraftSession;if(!s||!s.record)return;
+  try{
+    const found=localDraftRead(s);if(found.raw!==s.expected){localDraftPending(found,'Le brouillon a changé dans un autre onglet. Vérifie puis clique de nouveau sur Reprendre.');return;}
+    const record=found.record,payload=record.payload;
+    if(s.mode==='correction'){
+      if(record.schema!==s.schema)throw new Error('La grille a changé depuis ce brouillon. Reprise automatique impossible ; le brouillon est conservé.');
+      const current=[...s.root.querySelectorAll('.correction-check')];
+      if(!Array.isArray(payload.checks)||payload.checks.length!==current.length||payload.checks.some((v,i)=>v[0]!==current[i].dataset.key||typeof v[1]!=='boolean'))throw new Error('Les indicateurs du brouillon ne correspondent plus à cette grille.');
+    }else{
+      if(!Array.isArray(payload.questions)||!Array.isArray(payload.classes)||payload.questions.some(q=>!Array.isArray(q.criteres)||q.criteres.some(c=>!Array.isArray(c.indicateurs))))throw new Error('La structure du brouillon est invalide.');
+    }
+    if(!confirm('Reprendre ce brouillon et remplacer les données actuellement affichées ? Rien ne sera validé dans Supabase.'+(record.base!==s.base?' Attention : la version chargée diffère de celle qui avait servi de départ au brouillon.':'')))return;
+    if(s.mode==='correction'){
+      const values=new Map(payload.checks);s.root.querySelectorAll('.correction-check').forEach(el=>el.checked=values.get(el.dataset.key));refreshCorrectionScore(correctionSession.evalId);correctionRefreshStatus();
+    }else{
+      const area=document.getElementById('competenciesEditor');
+      area.innerHTML=payload.questions.map((q,i)=>renderCompetencyEditor({...q,questionNumero:q.questionNumero??i+1},i)).join('');
+      populateQuestionCompetencyPickers();
+      [...area.querySelectorAll('.question-editor')].forEach((box,i)=>{const input=box.querySelector('.question-number');if(input&&payload.questions[i].questionNumero!==null)input.value=payload.questions[i].questionNumero;});
+      document.getElementById('evTitre').value=payload.titre??'';document.getElementById('evChapitre').value=payload.chapitre??'';document.getElementById('evType').value=payload.type||'evaluation';
+      document.querySelectorAll('#evClasses .ev-class-check').forEach(el=>el.checked=payload.classes.includes(el.value));
+      document.getElementById('evType').dispatchEvent(new Event('change',{bubbles:true}));renumberEvaluationQuestions();
+      [...area.querySelectorAll('.question-editor')].forEach((box,i)=>{const input=box.querySelector('.question-number');if(input&&payload.questions[i].questionNumero!==null)input.value=payload.questions[i].questionNumero;});
+      updateEvaluationTotal();
+    }
+    s.pending=false;s.record=null;s.last=null;localDraftActions();localDraftFlush();
+  }catch(e){localDraftDisplay('Brouillon non repris : '+e.message,true);}
+}
+function localDraftDiscard(){
+  const s=localDraftSession;if(!s?.owner)return;
+  if(!confirm('Supprimer définitivement ce brouillon local ? Les données affichées et les enregistrements dans Supabase resteront inchangés.'))return;
+  try{
+    const raw=localStorage.getItem(s.key);
+    if(s.expected!==null&&raw!==s.expected){localDraftPending(localDraftRead(s),'Le brouillon a changé dans un autre onglet. Vérifie avant de le supprimer.');return;}
+    localStorage.removeItem(s.key);s.expected=null;s.pending=false;s.record=null;s.last=null;localDraftActions();localDraftFlush();
+  }catch(e){localDraftDisplay('Suppression impossible : '+e.message,true);}
+}
+function localDraftExport(){
+  const s=localDraftSession;if(!s)return;
+  const blob=new Blob([JSON.stringify({version:1,mode:s.mode,context:s.context,payload:localDraftCapture()},null,2)],{type:'application/json'});
+  const link=document.createElement('a'),url=URL.createObjectURL(blob);link.href=url;link.download='brouillon-svt.json';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+}
+function localDraftCanValidate(){
+  if(localDraftSession?.pending){alert('Choisis d’abord de reprendre ou supprimer le brouillon proposé. Cela évite de perdre une version de ton travail.');return false;}
+  return true;
+}
+function localDraftBeforeSave(){localDraftFlush();return localDraftSession?{session:localDraftSession,payload:JSON.stringify(localDraftCapture())}:null;}
+function localDraftSaved(ticket,newId=null){
+  if(!ticket||ticket.session!==localDraftSession)return;
+  const s=localDraftSession;
+  try{
+    if(localStorage.getItem(s.key)!==s.expected){localDraftPending(localDraftRead(s),'Enregistrement dans Supabase confirmé, mais un autre onglet a modifié le brouillon. Il a été conservé.');return;}
+    localStorage.removeItem(s.key);s.expected=null;
+    if(s.mode==='editor'&&newId){s.evaluationId=newId;s.context=localDraftContext('editor',{evaluationId:newId});s.key=localDraftPrefix()+encodeURIComponent(s.context);}
+    s.base=ticket.payload;s.last=null;
+    if(JSON.stringify(localDraftCapture())===ticket.payload){s.last=ticket.payload;clearTimeout(s.timer);localDraftDisplay('Enregistrement confirmé dans Supabase. Aucun brouillon en attente.');}
+    else localDraftFlush();
+  }catch(e){localDraftDisplay('Enregistrement dans Supabase confirmé ; nettoyage du brouillon local impossible : '+e.message,true);}
+}
+window.addEventListener('pagehide',()=>localDraftFlush());
+document.addEventListener('visibilitychange',()=>{if(document.hidden)localDraftFlush();});
+window.addEventListener('beforeunload',e=>{
+  const s=localDraftSession;if(!s||!s.root.isConnected)return;
+  const changed=JSON.stringify(localDraftCapture())!==s.base;
+  if(changed&&!localDraftFlush()){e.preventDefault();e.returnValue='';}
+});
+window.addEventListener('storage',e=>{
+  const s=localDraftSession;if(!s||e.key!==s.key)return;
+  try{localDraftPending(localDraftRead(s),'Un autre onglet a modifié ou supprimé ce brouillon. Sauvegarde locale suspendue ; exporte ton travail avant de reprendre une autre version.');}
+  catch(err){s.pending=true;localDraftDisplay('Brouillon modifié dans un autre onglet : '+err.message,true);localDraftActions();}
+});
+
+function renderCriterionEditor(c,i){
+  const indicators=Array.isArray(c.indicateurs)?c.indicateurs:[];
+  return `<div class="eval-card criterion-editor" data-criterion-id="${esc(c.id||('c'+Date.now()+i))}">
+    <div class="row" style="justify-content:space-between;align-items:center"><strong>Critère ${i+1}</strong><button class="danger" onclick="this.closest('.criterion-editor').remove()">Supprimer</button></div>
+    <label>Nom du critère</label><input class="criterion-name" value="${esc(c.nom||'')}" placeholder="Ex. Respect des consignes">
+    <label>Indicateurs à cocher</label>
+    <div class="indicator-editor">${indicators.map(indicatorEditor).join("")}</div>
+    <button type="button" class="entry-add" onclick="this.previousElementSibling.insertAdjacentHTML('beforeend',indicatorEditor({nom:'',points:1}))">＋ Ajouter un indicateur</button>
+  </div>`;
+}
+function isTransversalLanguageCompetency(nom){
+  const texte = String(nom || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+  return texte.includes("maitrise de la langue") ||
+         texte.includes("maitriser la langue francaise");
+}
+function renderCompetencyEditor(comp,ci){
+  const cs=Array.isArray(comp.criteres)?comp.criteres:[];
+  const questionNumero=Number(comp.questionNumero||ci+1);
+  return `<div class="eval-card competency-editor question-editor"
+    data-competency-id="${esc(comp.id||('comp'+Date.now()+ci))}"
+    data-bank-competency-id="${esc(comp.bankId||"")}"
+    data-competency-name="${esc(comp.nom||"")}">
+
+    <div class="row" style="justify-content:space-between;align-items:center">
+      <strong>📝 ${isTransversalLanguageCompetency(comp.nom) ? "Maîtriser la langue française — Compétence transversale" : "Question " + questionNumero}</strong>
+      <button class="danger" type="button"
+        onclick="this.closest('.question-editor').remove();renumberEvaluationQuestions()">
+        Supprimer
+      </button>
+    </div>
+
+    
+    ${!isTransversalLanguageCompetency(comp.nom) ? `
+    <label>Numéro de la question</label>
+    <input class="question-number"
+      type="number"
+      min="1"
+      step="1"
+      value="${questionNumero}"
+      onchange="renumberEvaluationQuestions()">
+    ` : ""}
+
+    <label>Compétence évaluée</label>
+
+    <select class="question-bank-select"
+      onchange="selectQuestionCompetency(this)">
+      <option value="">Choisir une compétence dans la banque…</option>
+    </select>
+
+    <div class="grid-template-tools">
+      <p class="small-note question-grid-note">Choisis une compétence pour charger sa grille de départ. Les adaptations restent propres à cette question.</p>
+      <div class="row"><button type="button" onclick="reloadQuestionGrid(this)">↻ Recharger le modèle</button><button type="button" onclick="saveQuestionAsCompetencyGrid(this)">💾 Utiliser cette grille comme modèle</button></div>
+    </div>
+    <label>Critères de cette question — à préciser pour cet exercice</label>
+
+    <div class="competency-criteria">
+      ${cs.map(renderCriterionEditor).join("")}
+    </div>
+
+    <button type="button"
+      class="entry-add"
+      onclick="addCriterionToCompetency(this)">
+      ＋ Ajouter un critère
+    </button>
+
+  </div>`;
+}
+function addCriterionToCompetency(btn){
+  const box=btn.previousElementSibling;const n=box.querySelectorAll('.criterion-editor').length;
+  box.insertAdjacentHTML('beforeend',renderCriterionEditor({id:'c'+Date.now()+n,nom:'',indicateurs:[]},n));
+}
+function addCompetencyEditor(){
+  const box=document.getElementById("competenciesEditor");
+  if(!box)return;
+  const n=box.querySelectorAll(".question-editor").length;
+  box.insertAdjacentHTML(
+    "beforeend",
+    renderCompetencyEditor({
+      id:"comp"+Date.now(),
+      nom:"",
+      bankId:"",
+      questionNumero:n+1,
+      criteres:[]
+    },n)
+  );
+  populateQuestionCompetencyPickers();
+}
+  function populateQuestionCompetencyPickers(){
+  const options='<option value="">Choisir une compétence dans la banque…</option>'+
+    competenciesCache.map(c=>
+      `<option value="${esc(c.id)}">${esc(c.niveau||"Tous niveaux")} · ${esc(c.nom)}</option>`
+    ).join("");
+  document.querySelectorAll(".question-bank-select").forEach(sel=>{
+    const current=sel.closest(".question-editor")?.dataset.bankCompetencyId||"";
+    sel.innerHTML=options;
+    if(current){
+      if(![...sel.options].some(option=>option.value===String(current))){
+        const name=sel.closest('.question-editor')?.dataset.competencyName||'Compétence enregistrée';
+        sel.add(new Option(name+' (absente de la banque)',String(current)));
+      }
+      sel.value=String(current);
+    }
+    updateQuestionGridNote(sel.closest(".question-editor"));
+  });
+}
+
+/* Grilles de référence : copiées dans les questions, jamais liées aux anciennes copies. */
+const COMPETENCY_GRID_PROFILES=[["protocole|experiment|manipul", [["Pertinence", ["Le protocole répond au problème posé.", "Le matériel choisi permet de réaliser le test.", "Les conditions à comparer sont identifiées."]], ["Exactitude", ["Les quantités, durées ou mesures sont adaptées.", "Les étapes sont réalisées sans erreur technique.", "Les observations sont relevées fidèlement."]], ["Complétude", ["Les étapes nécessaires sont toutes présentes.", "Les conditions expérimentales utiles sont précisées.", "Les résultats nécessaires sont recueillis."]], ["Conformité", ["Les étapes suivent un ordre cohérent.", "Les consignes de sécurité sont respectées.", "Le matériel est utilisé selon les consignes."]]]], ["graph|courbe|diagramme", [["Pertinence", ["Le type de représentation convient aux données.", "Les grandeurs sont placées sur les axes adaptés.", "Le titre indique ce que représente le graphique."]], ["Exactitude", ["Les valeurs sont reportées correctement.", "Les unités sont exactes.", "Les graduations respectent une échelle régulière."]], ["Complétude", ["Les données demandées sont toutes représentées.", "Les axes comportent leur nom et leur unité.", "La légende nécessaire est présente."]], ["Conformité", ["La représentation respecte les consignes.", "Les tracés sont lisibles et soignés.", "La légende permet de distinguer les séries."]]]], ["interpret|resultat|conclu", [["Pertinence", ["Les résultats retenus répondent au problème posé.", "La comparaison porte sur les conditions utiles.", "La conclusion répond à la question."]], ["Exactitude", ["Les données sont relevées sans erreur.", "Les comparaisons respectent les résultats observés.", "Les connaissances mobilisées sont scientifiquement exactes."]], ["Complétude", ["Les résultats utiles sont tous pris en compte.", "La réponse cite les données qui soutiennent la conclusion.", "Le lien entre les résultats et la conclusion est explicité."]], ["Conformité", ["La réponse distingue observation et interprétation.", "Le vocabulaire scientifique attendu est utilisé.", "La réponse suit la forme demandée."]]]], ["hypothes|demarche|probleme", [["Pertinence", ["Le problème est lié à la situation étudiée.", "L’hypothèse propose une réponse au problème.", "Le test proposé permet de vérifier l’hypothèse."]], ["Exactitude", ["L’hypothèse est compatible avec les connaissances disponibles.", "Les facteurs étudiés sont correctement identifiés.", "Le résultat attendu est cohérent avec l’hypothèse."]], ["Complétude", ["Le problème est clairement formulé.", "L’hypothèse est explicitement énoncée.", "La vérification et le résultat attendu sont précisés."]], ["Conformité", ["L’hypothèse est formulée de façon testable.", "Les étapes du raisonnement sont organisées.", "Le vocabulaire attendu est employé."]]]], ["dessin|schema|represent", [["Pertinence", ["Les éléments représentés correspondent au sujet.", "La représentation met en évidence les relations utiles.", "Le titre précise l’objet représenté."]], ["Exactitude", ["Les éléments sont représentés sans erreur scientifique.", "Les légendes désignent les bons éléments.", "Les relations ou proportions attendues sont respectées."]], ["Complétude", ["Tous les éléments demandés sont présents.", "Les légendes nécessaires sont présentes.", "Les indications attendues sont renseignées."]], ["Conformité", ["La représentation respecte les conventions demandées.", "Les traits et les légendes sont lisibles.", "La présentation est organisée et soignée."]]]], ["oral|communiquer oral|expos", [["Expression", ["La voix est audible.", "Le débit permet de suivre le propos.", "Les mots sont prononcés clairement."]], ["Organisation", ["L’introduction présente le sujet.", "Les idées suivent un ordre cohérent.", "La conclusion répond au sujet."]], ["Pertinence", ["Les informations répondent à la consigne.", "Les explications sont scientifiquement exactes.", "Les exemples ou supports éclairent le propos."]], ["Attitude", ["Le regard s’adresse à l’auditoire.", "La prise de parole ne se limite pas à lire le support.", "La posture favorise la communication."]]]], ["langue|redig|texte|ecrit", [["Pertinence", ["Le texte répond à la consigne.", "Les idées retenues sont utiles au sujet.", "Les exemples soutiennent l’explication."]], ["Exactitude", ["Le vocabulaire est employé correctement.", "Les phrases sont compréhensibles.", "Les accords et l’orthographe sont vérifiés."]], ["Complétude", ["Les éléments demandés sont tous présents.", "Les liens entre les idées sont explicités.", "La conclusion ou la réponse finale est formulée."]], ["Conformité", ["Le texte respecte la forme demandée.", "Les idées sont organisées en phrases et paragraphes.", "La présentation et la ponctuation facilitent la lecture."]]]], ["argument|justifi|raisonn|expliqu", [["Pertinence", ["La réponse traite la question posée.", "Les arguments soutiennent la réponse proposée.", "Les exemples choisis sont utiles au raisonnement."]], ["Exactitude", ["Les connaissances utilisées sont exactes.", "Les données citées sont fidèles aux documents.", "Les relations de cause à effet sont correctes."]], ["Complétude", ["Les arguments nécessaires sont présents.", "Chaque argument s’appuie sur une donnée ou une connaissance.", "La conclusion est reliée aux arguments."]], ["Conformité", ["Le raisonnement suit un ordre logique.", "Des connecteurs rendent les liens explicites.", "Le vocabulaire scientifique attendu est employé."]]]], ["inform|document|extraire|recherch|lire", [["Pertinence", ["Les informations sélectionnées répondent à la question.", "Les documents utiles sont identifiés.", "Les informations hors sujet sont écartées."]], ["Exactitude", ["Les données sont relevées sans déformation.", "Les valeurs et unités sont exactes.", "Le sens des documents est respecté."]], ["Complétude", ["Les informations nécessaires sont toutes relevées.", "Les documents demandés sont tous exploités.", "Les références utiles sont précisées."]], ["Conformité", ["Les informations sont organisées de façon lisible.", "La réponse respecte la forme demandée.", "La formulation permet de comprendre les données retenues."]]]], ["class|identifier|observ|compar", [["Pertinence", ["Les éléments retenus correspondent à la consigne.", "Les caractères utilisés sont adaptés à la tâche.", "La réponse permet d’identifier ou de distinguer les éléments."]], ["Exactitude", ["Les caractères sont repérés sans erreur.", "Les ressemblances et différences sont correctement décrites.", "Les termes scientifiques sont utilisés à bon escient."]], ["Complétude", ["Tous les éléments demandés sont étudiés.", "Les caractères nécessaires sont renseignés.", "La réponse finale est explicitement formulée."]], ["Conformité", ["La méthode ou la clé demandée est respectée.", "La présentation facilite la lecture des observations.", "Le vocabulaire et les conventions attendus sont respectés."]]]]];
+const COMPETENCY_GRID_GENERIC=[["Pertinence", ["Le travail répond à la consigne.", "La démarche choisie est adaptée au problème.", "Les éléments retenus sont utiles à la réponse."]], ["Exactitude", ["Les informations utilisées sont exactes.", "Les termes scientifiques sont employés correctement.", "Les résultats ou affirmations ne comportent pas d’erreur."]], ["Complétude", ["Les éléments demandés sont tous présents.", "Les étapes ou explications nécessaires sont détaillées.", "La réponse finale est formulée."]], ["Conformité", ["La forme demandée est respectée.", "Le travail est organisé et lisible.", "Les conventions et consignes sont respectées."]]];
+let competencyGridModalState=null;
+function competencyGridKey(text){return String(text||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();}
+function competencyStarterGrid(comp){
+  const key=competencyGridKey(comp?.nom);
+  const profile=COMPETENCY_GRID_PROFILES.find(p=>new RegExp(p[0]).test(key));
+  return {version:1,criteres:(profile?profile[1]:COMPETENCY_GRID_GENERIC).map(([nom,items])=>({nom,indicateurs:items.map(text=>({nom:text,points:1}))}))};
+}
+function competencyGridModel(comp){
+  const stored=comp?.grid_template;
+  return stored&&stored.version===1&&Array.isArray(stored.criteres)&&stored.criteres.length
+    ?JSON.parse(JSON.stringify(stored)):competencyStarterGrid(comp);
+}
+function competencyGridIsSaved(comp){return !!(comp?.grid_template?.version===1&&comp.grid_template.criteres?.length);}
+function competencyGridCriteria(comp){
+  return competencyGridModel(comp).criteres.map(c=>({...c,id:'grid_'+crypto.randomUUID(),indicateurs:(c.indicateurs||[]).map(it=>({...it}))}));
+}
+function collectGridCriteria(container){
+  return [...container.children].filter(el=>el.classList.contains('criterion-editor')).map(cb=>({
+    nom:cb.querySelector('.criterion-name')?.value.trim()||'',
+    indicateurs:[...cb.querySelectorAll('.indicator-row')].map(row=>({nom:row.querySelector('.indicator-name')?.value.trim()||'',points:Number(row.querySelector('.indicator-points')?.value)}))
+  }));
+}
+function validateCompetencyGrid(criteres){
+  if(!criteres.length)throw new Error('Ajoute au moins un critère.');
+  for(const c of criteres){
+    if(!c.nom)throw new Error('Chaque critère doit avoir un nom.');
+    if(!c.indicateurs.length)throw new Error('Ajoute au moins un indicateur par critère.');
+    for(const it of c.indicateurs){
+      if(!it.nom)throw new Error('Renseigne ou supprime les indicateurs vides.');
+      if(!Number.isFinite(it.points)||it.points<0)throw new Error('Les points doivent être des nombres positifs ou nuls.');
+    }
+  }
+  return {version:1,criteres};
+}
+function questionGridHasContent(box){
+  const defaults=criterionDefaults().map(c=>c.nom);
+  return collectGridCriteria(box.querySelector('.competency-criteria')).some(c=>c.indicateurs.length||(c.nom&&!defaults.includes(c.nom)&&!/^Critère \d+$/.test(c.nom)));
+}
+function updateQuestionGridNote(box){
+  const note=box.querySelector('.question-grid-note');if(!note)return;
+  const comp=competenciesCache.find(c=>String(c.id)===String(box.dataset.bankCompetencyId));
+  note.textContent=!comp?'Choisis une compétence pour charger une grille de départ.':
+    (competencyGridIsSaved(comp)?'Modèle personnel disponible. ':'Grille de départ proposée à adapter. ')+
+    'Les modifications ci-dessous concernent uniquement cette question. Le modèle ne change que si tu l’enregistres explicitement.';
+}
+function applyQuestionGrid(box,comp){
+  box.querySelector('.competency-criteria').innerHTML=competencyGridCriteria(comp).map(renderCriterionEditor).join('');
+  updateEvaluationTotal();updateQuestionGridNote(box);
+}
+function reloadQuestionGrid(btn){
+  const box=btn.closest('.question-editor');
+  const comp=competenciesCache.find(c=>String(c.id)===String(box.dataset.bankCompetencyId));
+  if(!comp){alert('Choisis d’abord une compétence.');return;}
+  if(questionGridHasContent(box)&&!confirm('Remplacer la grille de cette question par le modèle de la compétence ? Les adaptations de cette question seront remplacées.'))return;
+  applyQuestionGrid(box,comp);
+}
+async function persistCompetencyGrid(id,model){
+  const q=await sb.from('ProfessorCompetencies').update({grid_template:model}).eq('id',id).select('id,grid_template').maybeSingle();
+  if(q.error){
+    const message=String(q.error.message||'');
+    if(/grid_template|PGRST204|42703/i.test(message+' '+q.error.code))throw new Error('Le stockage des modèles n’est pas encore installé. Exécute le fichier SQL fourni dans Supabase, puis réessaie.');
+    throw new Error(message);
+  }
+  if(!q.data?.id||!q.data.grid_template)throw new Error('La base n’a pas confirmé l’enregistrement du modèle. Vérifie tes droits d’accès.');
+  const comp=competenciesCache.find(c=>String(c.id)===String(id));
+  if(comp)comp.grid_template=JSON.parse(JSON.stringify(q.data.grid_template));
+  document.querySelectorAll('.question-editor').forEach(updateQuestionGridNote);
+  const bank=document.getElementById('competencyBankList');if(bank)bank.innerHTML=renderCompetencyBank();
+}
+async function saveQuestionAsCompetencyGrid(btn){
+  if(btn.disabled)return;
+  const box=btn.closest('.question-editor');
+  const comp=competenciesCache.find(c=>String(c.id)===String(box.dataset.bankCompetencyId));
+  if(!comp){alert('Choisis d’abord une compétence.');return;}
+  let model;try{model=validateCompetencyGrid(collectGridCriteria(box.querySelector('.competency-criteria')));}catch(e){alert(e.message);return;}
+  if(!confirm('Enregistrer cette grille comme modèle de « '+comp.nom+' » ? Les précisions présentes seront réutilisées dans les prochaines questions. Les évaluations existantes resteront inchangées.'))return;
+  btn.disabled=true;
+  try{await persistCompetencyGrid(comp.id,model);alert('Modèle enregistré. Les évaluations existantes n’ont pas été modifiées.');}
+  catch(e){alert('Modèle non enregistré : '+e.message);}finally{btn.disabled=false;}
+}
+function openCompetencyGrid(id){
+  if(competencyGridModalState&&!closeCompetencyGrid())return;
+  const comp=competenciesCache.find(c=>String(c.id)===String(id));if(!comp)return;
+  const modal=document.createElement('div');modal.id='competencyGridModal';modal.className='pp-modal competency-grid-modal';
+  modal.innerHTML=`<section class="pp-modal-card" role="dialog" aria-modal="true" aria-labelledby="competencyGridTitle">
+    <div class="entry-head"><h3 id="competencyGridTitle">Grille de référence — ${esc(comp.nom)}</h3><button type="button" onclick="closeCompetencyGrid()">Fermer</button></div>
+    <p class="small-note">${competencyGridIsSaved(comp)?'Modèle personnel enregistré.':'Proposition de départ à adapter ; ce n’est pas une grille officielle.'} Modifie les critères, les indicateurs et les points. L’enregistrement ne modifie aucune ancienne évaluation.</p>
+    <div class="competency-criteria">${competencyGridCriteria(comp).map(renderCriterionEditor).join('')}</div>
+    <button type="button" class="entry-add" onclick="addCriterionToCompetency(this)">＋ Ajouter un critère</button>
+    <div class="row grid-modal-actions"><button type="button" onclick="resetCompetencyGridDraft()">Repartir de la proposition de départ</button><button type="button" class="primary" onclick="saveCompetencyGridModal(this)">💾 Enregistrer le modèle</button><button type="button" onclick="closeCompetencyGrid()">Annuler</button></div>
+    <p class="status" role="status"></p>
+  </section>`;
+  document.body.appendChild(modal);
+  competencyGridModalState={id:String(id),initial:JSON.stringify(collectGridCriteria(modal.querySelector('.competency-criteria'))),busy:false};
+  modal.querySelector('button')?.focus();
+}
+function closeCompetencyGrid(){
+  const modal=document.getElementById('competencyGridModal');if(!modal){competencyGridModalState=null;return true;}
+  if(competencyGridModalState?.busy)return false;
+  const current=JSON.stringify(collectGridCriteria(modal.querySelector('.competency-criteria')));
+  if(current!==competencyGridModalState?.initial&&!confirm('Fermer sans enregistrer les modifications du modèle ?'))return false;
+  modal.remove();competencyGridModalState=null;return true;
+}
+function resetCompetencyGridDraft(){
+  const modal=document.getElementById('competencyGridModal'),state=competencyGridModalState;if(!modal||!state||state.busy)return;
+  const comp=competenciesCache.find(c=>String(c.id)===state.id);if(!comp)return;
+  if(!confirm('Remplacer le brouillon du modèle par la proposition de départ ? Rien ne sera enregistré tant que tu ne cliques pas sur Enregistrer.'))return;
+  const proposal={...comp,grid_template:null};
+  modal.querySelector('.competency-criteria').innerHTML=competencyGridCriteria(proposal).map(renderCriterionEditor).join('');
+}
+async function saveCompetencyGridModal(btn){
+  const modal=document.getElementById('competencyGridModal'),state=competencyGridModalState;if(!modal||!state||state.busy)return;
+  let model;try{model=validateCompetencyGrid(collectGridCriteria(modal.querySelector('.competency-criteria')));}catch(e){modal.querySelector('.status').textContent=e.message;return;}
+  const comp=competenciesCache.find(c=>String(c.id)===state.id);
+  if(!confirm('Enregistrer ce modèle pour « '+(comp?.nom||'cette compétence')+' » ? Il sera utilisé pour les prochaines questions ; aucune évaluation existante ne sera modifiée.'))return;
+  state.busy=true;const controls=[...modal.querySelectorAll('button,input,select,textarea')];const previous=controls.map(el=>el.disabled);controls.forEach(el=>el.disabled=true);
+  try{await persistCompetencyGrid(state.id,model);state.initial=JSON.stringify(model.criteres);modal.querySelector('.status').textContent='Modèle enregistré ✓';}
+  catch(e){modal.querySelector('.status').textContent='Modèle non enregistré : '+e.message;}
+  finally{state.busy=false;controls.forEach((el,i)=>el.disabled=previous[i]);}
+}
+
+function selectQuestionCompetency(select){
+  const box=select.closest('.question-editor');if(!box)return;
+  const previous=String(box.dataset.bankCompetencyId||'');
+  if(String(select.value)===previous)return;
+  const comp=competenciesCache.find(c=>String(c.id)===String(select.value));
+  if(questionGridHasContent(box)&&!confirm('Changer de compétence et remplacer la grille de cette question ? Les adaptations présentes seront remplacées.')){select.value=previous;return;}
+  box.dataset.bankCompetencyId=comp?.id||'';box.dataset.competencyName=comp?.nom||'';
+  if(comp)applyQuestionGrid(box,comp);
+  else{box.querySelector('.competency-criteria').innerHTML='';updateQuestionGridNote(box);updateEvaluationTotal();}
+  renumberEvaluationQuestions();
+}
+function renumberEvaluationQuestions(){
+  document.querySelectorAll("#competenciesEditor .question-editor")
+    .forEach((box,i)=>{
+      const input = box.querySelector(".question-number");
+      const label = input?.previousElementSibling;
+      const title = box.querySelector("strong");
+      const nom = box.dataset.competencyName ||
+        box.querySelector(".question-bank-select")
+          ?.selectedOptions?.[0]?.textContent || "";
+      const transversal = isTransversalLanguageCompetency(nom);
+      if(input){
+        input.style.display = transversal ? "none" : "";
+        if(label?.tagName === "LABEL"){
+          label.style.display = transversal ? "none" : "";
+        }
+      }
+      if(transversal){
+        if(title){
+          title.textContent =
+            "📝 Maîtriser la langue française — Compétence transversale";
+        }
+        return;
+      }
+      if(input && !input.value) input.value = i+1;
+      const number = Number(input?.value || i+1);
+      if(title) title.textContent = `📝 Question ${number}`;
+    });
+}
+function indicatorEditor(item={}){
+  return `<div class="eval-card indicator-row" style="margin:8px 0;padding:11px">
+    <div class="eval-grid">
+      <input class="indicator-name" value="${esc(item.nom||"")}" placeholder="Indicateur à valider">
+      <input class="indicator-points" type="number" min="0" step="0.5" value="${esc(item.points??1)}" title="Points de cet indicateur">
+      <button class="danger" onclick="this.closest('.indicator-row').remove()">×</button>
+    </div>
+    <div class="small-note" style="margin-top:6px">Les points servent au score. La validation du critère est cochée séparément lors de la correction.</div>
+  </div>`;
+}
+function updateEvaluationTotal(){
+  const input=document.getElementById("evTotal");
+  if(!input)return;
+  const total=[...document.querySelectorAll("#competenciesEditor .indicator-points")]
+    .reduce((sum,el)=>sum+Number(el.value||0),0);
+  input.value=Number.isFinite(total)?total:0;
+}
+function editEvaluationObject(ev){
+  if(!correctionAllowLeave())return;
+  const e=evalNormalize(ev);
+  const previous=loadEvalNav();
+  const returnClasse=String(e.classe||previous.classe||localStorage.getItem("EVAL_SELECTED_CLASS")||"").trim();
+  saveEvalNav({view:"editor",classe:returnClasse,evaluationId:e.id||null,correctionId:null,draft:e});
+  try{localStorage.setItem("EVAL_SELECTED_CLASS",returnClasse);}catch(err){}
+  let comps=Array.isArray(e.competences)&&e.competences.length?e.competences:null;
+  if(!comps){
+    const crits=criteriaFromLegacy(e);
+    const groups={};
+    crits.forEach((cr,i)=>{const id=cr.competenceId||"comp1";if(!groups[id])groups[id]={id,nom:cr.competenceNom||e.competence||"",criteres:[]};groups[id].criteres.push(cr);});
+    comps=Object.values(groups);
+    if(!comps.length)comps=[{id:"comp1",nom:e.competence||"",criteres:criterionDefaults()}];
+  }
+  const totalAuto=comps.reduce((sum,co)=>sum+(co.criteres||[]).reduce((a,c)=>a+(c.indicateurs||[]).reduce((b,it)=>b+Number(it.points||0),0),0),0);
+  content.innerHTML=`<button onclick="evalReturnToList()">← Mes évaluations</button>
+  <section class="hero teacher" style="margin-top:14px">
+    <span class="eyebrow">Paramétrage</span><h2>📝 ${e.id?"Modifier":"Créer"} une évaluation</h2>
+    <div class="editbox">
+      <label>Titre</label><input id="evTitre" value="${esc(e.titre)}">
+      <label>Chapitre</label>
+<input
+  id="evChapitre"
+  type="number"
+  min="1"
+  step="1"
+  value="${e.chapitre||""}"
+  placeholder="Ex. 1"
+>
+
+<label>Type</label>
+<select id="evType">
+  <option value="activite" ${(e.typeEvaluation==="activite")?"selected":""}>
+    Activité
+  </option>
+  <option value="exercice" ${(e.typeEvaluation==="exercice")?"selected":""}>
+    Exercice
+  </option>
+  <option value="evaluation" ${(!e.typeEvaluation||e.typeEvaluation==="evaluation")?"selected":""}>
+    Évaluation de chapitre
+  </option>
+</select>
+
+<input
+  id="evCoefficient"
+  type="hidden"
+  value="${e.coefficient||1}"
+>
+<p id="evCoefficientInfo" class="small-note"></p>
+      <label>Classes concernées</label>
+      <div id="evClasses" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">${Object.values(CLASSES).flat().map(c=>{const checked=(e.assignedClasses||[]).includes(c);return `<label style="display:inline-flex;align-items:center;gap:5px;padding:5px 8px;border:1px solid var(--b);border-radius:8px;background:#fff;cursor:pointer;white-space:nowrap;width:auto"><input type="checkbox" class="ev-class-check" style="width:auto" value="${esc(c)}" ${checked?'checked':''}> <span>${esc(c)}</span></label>`}).join("")}</div>
+      <p class="small-note">La même grille peut être attribuée à plusieurs classes.</p>
+      <label>Barème total</label><input id="evTotal" type="number" min="0" step="0.5" value="${esc(totalAuto)}" readonly><p class="small-note">Le barème total est calculé automatiquement à partir de la somme des points des indicateurs.</p>
+    </div>
+    <div class="section-heading">
+  <h2>📝 Questions de l'évaluation</h2>
+  <span class="status">Chaque question peut évaluer une compétence différente.</span>
+</div>
+    
+    <div id="competenciesEditor">${comps.map(renderCompetencyEditor).join("")}</div>
+    <button class="entry-add" onclick="addCompetencyEditor()">＋ Ajouter une compétence</button>
+    <div class="editbox" style="margin-top:18px"><strong>💡 Principe</strong><p class="muted" style="margin-bottom:0">Chaque compétence possède ses propres critères et indicateurs. Lors de la correction, tu coches les indicateurs réussis puis tu valides les critères. La maîtrise est calculée séparément pour chaque compétence.</p></div>
+    <div class="row"><button type="button" class="primary" onclick="event.preventDefault();saveEvaluationFromEditor('${esc(e.id||"")}')">💾 Enregistrer l'évaluation</button><span id="evalSaveStatus" class="status"></span></div>
+  </section>`;
+  const evType=document.getElementById("evType");
+  const evCoefficient=document.getElementById("evCoefficient");
+  const evCoefficientInfo=document.getElementById("evCoefficientInfo");
+  function updateEvaluationType(){
+    const isDemiCoefficient=["activite","exercice"].includes(evType?.value);
+    if(evCoefficient){
+      evCoefficient.value=isDemiCoefficient?"0.5":"1";
+    }
+    if(evCoefficientInfo){
+      evCoefficientInfo.textContent=isDemiCoefficient
+        ?`Coefficient : 0,5 (${evType?.value==="exercice"?"exercice":"activité"})`
+        :"Coefficient : 1";
+    }
+  }
+  evType?.addEventListener("change",updateEvaluationType);
+  updateEvaluationType();
+  loadBanks().then(()=>{
+  populateQuestionCompetencyPickers();
+}).catch(err=>{const status=document.getElementById('evalSaveStatus');if(status)status.textContent='Banque de compétences indisponible : '+err.message;});
+updateEvaluationTotal();
+  const editor=document.getElementById("competenciesEditor");
+  if(editor){
+    const observer=new MutationObserver(()=>updateEvaluationTotal());
+    observer.observe(editor,{childList:true,subtree:true});
+  }
+  editor?.addEventListener("input",e=>{if(e.target.classList.contains("indicator-points"))updateEvaluationTotal();});
+  localDraftBeginEditor(e.id);
+}
+function collectEvaluationEditor(){
+  const questions=[...document.querySelectorAll("#competenciesEditor .question-editor")]
+    .map((box,ci)=>{
+      const id=box.dataset.competencyId||("comp"+(ci+1));
+      const questionNumero=Number(
+        box.querySelector(".question-number")?.value||ci+1
+      );
+      const bankId=box.dataset.bankCompetencyId||null;
+      const competency=bankId
+        ? competenciesCache.find(c=>String(c.id)===String(bankId))
+        : null;
+      const nom=competency?.nom||box.dataset.competencyName||"Compétence non renseignée";
+      const criteres=[
+        ...box.querySelectorAll(
+          ":scope > .competency-criteria > .criterion-editor"
+        )
+      ].map((cb,i)=>({
+        id:cb.dataset.criterionId||("c"+ci+"_"+i),
+        nom:cb.querySelector(".criterion-name")?.value.trim()
+          ||`Critère ${i+1}`,
+        competenceId:id,
+        competenceNom:nom,
+        indicateurs:[
+          ...cb.querySelectorAll(".indicator-row")
+        ].map(row=>({
+          nom:row.querySelector(".indicator-name")?.value.trim()||"",
+          points:Number(
+            row.querySelector(".indicator-points")?.value||0
+          )
+        })).filter(x=>x.nom)
+      }));
+      return {
+        id,
+        nom,
+        bankId,
+        questionNumero,
+        criteres
+      };
+    });
+  const criteres=questions.flatMap(q=>q.criteres);
+  const totalAuto=criteres.reduce(
+    (s,c)=>s+c.indicateurs.reduce(
+      (a,it)=>a+Number(it.points||0),0
+    ),0
+  );
+  const assignedClasses=[
+    ...document.querySelectorAll(
+      "#evClasses .ev-class-check:checked"
+    )
+  ]
+  .map(x=>String(x.value).trim())
+  .filter(Boolean);
+  const typeEvaluation=
+  document.getElementById("evType")?.value||"evaluation";
+const chapitre=Number(
+  document.getElementById("evChapitre")?.value||0
+);
+const coefficient=
+  ["activite","exercice"].includes(typeEvaluation)
+    ?0.5
+    :1;
+return {
+  titre:document.getElementById("evTitre").value.trim()
+    ||"Nouvelle évaluation",
+  classe:assignedClasses[0]||"",
+  assignedClasses,
+  chapitre,
+  typeEvaluation,
+  coefficient,
+  total:totalAuto,
+  competences:questions,
+  criteres,
+  exercices:[]
+};
+}
+async function saveEvaluationFromEditor(id){
+  if(window.__savingEvaluation)return;
+  if(!localDraftCanValidate())return;
+  id=id||localDraftSession?.evaluationId||null;
+  const localDraftTicket=localDraftBeforeSave();
+  if(!localDraftCanValidate())return;
+  window.__savingEvaluation=true;
+  try{
+    const btn=document.querySelector('#evalSaveStatus')?.parentElement?.querySelector('button.primary');
+    if(btn)btn.disabled=true;
+    const e=collectEvaluationEditor();e.id=id||null;
+    const saved=await saveEvaluationObject(e);
+    const idx=evaluationsCache.findIndex(x=>x.id===saved.id);
+    if(idx>=0)evaluationsCache[idx]=saved;else evaluationsCache.unshift(saved);
+    evalRememberFromEvaluation(saved,"editor",{evaluationId:saved.id,classe:loadEvalNav().classe||saved.classe});
+    const s=document.getElementById("evalSaveStatus");if(s)s.textContent="Enregistré ✓";
+    localDraftSaved(localDraftTicket,saved.id);
+  }catch(err){alert("Enregistrement impossible : "+err.message)}
+  finally{
+    window.__savingEvaluation=false;
+    const btn=document.querySelector('#evalSaveStatus')?.parentElement?.querySelector('button.primary');
+    if(btn)btn.disabled=false;
+  }
+}
+
+/* Tableau central des copies : lecture de la classe, statuts existants et brouillons locaux. */
+let copiesBoardState=null,copiesBoardRequest=0;
+function copiesBoardName(value){return String(value||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/\s+/g,' ').trim();}
+async function copiesBoardRead(table,columns,configure){
+  const rows=[];for(let from=0;;from+=500){
+    let query=sb.from(table).select(columns);if(configure)query=configure(query);
+    const result=await query.order('id').range(from,from+499);if(result.error)throw new Error(result.error.message);
+    const page=result.data||[];rows.push(...page);if(page.length<500)return rows;
+  }
+}
+function copiesBoardDrafts(ctx){
+  const result=new Map();let warnings=0;
+  try{
+    const prefix=localDraftPrefix(),ids=new Set(ctx.members.map(e=>String(e.id))),rosterIds=new Set(ctx.roster.map(st=>String(st.id)));
+    for(let i=0;i<localStorage.length;i++){
+      const key=localStorage.key(i);if(!key?.startsWith(prefix))continue;
+      let rec;try{rec=JSON.parse(localStorage.getItem(key));}catch(e){warnings++;continue;}
+      if(rec?.mode!=='correction'||rec.owner!==String(user?.id)||rec.version!==1||!String(rec.context).startsWith('correction:'))continue;
+      try{
+        const [evalId,classe,target]=JSON.parse(rec.context.slice('correction:'.length));
+        if(!ids.has(String(evalId))||String(classe)!==ctx.classe)continue;
+        if(!Array.isArray(rec.payload?.checks)||!rec.payload.checks.every(v=>Array.isArray(v)&&typeof v[0]==='string'&&typeof v[1]==='boolean')){warnings++;continue;}
+        if(key!==prefix+encodeURIComponent(rec.context)){warnings++;continue;}
+        let studentIds=[];
+        if(Array.isArray(target))studentIds=target.map(String);
+        else if(rosterIds.has(String(target)))studentIds=[String(target)];
+        else{
+          const corr=ctx.corrections.find(c=>String(c.id)===String(target)&&String(c.evaluation_id)===String(evalId));
+          if(corr?.eleve_id&&rosterIds.has(String(corr.eleve_id)))studentIds=[String(corr.eleve_id)];
+          else{const matches=ctx.roster.filter(st=>[studentDisplayName(st),`${st.prenom||''} ${st.nom||''}`].map(copiesBoardName).includes(copiesBoardName(corr?.eleve||target)));if(matches.length===1)studentIds=[String(matches[0].id)];}
+        }
+        if(!studentIds.length){warnings++;continue;}
+        const legacyCorrection=!Array.isArray(target)&&!rosterIds.has(String(target))?ctx.corrections.find(c=>String(c.id)===String(target)&&String(c.evaluation_id)===String(evalId)):null;
+        const draft={key,record:rec,evalId:String(evalId),legacyCorrectionId:legacyCorrection?.id||null,nameTarget:!Array.isArray(target)&&!rosterIds.has(String(target))&&!legacyCorrection?String(target):null,groupIds:Array.isArray(target)?target.map(String):[],incompleteGroup:studentIds.some(id=>!rosterIds.has(id))};
+        for(const id of studentIds.filter(id=>rosterIds.has(id))){if(!result.has(id))result.set(id,[]);result.get(id).push(draft);}
+      }catch(e){warnings++;}
+    }
+    result.forEach(list=>list.sort((a,b)=>String(b.record.updatedAt||'').localeCompare(String(a.record.updatedAt||''))));
+  }catch(e){return {byStudent:result,warning:'Lecture des brouillons locaux impossible : '+e.message};}
+  return {byStudent:result,warning:warnings?warnings+' brouillon(s) local(aux) illisible(s) ou sans élève identifiable : ils ont été conservés.':''};
+}
+function copiesBoardRows(ctx){
+  const drafts=copiesBoardDrafts(ctx),byStudent=new Map(ctx.roster.map(st=>[String(st.id),[]])),unlinked=[];
+  const names=new Map();ctx.roster.forEach(st=>{const aliases=new Set([studentDisplayName(st),`${st.prenom||''} ${st.nom||''}`].map(copiesBoardName));aliases.forEach(name=>{if(!names.has(name))names.set(name,[]);names.get(name).push(String(st.id));});});
+  for(const corr of ctx.corrections){
+    if(corr.eleve_id){if(byStudent.has(String(corr.eleve_id)))byStudent.get(String(corr.eleve_id)).push(corr);continue;}
+    const matches=names.get(copiesBoardName(corr.eleve))||[];
+    if(matches.length===1)byStudent.get(matches[0]).push(corr);else if(String(corr.evaluation_id)===String(ctx.ev.id))unlinked.push(corr);
+  }
+  const rows=ctx.roster.map(student=>{
+    const saved=(byStudent.get(String(student.id))||[]).slice().sort((a,b)=>Number(String(b.evaluation_id)===String(ctx.ev.id))-Number(String(a.evaluation_id)===String(ctx.ev.id))||String(b.created_at||'').localeCompare(String(a.created_at||'')));
+    const corr=saved[0]||null;
+    const statuses=ctx.absences.filter(a=>String(a.eleve_id)===String(student.id)&&absenceMatches(a,ctx.ev,ctx.members,ctx.classe));
+    const status=ctx.absenceError?'':evaluationStudentStatus(statuses);
+    const closed=!corr&&(status==='absent'||status==='non_evalue');
+    const local=drafts.byStudent.get(String(student.id))||[];
+    return {student,corr,saved,status,closed,drafts:local,draft:local[0]||null,unknown:!corr&&!!ctx.absenceError,pending:!corr&&!closed&&!ctx.absenceError,conflict:!!corr&&statuses.length>0};
+  });
+  return {rows,unlinked,warning:drafts.warning};
+}
+function copiesBoardFilter(filter){
+  const ctx=copiesBoardState;if(!ctx)return;
+  ctx.filter=['todo','draft','done','closed','all'].includes(filter)?filter:'todo';saveEvalNav({copiesFilter:ctx.filter});copiesBoardRender();
+}
+function copiesBoardSearch(value){if(!copiesBoardState)return;copiesBoardState.search=String(value||'');saveEvalNav({copiesSearch:copiesBoardState.search});copiesBoardRenderRows();}
+function copiesBoardCounts(rows){return {todo:rows.filter(r=>r.pending).length,draft:rows.filter(r=>r.draft).length,done:rows.filter(r=>r.corr).length,closed:rows.filter(r=>r.closed).length,all:rows.length};}
+function copiesBoardRender(){
+  const ctx=copiesBoardState,host=document.getElementById('copiesBoard');if(!ctx||!host)return;
+  const report=copiesBoardRows(ctx);ctx.rows=report.rows;ctx.unlinked=report.unlinked;
+  const count=copiesBoardCounts(ctx.rows),labels={todo:'À traiter',draft:'Brouillons locaux',done:'Corrigées',closed:'Non évalués / absents',all:'Tous'};
+  host.innerHTML=`
+    ${ctx.absenceError?`<p class="copies-warning" role="alert">Statuts indisponibles : ${esc(ctx.absenceError)}. Le nombre de copies à traiter et de non-évalués n’est pas calculé. Réessaie avec Actualiser.</p>`:''}
+    ${report.warning?`<p class="copies-warning" role="alert">${esc(report.warning)}</p>`:''}
+    <div class="copies-progress">${count.done} copie(s) validée(s) · ${ctx.absenceError?'statuts à vérifier':count.closed+' situation(s) clôturée(s) sans note · '+count.todo+' à traiter'} · ${count.all} élève(s)</div>
+    <div class="copies-filters" role="group" aria-label="Filtrer les copies">${Object.entries(labels).map(([key,label])=>`<button type="button" class="${ctx.filter===key?'primary':''}" aria-pressed="${ctx.filter===key}" onclick="copiesBoardFilter('${key}')">${label} <span>${ctx.absenceError&&['todo','closed'].includes(key)?'—':count[key]}</span></button>`).join('')}</div>
+    <p class="small-note">« À traiter » inclut les brouillons sans copie validée et les rattrapages à prévoir. Un brouillon de modification peut aussi concerner une copie déjà corrigée. Les brouillons sont visibles uniquement dans ce navigateur, pour ce compte.</p>
+    <label for="copiesBoardSearch">Rechercher un élève</label><input id="copiesBoardSearch" type="search" value="${esc(ctx.search)}" oninput="copiesBoardSearch(this.value)" placeholder="Nom ou prénom">
+    <p id="copiesBoardResultCount" class="small-note" role="status"></p>
+    <div class="copies-table-wrap"><table class="mastery-table copies-table"><thead><tr><th scope="col">Élève</th><th scope="col">État</th><th scope="col">Sujet / note validée</th><th scope="col">Actions</th></tr></thead><tbody id="copiesBoardRows"></tbody></table></div>
+    ${ctx.unlinked.length?`<details class="copies-unlinked"><summary>${ctx.unlinked.length} ancienne(s) copie(s) sans rattachement certain à un élève — non comptées dans le tableau</summary>${ctx.unlinked.map(c=>correctionCard(ctx.ev,c)).join('')}</details>`:''}`;
+  copiesBoardRenderRows();
+}
+function copiesBoardRenderRows(){
+  const ctx=copiesBoardState,host=document.getElementById('copiesBoardRows');if(!ctx||!host)return;
+  const search=copiesBoardName(ctx.search);
+  const rows=ctx.rows.filter(r=>(!search||copiesBoardName(studentDisplayName(r.student)).includes(search))&&(ctx.filter==='all'||ctx.filter==='todo'&&(r.pending||r.unknown)||ctx.filter==='draft'&&r.draft||ctx.filter==='done'&&r.corr||ctx.filter==='closed'&&r.closed));
+  host.innerHTML=rows.map(r=>{
+    const st=r.student;
+    let state=r.corr?'Corrigée':r.status==='non_evalue'?'Non évalué — terminé':r.status==='absent'?'Absent — terminé':r.status==='rattrapage'?'Rattrapage à prévoir':r.unknown?'Statut à vérifier':r.draft?'Brouillon — non validé':'À corriger';
+    if(r.draft&&r.corr)state='Corrigée · modifications en brouillon';
+    if(r.draft&&r.closed)state+=' · brouillon local conservé';
+    const source=r.corr?ctx.members.find(e=>String(e.id)===String(r.corr.evaluation_id)):null;
+    const draftSource=r.draft?ctx.members.find(e=>String(e.id)===r.draft.evalId):null;
+    const raw=r.corr?.resultat?.note??r.corr?.resultat?.score;
+    const note=r.corr&&raw!==''&&raw!==null&&raw!==undefined&&Number.isFinite(Number(raw))?Number(raw).toLocaleString('fr-FR')+' / '+Number(source?.total||0).toLocaleString('fr-FR'):'—';
+    const sameSubject=source?String(source.id)===String(ctx.ev.id):true;
+    return `<tr data-copies-student="${esc(st.id)}"><td><strong>${esc(studentDisplayName(st))}</strong></td>
+      <td><span class="copies-state ${r.closed?'copies-closed':r.corr?'copies-done':r.draft?'copies-draft':'copies-todo'}">${esc(state)}</span>${r.conflict?'<p class="small-note copies-warning">Une copie existe : ancien statut à vérifier.</p>':''}${r.drafts.length>1?`<p class="small-note">${r.drafts.length} brouillons locaux ; le plus récent sera proposé.</p>`:''}</td>
+      <td>${esc(source?.titre||draftSource?.titre||ctx.ev.titre)}${!sameSubject?'<p class="small-note">Copie validée sur un autre sujet du même ensemble existant.</p>':''}<div>${esc(note)}</div></td>
+      <td><div class="copies-row-actions"><button type="button" class="primary" onclick="copiesBoardOpenStudent(${jsArg(st.id)})">${r.draft?'Reprendre le brouillon':r.corr?'Consulter / modifier':'Corriger'}</button>
+      ${r.corr&&r.draft?`<button type="button" onclick="editCorrection(${jsArg(r.corr.evaluation_id)},${jsArg(r.corr.id)})">Ouvrir la copie validée</button>`:''}
+      <button type="button" onclick="copiesBoardOpenStatus(${jsArg(st.id)})">${r.closed||r.status||r.conflict?'Modifier le statut':'Statut / non évalué'}</button>
+      ${r.corr&&String(r.corr.evaluation_id)===String(ctx.ev.id)?`<button type="button" class="danger" onclick="deleteCorrection(${jsArg(ctx.ev.id)},${jsArg(r.corr.id)},${jsArg(studentDisplayName(st))})">Supprimer la copie</button>`:''}</div></td></tr>`;
+  }).join('')||'<tr><td colspan="4">Aucun élève pour ce filtre et cette recherche.</td></tr>';
+  document.getElementById('copiesBoardResultCount').textContent=rows.length+' élève(s) affiché(s) sur '+ctx.roster.length+'.';
+}
+async function copiesBoardOpenStudent(studentId){
+  const ctx=copiesBoardState;if(!ctx||ctx.openBusy)return;
+  const row=ctx.rows.find(r=>String(r.student.id)===String(studentId));if(!row)return;
+  ctx.openBusy=true;
+  try{
+    if(row.draft){
+      const d=row.draft,raw=localStorage.getItem(d.key);if(!raw){await copiesBoardRefresh();alert('Ce brouillon n’est plus disponible. Le tableau a été actualisé.');return;}
+      if(d.incompleteGroup){alert('Ce brouillon de groupe contient un élève qui n’est plus dans cette classe. Il est conservé, mais ne peut pas être repris automatiquement depuis le tableau.');return;}
+      saveEvalNav({classe:ctx.classe});
+      if(d.groupIds.length){await renderCorrectionEditor(d.evalId,null,{eleve:d.groupIds.length+' élèves sélectionnés',eleve_id:'',resultat:{points:{},note:0,criteriaStats:{}}},d.groupIds);return;}
+      let query=sb.from('EvaluationCorrections').select('id,eleve,eleve_id,resultat').eq('evaluation_id',d.evalId);
+      query=d.legacyCorrectionId?query.eq('id',d.legacyCorrectionId):query.eq('eleve_id',row.student.id);
+      const q=await query.order('created_at',{ascending:false}).limit(1).maybeSingle();if(q.error)throw new Error(q.error.message);
+      await renderCorrectionEditor(d.evalId,q.data?.id||null,q.data||{eleve:d.nameTarget||studentDisplayName(row.student),eleve_id:d.nameTarget?'':row.student.id,resultat:{points:{},note:0,criteriaStats:{}}});return;
+    }
+    if(row.corr){await editCorrection(row.corr.evaluation_id,row.corr.id);return;}
+    if(row.closed||row.status==='rattrapage'){await copiesBoardOpenStatus(studentId);alert('Annule le statut existant avant d’enregistrer une correction. Aucune note n’a été créée.');return;}
+    const q=await sb.from('EvaluationCorrections').select('id,eleve,eleve_id,resultat').eq('evaluation_id',ctx.ev.id).eq('eleve_id',row.student.id).order('created_at',{ascending:false}).limit(1).maybeSingle();if(q.error)throw new Error(q.error.message);
+    await renderCorrectionEditor(ctx.ev.id,q.data?.id||null,q.data||{eleve:studentDisplayName(row.student),eleve_id:row.student.id,resultat:{points:{},note:0,criteriaStats:{}}});
+  }catch(e){alert('Ouverture impossible : '+e.message);}finally{ctx.openBusy=false;}
+}
+async function copiesBoardOpenStatus(studentId){
+  const ctx=copiesBoardState;if(!ctx)return;
+  await openEvaluationAbsences(ctx.ev.id,ctx.classe);
+  [...document.querySelectorAll('#absenceBody [data-absence-student]')].find(el=>String(el.dataset.absenceStudent)===String(studentId))?.scrollIntoView({block:'center'});
+}
+async function copiesBoardRefresh(){const ctx=copiesBoardState;if(ctx&&document.getElementById('copiesBoard'))await openCorrection(ctx.ev.id,ctx.classe);}
+window.addEventListener('storage',e=>{if(document.getElementById('copiesBoard')&&(!e.key||e.key.startsWith(localDraftPrefix())))copiesBoardRender();});
+
+async function openCorrection(id,classOverride=""){
+  if(!correctionAllowLeave())return;
+  const request=++copiesBoardRequest;let navigationCommitted=false;
+  try{
+    const q=await sb.from('Evaluations').select('*').eq('id',id).maybeSingle();if(q.error)throw new Error(q.error.message);if(!q.data)throw new Error('Évaluation introuvable.');
+    const ev=evalNormalize(q.data),previous=loadEvalNav(),classe=String(classOverride||previous.classe||ev.classe||'').trim();
+    if(!classe){alert('Sélectionne une classe.');return;}
+    const same=String(previous.evaluationId)===String(id)&&String(previous.classe)===classe;
+    evalRememberFromEvaluation(ev,'correction',{evaluationId:ev.id,classe,correctionId:null});navigationCommitted=true;
+    saveEvalNav({copiesFilter:same?(previous.copiesFilter||'todo'):'todo',copiesSearch:same?(previous.copiesSearch||''):''});
+    try{localStorage.setItem('EVAL_SELECTED_CLASS',classe);}catch(e){}
+    if(isHistoricalEvaluation(ev)){await openHistoricalCorrection(id,ev);return;}
+    content.innerHTML='<section class="hero"><p role="status">Chargement du tableau des copies…</p></section>';
+    await loadBanks();
+    const evaluations=await dashboardReadAll('Evaluations','id,titre,classe,total,criteres,exercices,created_at');
+    const members=evaluationScopeMembers(ev,evaluations,classe);if(!members.some(e=>String(e.id)===String(ev.id)))members.push(ev);
+    const [corrections,absenceResult,roster]=await Promise.all([
+      copiesBoardRead('EvaluationCorrections','id,evaluation_id,eleve,eleve_id,resultat,created_at',query=>query.in('evaluation_id',members.map(e=>e.id))),
+      copiesBoardRead(ABSENCE_TABLE,'*',query=>query.eq('classe',classe)).then(data=>({data,error:''})).catch(e=>({data:[],error:e.message})),
+      copiesBoardRead('Eleves','id,classe,nom,prenom',query=>query.eq('classe',classe))
+    ]);
+    if(request!==copiesBoardRequest||loadEvalNav().view!=='correction'||String(loadEvalNav().evaluationId)!==String(id)||String(loadEvalNav().classe)!==classe)return;
+    const assignedRoster=await filterRosterForAssignedSubject(ev,classe,roster,members);
+    studentsCache=[...studentsCache.filter(st=>String(st.classe||'').trim()!==classe),...roster];
+    const nav=loadEvalNav();copiesBoardState={ev,members,classe,roster:sortStudents(assignedRoster),corrections,absences:absenceResult.data,absenceError:absenceResult.error,filter:nav.copiesFilter||'todo',search:nav.copiesSearch||'',openBusy:false};
+    content.innerHTML=`<button type="button" onclick="evalReturnToList()">← Mes évaluations</button><section class="hero" style="margin-top:14px"><span class="eyebrow">${esc(classe)}</span><h2>📝 Copies · ${esc(ev.titre)}</h2><p class="muted">Tous les élèves de la classe, les copies validées, les situations clôturées et les brouillons de cet appareil.</p><div class="row copies-toolbar"><button type="button" class="primary" onclick="pickStudentForCorrection(${jsArg(ev.id)},${jsArg(classe)})">＋ Correction de groupe / choisir les élèves</button><button type="button" onclick="copiesBoardRefresh()">↻ Actualiser</button><button type="button" onclick="openIndicatorReport(${jsArg(ev.id)},${jsArg(classe)})">🎯 Bilan des indicateurs</button><button type="button" onclick="openEvaluationAbsences(${jsArg(ev.id)},${jsArg(classe)})">Absences / non évalués</button><button type="button" onclick="printAllCorrectionGrids(${jsArg(ev.id)})">📥 Grilles validées de ce sujet en PDF</button></div><div id="copiesBoard"></div></section>`;
+    copiesBoardRender();
+  }catch(e){if(request===copiesBoardRequest&&(!navigationCommitted||(loadEvalNav().view==='correction'&&String(loadEvalNav().evaluationId)===String(id))))showError(e.message);}
+}
+async function openHistoricalCorrection(evalId,evArg){
+  if(!correctionAllowLeave())return;
+  try{
+    const q=evArg?{data:evArg,error:null}:await sb.from("Evaluations").select("*").eq("id",evalId).maybeSingle();
+    if(q.error)throw new Error(q.error.message);
+    if(!q.data)throw new Error("Évaluation introuvable.");
+    const ev=evalNormalize(q.data),meta=historicalMeta(ev);
+    const correctionClass=String(loadEvalNav().classe||ev.classe||"").trim();
+    evalRememberFromEvaluation(ev,"correction",{evaluationId:ev.id,classe:correctionClass,correctionId:null});
+    try{localStorage.setItem("EVAL_SELECTED_CLASS",correctionClass);}catch(e){}
+    await loadBanks();
+    const targetClass=correctionClass;
+    const students=sortStudents(studentsCache.filter(s=>!targetClass||String(s.classe||"").trim()===targetClass));
+    if(!students.length){
+      alert(`Aucun élève enregistré dans la classe ${ev.classe||"de cette évaluation"}.\n\nAjoute-les dans « 👥 Élèves & compétences ».`);
+      return;
+    }
+    const corr=await sb.from("EvaluationCorrections").select("id,eleve,eleve_id,resultat").eq("evaluation_id",evalId);
+    if(corr.error)throw new Error(corr.error.message);
+    const byId=new Map((corr.data||[]).filter(x=>x.eleve_id).map(x=>[String(x.eleve_id),x]));
+    content.innerHTML=`<button onclick="evalReturnToList()">← Mes évaluations</button>
+      <section class="hero" style="margin-top:14px">
+        <span class="eyebrow">${esc(ev.classe||"Classe")} · Évaluation antérieure</span>
+        <h2>🕘 ${esc(ev.titre)}</h2>
+        <p class="muted">${meta.date?`Date : ${esc(meta.date)} · `:""}Compétence : ${esc(meta.competence||"Non renseignée")}</p>
+        <p class="small-note">Cette évaluation a été réalisée avant le nouveau système. On conserve uniquement les informations que tu connais, sans recréer artificiellement les anciens critères. <strong>Si tu ne renseignes pas de niveau de maîtrise, la compétence reste « non renseignée » : elle n'est pas considérée comme MI.</strong></p>
+        <div style="overflow:auto;margin-top:16px"><table class="mastery-table">
+          <thead><tr><th>Élève</th><th>Note</th><th>Maîtrise</th></tr></thead>
+          <tbody>${students.map(s=>{
+            const c=byId.get(String(s.id)),r=c?.resultat||{};
+            return `<tr>
+              <td><strong>${esc(studentDisplayName(s))}</strong></td>
+              <td><input id="histNote_${esc(s.id)}" type="number" min="0" step="0.1" value="${Number.isFinite(Number(r.note))?Number(r.note):""}" style="width:90px;padding:8px;border:1px solid var(--b);border-radius:8px"></td>
+              <td><select id="histMastery_${esc(s.id)}" style="padding:8px;border:1px solid var(--b);border-radius:8px">
+                <option value="">— Non renseigné</option>
+                <option value="TBM" ${r.masteryCode==="TBM"?"selected":""}>TBM — Très bonne maîtrise</option>
+                <option value="MS" ${r.masteryCode==="MS"?"selected":""}>MS — Maîtrise satisfaisante</option>
+                <option value="MF" ${r.masteryCode==="MF"?"selected":""}>MF — Maîtrise fragile</option>
+                <option value="MI" ${r.masteryCode==="MI"?"selected":""}>MI — Maîtrise insuffisante</option>
+              </select></td>
+            </tr>`;
+          }).join("")}</tbody>
+        </table></div>
+        <div class="row" style="margin-top:16px">
+          <button id="saveHistoricalBtn" class="primary" onclick="saveHistoricalResults('${esc(ev.id)}')">💾 Enregistrer les résultats</button>
+          <span id="historicalSaveStatus" class="status"></span>
+          <button type="button" onclick="evalReturnToList()">Annuler</button>
+        </div>
+      </section>`;
+  }catch(e){showError(e.message)}
+}
+async function saveHistoricalResults(evalId){
+  const btn=document.getElementById("saveHistoricalBtn");
+  const status=document.getElementById("historicalSaveStatus");
+  try{
+    if(btn){btn.disabled=true;btn.textContent="⏳ Enregistrement…";}
+    if(status)status.textContent="";
+    const ev=evaluationsCache.find(x=>String(x.id)===String(evalId))||null;
+    const q=ev?{data:ev,error:null}:await sb.from("Evaluations").select("*").eq("id",evalId).maybeSingle();
+    if(q.error)throw new Error(q.error.message);
+    if(!q.data)throw new Error("Évaluation introuvable.");
+    const e=evalNormalize(q.data);
+    await loadBanks();
+    const students=studentsCache.filter(s=>!e.classe||s.classe===e.classe);
+    const existing=await sb.from("EvaluationCorrections").select("id,eleve,eleve_id,resultat").eq("evaluation_id",evalId);
+    if(existing.error)throw new Error(existing.error.message);
+    const byId=new Map((existing.data||[]).filter(x=>x.eleve_id).map(x=>[String(x.eleve_id),x]));
+    let savedCount=0;
+    for(const s of students){
+      const noteEl=document.getElementById(`histNote_${s.id}`);
+      const masteryEl=document.getElementById(`histMastery_${s.id}`);
+      const noteRaw=noteEl?.value??"";
+      const masteryCode=masteryEl?.value||"";
+      if(noteRaw==="" && !masteryCode)continue;
+      const payload={
+        evaluation_id:evalId,
+        eleve:s.nom,
+        eleve_id:s.id,
+        resultat:{
+          ...(byId.get(String(s.id))?.resultat||{}),
+          historique:true,
+          note:Number(noteRaw||0),
+          points:{},
+          criteriaStats:{},
+          masteryCode
+        }
+      };
+      const old=byId.get(String(s.id));
+      const r=old
+        ? await sb.from("EvaluationCorrections").update(payload).eq("id",old.id)
+        : await sb.from("EvaluationCorrections").insert(payload);
+      if(r.error)throw new Error(`${s.nom} : ${r.error.message}`);
+      savedCount++;
+    }
+    if(status){
+      status.textContent=`✓ ${savedCount} résultat(s) enregistré(s) dans Supabase`;
+      status.style.color="var(--ok,#1b7f4b)";
+    }
+    if(btn){btn.disabled=false;btn.textContent="💾 Enregistrer les résultats";}
+  }catch(e){
+    if(status){
+      status.textContent="⚠️ Enregistrement impossible : "+e.message;
+      status.style.color="var(--danger,#b42318)";
+    }
+    if(btn){btn.disabled=false;btn.textContent="💾 Enregistrer les résultats";}
+  }
+}
+function correctionCard(ev,c){
+  const r=c.resultat||{};return `<article class="eval-card"><div class="entry-head"><div><h3>👤 ${esc(c.eleve||"Élève")}</h3><span class="score-pill">${Number(r.note||0)} / ${Number(ev.total||0)}</span></div><div class="row" style="margin:0"><button class="primary" onclick="editCorrection('${esc(ev.id)}','${esc(c.id)}')">Ouvrir</button><button type="button" class="danger" onclick="deleteCorrection(${jsArg(ev.id)},${jsArg(c.id)},${jsArg(c.eleve||"Élève")})">🗑️ Supprimer</button></div></div></article>`;
+}
+async function deleteCorrection(evalId,correctionId,eleve){
+  if(!confirm(`Supprimer la correction de « ${eleve||"Élève"} » ?\n\nCette copie corrigée sera définitivement supprimée.`))return;
+  try{
+    const {error}=await sb.from("EvaluationCorrections").delete().eq("id",correctionId);
+    if(error)throw new Error(error.message);
+    await openCorrection(evalId);
+  }catch(e){
+    alert("Suppression impossible : "+e.message);
+  }
+}
+function studentDisplayName(s){
+  const nom=String(s?.nom||"").trim();
+  const prenom=String(s?.prenom||"").trim();
+  return `${nom} ${prenom}`.trim() || String(s?.name||"Élève").trim();
+}
+function sortStudents(list){
+  return [...list].sort((a,b)=>{
+    const nomA=String(a?.nom||"").trim();
+    const nomB=String(b?.nom||"").trim();
+    const c=nomA.localeCompare(nomB,"fr",{numeric:true,sensitivity:"base"});
+    if(c!==0)return c;
+    return String(a?.prenom||"").trim().localeCompare(String(b?.prenom||"").trim(),"fr",{numeric:true,sensitivity:"base"});
+  });
+}
+async function loadBanks(){
+  const [st,co]=await Promise.all([
+    sb.from("Eleves").select("id,classe,nom,prenom,created_at").order("classe").order("nom").order("prenom"),
+    sb.from("ProfessorCompetencies").select("*").order("niveau").order("nom")
+  ]);
+  if(st.error)throw new Error(st.error.message);
+  if(co.error)throw new Error(co.error.message);
+  studentsCache=st.data||[];competenciesCache=co.data||[];
+}
+async function openBanks(){
+  if(!correctionAllowLeave())return;
+  saveEvalNav({view:"banks"});
+  try{
+    await loadBanks();
+    content.innerHTML=`<button type="button" onclick="home()">← Accueil</button>
+      <section class="hero" style="margin-top:14px"><span class="eyebrow">Banques</span><h2>👥 Élèves & compétences</h2><p class="muted">Ces banques servent à sélectionner rapidement les élèves et les compétences dans les évaluations. Elles alimentent aussi le suivi.</p></section>
+      <div class="bank-grid">
+        <section class="hero"><div class="entry-head"><div><h3>👥 Banque d'élèves</h3><p class="small-note">Un élève est enregistré dans une classe.</p></div><button class="primary" onclick="addStudent()">＋ Élève</button></div>
+          <div class="bank-list" id="studentBankList">${renderStudentBank()}</div></section>
+        <section class="hero"><div class="entry-head"><div><h3>🎯 Banque de compétences</h3><p class="small-note">Chaque compétence dispose d’une grille de départ. Construis et enregistre ton modèle pour le réutiliser dans les évaluations.</p></div><button class="primary" onclick="addCompetency()">＋ Compétence</button></div>
+          <div class="bank-list" id="competencyBankList">${renderCompetencyBank()}</div></section>
+      </div>`;
+  }catch(e){showError(e.message)}
+}
+function renderStudentBank(){
+  const groups={};
+  studentsCache.forEach(s=>(groups[s.classe]??=[]).push(s));
+  const classes=Object.keys(groups).sort((a,b)=>a.localeCompare(b,"fr",{numeric:true}));
+  if(!classes.length)return `<p class="muted">Aucun élève enregistré.</p>`;
+  return classes.map(cls=>{
+    const students=sortStudents(groups[cls]);
+    return `<div class="criteria-box"><strong>${esc(cls)}</strong>${students.map(s=>`<div class="bank-item"><div class="bank-item-main"><strong>${esc(studentDisplayName(s))}</strong></div><div class="bank-actions"><button onclick="editStudent('${esc(s.id)}')">✏️</button><button class="danger" onclick="deleteStudent(${jsArg(s.id)},${jsArg(studentDisplayName(s))})">🗑️</button></div></div>`).join("")}</div>`;
+  }).join("");
+}
+function renderCompetencyBank(){
+  const groups={};competenciesCache.forEach(c=>(groups[c.niveau||"Tous niveaux"]??=[]).push(c));
+  const levels=Object.keys(groups).sort((a,b)=>a.localeCompare(b,"fr"));
+  if(!levels.length)return `<p class="muted">Aucune compétence enregistrée.</p>`;
+  return levels.map(level=>`<div class="criteria-box"><strong>${esc(level)}</strong>${groups[level].map(c=>`<div class="bank-item"><div class="bank-item-main"><strong>${esc(c.nom)}</strong></div><div class="bank-actions"><button type="button" onclick="openCompetencyGrid(${jsArg(c.id)})">📋 ${competencyGridIsSaved(c)?"Modifier le modèle":"Construire la grille"}</button><button onclick="editCompetency('${esc(c.id)}')">✏️</button><button class="danger" onclick="deleteCompetency(${jsArg(c.id)},${jsArg(c.nom)})">🗑️</button></div></div>`).join("")}</div>`).join("");
+}
+async function addStudent(existing){
+  const nom=prompt("Nom de famille de l'élève :",existing?.nom||"");if(nom===null||!nom.trim())return;
+  const prenom=prompt("Prénom de l'élève :",existing?.prenom||"");if(prenom===null||!prenom.trim())return;
+  const classePrompt=prompt(`Classe (ex. ${Object.values(CLASSES).flat().join(", ")}) :`,existing?.classe||"");if(classePrompt===null||!classePrompt.trim())return;
+  const classeValue=classePrompt.trim();
+  const allowedClasses=new Set(Object.values(CLASSES).flat());
+  if(!allowedClasses.has(classeValue)){alert(`Classe inconnue : « ${classeValue} ».\n\nUtilise une des classes prévues : ${[...allowedClasses].join(", ")}.`);return;}
+  const payload={nom:nom.trim(),prenom:prenom.trim(),classe:classeValue};
+  const q=existing?await sb.from("Eleves").update(payload).eq("id",existing.id):await sb.from("Eleves").insert(payload);
+  if(q.error){alert("Enregistrement impossible : "+q.error.message);return} await openBanks();
+}
+async function editStudent(id){const s=studentsCache.find(x=>String(x.id)===String(id));if(s)await addStudent(s)}
+async function deleteStudent(id,nom){if(!confirm(`Retirer « ${nom} » de la banque d'élèves ?\n\nLes anciennes corrections seront conservées.`))return;const q=await sb.from("Eleves").delete().eq("id",id);if(q.error){alert("Suppression impossible : "+q.error.message);return}await openBanks()}
+async function addCompetency(existing){
+  const nom=prompt("Nom de la compétence :",existing?.nom||"");if(nom===null||!nom.trim())return;
+  const niveau=prompt("Niveau (ex. 6e, 5e, 4e, 3e ou Tous niveaux) :",existing?.niveau||"Tous niveaux");if(niveau===null||!niveau.trim())return;
+  const payload={nom:nom.trim(),niveau:niveau.trim()};
+  const q=existing?await sb.from("ProfessorCompetencies").update(payload).eq("id",existing.id):await sb.from("ProfessorCompetencies").insert(payload);
+  if(q.error){alert("Enregistrement impossible : "+q.error.message);return}await openBanks();
+}
+async function editCompetency(id){const c=competenciesCache.find(x=>String(x.id)===String(id));if(c)await addCompetency(c)}
+async function deleteCompetency(id,nom){if(!confirm(`Supprimer la compétence « ${nom} » de la banque ?\n\nElle ne sera pas supprimée des évaluations existantes.`))return;const q=await sb.from("ProfessorCompetencies").delete().eq("id",id);if(q.error){alert("Suppression impossible : "+q.error.message);return}await openBanks()}
+async function pickStudentForCorrection(evalId, selectedClass){
+  try{
+    await loadBanks();
+    const ev=evalNormalize((evaluationsCache.find(x=>String(x.id)===String(evalId)))||{});
+    const classes=[...new Set(studentsCache.map(s=>String(s.classe||"").trim()).filter(Boolean))]
+      .sort((a,b)=>a.localeCompare(b,"fr",{numeric:true,sensitivity:"base"}));
+    const currentClass=selectedClass!==undefined?String(selectedClass).trim():String(loadEvalNav().classe||ev.classe||"").trim();
+    if(currentClass){
+  saveEvalNav({classe:currentClass});
+  try{
+    localStorage.setItem("EVAL_SELECTED_CLASS",currentClass);
+  }catch(e){}
+}
+    const students=currentClass?sortStudents(studentsCache.filter(s=>String(s.classe||"").trim()===currentClass)):[];
+    const existing=await sb.from("EvaluationCorrections").select("id,eleve,eleve_id,resultat").eq("evaluation_id",evalId);
+    if(existing.error)throw new Error(existing.error.message);
+    const byId=new Map((existing.data||[]).filter(x=>x.eleve_id).map(x=>[String(x.eleve_id),x]));
+    content.innerHTML=`<button onclick="openCorrection('${esc(evalId)}')">← Retour aux copies</button>
+      <section class="hero" style="margin-top:14px">
+        <span class="eyebrow">${esc(ev.classe||"Correction")}</span>
+        <h2>👥 Choisir les élèves à corriger</h2>
+        <p class="muted">Choisis d'abord une classe. Seuls les élèves de cette classe sont affichés. Les élèves sont classés par nom de famille.</p>
+        <div class="editbox" style="margin-top:14px">
+          <label for="correctionClass"><strong>Classe à corriger</strong></label>
+          <select id="correctionClass" onchange="pickStudentForCorrection('${esc(evalId)}',this.value)" style="width:100%;margin-top:6px">
+            <option value="">— Sélectionner une classe —</option>
+            ${classes.map(c=>`<option value="${esc(c)}" ${c===currentClass?"selected":""}>${esc(c)}</option>`).join("")}
+          </select>
+        </div>
+        ${currentClass?`<div class="row" style="margin:12px 0">
+          <button type="button" onclick="toggleAllCorrectionStudents(true)">☑️ Tout sélectionner</button>
+          <button type="button" onclick="toggleAllCorrectionStudents(false)">☐ Tout désélectionner</button>
+          <button type="button" class="primary" onclick="startSelectedStudentsCorrection('${esc(evalId)}')">👥 Corriger le groupe sélectionné</button>
+          <span id="correctionSelectionCount" class="status">0 élève sélectionné</span>
+        </div>
+        <div class="student-picker-grid">
+          ${students.map(s=>{const c=byId.get(String(s.id));return `<div class="student-choice" style="position:relative;box-sizing:border-box;min-width:0;">
+            <label style="display:block;cursor:pointer;padding-right:8px;min-width:0">
+              <input type="checkbox" class="correction-student-check" value="${esc(s.id)}" onchange="updateCorrectionSelectionCount()" style="margin-right:8px">
+              <strong style="display:block;white-space:normal;overflow-wrap:anywhere;line-height:1.25">👤 ${esc(studentDisplayName(s))}</strong>
+            </label>
+            <span class="small-note" style="display:block;margin-top:4px">${c?`Correction enregistrée · ${Number(c.resultat?.note||0)} / ${Number(ev.total||0)}`:`Nouvelle correction`}</span>
+            <button type="button" style="margin-top:8px" onclick="${c?`editCorrection('${esc(evalId)}','${esc(c.id)}')`:`startBankStudentCorrection('${esc(evalId)}','${esc(s.id)}')`}">${c?"Ouvrir la correction":"Corriger seul"}</button>
+          </div>`}).join("")}
+        </div>`:`<p class="muted" style="margin-top:14px">Sélectionne une classe pour afficher ses élèves.</p>`}
+      </section>`;
+    updateCorrectionSelectionCount();
+  }catch(e){alert("Impossible de charger les élèves : "+e.message)}
+}
+function updateCorrectionSelectionCount(){
+  const n=document.querySelectorAll('.correction-student-check:checked').length;
+  const el=document.getElementById('correctionSelectionCount');
+  if(el)el.textContent=`${n} élève${n>1?'s':''} sélectionné${n>1?'s':''}`;
+}
+function toggleAllCorrectionStudents(value){
+  document.querySelectorAll('.correction-student-check').forEach(cb=>cb.checked=value);
+  updateCorrectionSelectionCount();
+}
+async function startBankStudentCorrection(evalId,studentId){
+  const s=studentsCache.find(x=>String(x.id)===String(studentId));
+  if(!s)return;
+  await renderCorrectionEditor(evalId,null,{eleve:studentDisplayName(s),eleve_id:s.id,resultat:{points:{},note:0,criteriaStats:{}}});
+}
+async function startSelectedStudentsCorrection(evalId){
+  const ids=[...document.querySelectorAll('.correction-student-check:checked')].map(x=>String(x.value));
+  if(!ids.length){alert("Sélectionne au moins un élève.");return;}
+  const students=sortStudents(studentsCache.filter(s=>ids.includes(String(s.id))));
+  if(students.length===1){
+    const s=students[0];
+    const q=await sb.from("EvaluationCorrections").select("id,eleve,eleve_id,resultat").eq("evaluation_id",evalId).eq("eleve_id",s.id).maybeSingle();
+    if(q.error){alert("Impossible de vérifier la correction : "+q.error.message);return;}
+    if(q.data){await editCorrection(evalId,q.data.id);return;}
+    await renderCorrectionEditor(evalId,null,{eleve:studentDisplayName(s),eleve_id:s.id,resultat:{points:{},note:0,criteriaStats:{}}});
+    return;
+  }
+  await renderCorrectionEditor(evalId,null,{eleve:`${students.length} élèves sélectionnés`,eleve_id:"",resultat:{points:{},note:0,criteriaStats:{}}},ids);
+}
+async function editCorrection(evalId,correctionId){
+  const {data,error}=await sb.from("EvaluationCorrections").select("id,eleve,eleve_id,resultat").eq("id",correctionId).maybeSingle();
+  if(error)throw new Error(error.message);
+  await renderCorrectionEditor(evalId,correctionId,data);
+}
+/* Correction : état de sauvegarde et protection des saisies */
+let correctionSession=null;
+function correctionFingerprint(){
+  return JSON.stringify({checks:[...document.querySelectorAll('.correction-check')].map(x=>[x.dataset.key,!!x.checked])});
+}
+function correctionDirty(){return !!correctionSession && correctionFingerprint()!==correctionSession.baseline;}
+function correctionStatus(message,error=false){
+  const el=document.getElementById('correctionSaveStatus');
+  if(el){el.textContent=message;el.style.color=error?'#9d3030':'#286456';}
+}
+function correctionRefreshStatus(){
+  if(!correctionSession || window.__savingCorrection)return;
+  correctionStatus(correctionDirty()?'Modifications non enregistrées':(correctionSession.saved?'Enregistré':'Nouvelle correction — non enregistrée'));
+}
+function correctionBegin(evalId,correctionId,corr,classe,groupIds){
+  correctionSession={evalId,correctionId:correctionId||null,eleve:corr.eleve||'',eleveId:corr.eleve_id||'',classe,groupIds:[...(groupIds||[])],saved:!!correctionId,baseline:correctionFingerprint()};
+  saveEvalNav({view:'studentCorrection',evaluationId:evalId,correctionId:correctionId||null,eleve:correctionSession.eleve,eleveId:correctionSession.eleveId,groupIds:correctionSession.groupIds,classe});
+  correctionRefreshStatus();
+  localDraftBeginCorrection();
+}
+function correctionAllowLeave(){
+  if(window.__savingEvaluation){alert('Enregistrement de l’évaluation en cours. Attends sa fin avant de quitter.');return false;}
+  if(!correctionSession){
+    const s=localDraftSession;
+    if(s?.root.isConnected&&JSON.stringify(localDraftCapture())!==s.base&&!localDraftFlush()&&!confirm('Les dernières modifications ne sont pas protégées par un brouillon local. Quitter quand même ?'))return false;
+    localDraftStop(true);return true;
+  }
+  if(window.__savingCorrection){alert("Enregistrement en cours. Attends sa fin avant de quitter la correction.");return false;}
+  if(correctionDirty() && !confirm("Des modifications ne sont pas validées dans Supabase. Quitter cette correction ? Le brouillon local, s’il a pu être sauvegardé, restera disponible."))return false;
+  localDraftStop(true);
+  correctionSession=null;
+  return true;
+}
+function correctionSetBusy(busy){
+  document.querySelectorAll('.correction-check,#correctionSaveControls button').forEach(el=>{
+    if(busy){el.dataset.correctionWasDisabled=el.disabled?'1':'0';el.disabled=true;}
+    else{el.disabled=el.dataset.correctionWasDisabled==='1';delete el.dataset.correctionWasDisabled;}
+  });
+}
+async function saveActiveCorrection(next=false){
+  if(!correctionSession)return;
+  const c=correctionSession;
+  return saveCorrection(c.evalId,c.correctionId,c.eleve,c.eleveId,next);
+}
+async function correctionOpenNext(ctx){
+  try{
+    const q=await sb.from('Eleves').select('id,classe,nom,prenom').eq('classe',ctx.classe).order('nom').order('prenom');
+    if(q.error)throw new Error(q.error.message);
+    const students=sortStudents(q.data||[]);
+    const index=students.findIndex(x=>String(x.id)===String(ctx.eleveId));
+    if(index<0)throw new Error("L'élève actuel n'est pas retrouvé dans la classe sélectionnée.");
+    const next=students[index+1];
+    if(!next){correctionStatus('Enregistré — dernier élève de la classe.');alert('Correction enregistrée. Tu as atteint le dernier élève de la classe.');return;}
+    const cq=await sb.from('EvaluationCorrections').select('id,eleve,eleve_id,resultat').eq('evaluation_id',ctx.evalId).eq('eleve_id',next.id).maybeSingle();
+    if(cq.error)throw new Error(cq.error.message);
+    const corr=cq.data||{eleve:studentDisplayName(next),eleve_id:next.id,resultat:{points:{},note:0,criteriaStats:{}}};
+    await renderCorrectionEditor(ctx.evalId,cq.data?.id||null,corr);
+  }catch(e){correctionStatus('Enregistré — ouverture de la copie suivante impossible : '+e.message,true);}
+}
+document.addEventListener('input',e=>{if(e.target.matches('.correction-check'))correctionRefreshStatus();});
+document.addEventListener('change',e=>{if(e.target.matches('.correction-check'))correctionRefreshStatus();});
+window.addEventListener('beforeunload',e=>{if(correctionSession && (window.__savingCorrection||correctionDirty())){e.preventDefault();e.returnValue='';}});
+async function renderCorrectionEditor(evalId,correctionId,corr,groupIds=[]){
+  if(!correctionAllowLeave())return;
+  currentCorrectionGroupIds=groupIds||[];
+  const {data,error}=await sb.from("Evaluations").select("*").eq("id",evalId).maybeSingle();
+  if(error)throw new Error(error.message); if(!data)throw new Error("Évaluation introuvable.");
+  const ev=evalNormalize(data); currentCorrectionEvaluation=ev;
+  const correctionClass=String(loadEvalNav().classe||ev.classe||"").trim();
+  evalRememberFromEvaluation(ev,"studentCorrection",{evaluationId:ev.id,correctionId:correctionId||null,classe:loadEvalNav().classe||ev.classe});
+  const result=corr.resultat||{
+  points:{},
+  note:0,
+  criteriaStats:{}
+};
+const crits=criteriaFromLegacy(ev);
+const groups={};
+/*
+ * Nouvelle structure :
+ * une question = un bloc de correction.
+ * Même si deux questions évaluent la même compétence,
+ * elles restent séparées ici.
+ */
+crits.forEach((c,i)=>{
+  const questionId=String(
+    c.questionId ||
+    c.questionNumero ||
+    `q${i+1}`
+  );
+  if(!groups[questionId]){
+    groups[questionId]={
+      id:questionId,
+      questionNumero:Number(c.questionNumero||i+1),
+      nom:c.competenceNom||"Compétence évaluée",
+      criteres:[]
+    };
+  }
+  groups[questionId].criteres.push(c);
+});
+const comps=Object.values(groups).sort(
+  (a,b)=>a.questionNumero-b.questionNumero
+);
+const savedValidated=result.criteriaStats||{};
+  content.innerHTML=`<button onclick="openCorrection('${esc(evalId)}')">← Retour aux copies</button>
+  <section class="hero teacher" style="margin-top:14px">
+<h2 style="margin:0 0 8px">${esc(corr.eleve||"Élève")}</h2><span class="eyebrow">${esc(correctionClass||"Classe")}</span><p id="correctionSaveStatus" role="status" aria-live="polite" style="margin:8px 0;font-weight:700"></p>    <div class="row"><span class="score-pill" id="liveScore">0 / ${Number(ev.total||0)}</span><span id="livePercent" class="status"></span></div>
+    <div id="correctionCriteria">${comps.map((comp,co)=>`<div class="eval-card"><h3>📝 Question ${comp.questionNumero} — ${esc(comp.nom)}</h3>${comp.criteres.map((cr,ci)=>`<div class="criteria-box"><h4 style="margin:0 0 8px">Critère ${ci+1} — ${esc(cr.nom)}</h4><div class="criterion-auto-status" data-criterion-status="${esc(cr.id)}"><span class="small-note">Validation automatique : au moins 2/3 des indicateurs cochés (≥ 66,7 %).</span></div>${(cr.indicateurs||[]).map((it,ii)=>{const key=`${cr.id}_${ii}`,checked=!!result.points?.[key]||!!result.points?.[`${cr.id}_${ii}`];return `<div class="check-row"><label><input type="checkbox" class="correction-check" data-key="${key}" data-points="${Number(it.points||0)}" data-criterion="${esc(cr.id)}" ${checked?"checked":""} onchange="refreshCorrectionScore('${esc(ev.id)}')"> ${esc(it.nom)}</label><span class="small-note">${Number(it.points||0)} pt</span></div>`}).join("")||`<p class="muted">Aucun indicateur pour ce critère.</p>`}</div>`).join("")}</div>`).join("")}</div>
+    
+    <div id="masteryPreview"></div>
+    <div class="row" id="correctionSaveControls">
+      <button type="button" class="primary" onclick="saveActiveCorrection(false)">💾 Enregistrer la correction</button>
+      ${(!groupIds.length || groupIds.length===1) && corr.eleve_id ? '<button type="button" class="primary" onclick="saveActiveCorrection(true)">💾 Enregistrer et suivant →</button>' : ''}
+      <button type="button" onclick="generateCorrectionPDF('${esc(evalId)}')">📥 Exporter cette grille en PDF</button>
+      <button type="button" onclick="printAllCorrectionGrids('${esc(evalId)}')">📥 Exporter toutes les grilles de la classe en PDF</button>
+    </div>
+    <p class="small-note">« Enregistrer » sauvegarde la correction puis revient automatiquement à la liste des copies de cette évaluation. En cas d’échec, la copie reste à l’écran. « Enregistrer et suivant » ouvre l'élève suivant de la classe, dans l'ordre alphabétique, y compris si sa correction existe déjà.</p>
+  </section>`;
+  refreshCorrectionScore(ev.id);
+  correctionBegin(evalId,correctionId,corr,correctionClass,groupIds);
+}
+function getMasteryByCode(code){
+  const map={
+    TBM:{code:"TBM",label:"Très bonne maîtrise",cls:"tbm"},
+    MS:{code:"MS",label:"Maîtrise satisfaisante",cls:"ms"},
+    MF:{code:"MF",label:"Maîtrise fragile",cls:"mf"},
+    MI:{code:"MI",label:"Maîtrise insuffisante",cls:"mi"}
+  };
+  return map[code]||null;
+}
+function computeCorrection(ev){
+  const checks=[...document.querySelectorAll(".correction-check")];
+  let score=0;const points={};const criteriaStats={};
+  checks.forEach(ch=>{
+    const key=ch.dataset.key,p=Number(ch.dataset.points||0),cid=ch.dataset.criterion;
+    if(ch.checked){score+=p;points[key]=true}
+    if(cid){
+      if(!criteriaStats[cid])criteriaStats[cid]={got:0,total:0,checked:0,validated:false};
+      criteriaStats[cid].count=(criteriaStats[cid].count||0)+1;
+      if(ch.checked){criteriaStats[cid].checked+=1;criteriaStats[cid].got+=p;}
+    }
+  });
+  Object.values(criteriaStats).forEach(st=>{
+    st.percent=st.count?Math.round(st.checked/st.count*100):0;
+    // Rule: a criterion is validated when at least 2/3 of its indicators are checked.
+    st.validated=st.count>0 && (st.checked/st.count)>=(2/3);
+  });
+  return {score,points,criteriaStats};
+}
+function refreshCorrectionScore(evalId){
+  const ev=currentCorrectionEvaluation;
+  if(!ev)return;
+  const c=computeCorrection(ev),total=Number(ev.total||0),pct=total?Math.round(c.score/total*100):0;
+  const score=document.getElementById("liveScore");if(score)score.textContent=`${c.score} / ${total}`;
+  const p=document.getElementById("livePercent");if(p)p.textContent=`${pct}% du barème`;
+  const crits=criteriaFromLegacy(ev), groups={};
+  crits.forEach(cr=>{const gid=cr.competenceId||"comp1";if(!groups[gid])groups[gid]={nom:cr.competenceNom||"Compétence évaluée",criteres:[]};groups[gid].criteres.push(cr)});
+  const compRows=Object.values(groups).map(comp=>{
+  const result=masteryForCompetencyQuestions(
+    comp.criteres,
+    c.criteriaStats
+  );
+  const mastery=result.mastery;
+  const detail=result.occurrences
+    .map(q=>`Q${q.questionNumero} : ${q.validated} / ${q.total} → ${q.mastery.code}`)
+    .join(" · ");
+  return `<tr>
+    <td>
+      <strong>${esc(comp.nom)}</strong>
+      <div class="small-note">${detail}</div>
+    </td>
+    <td>${result.average!==null
+      ?result.average.toFixed(2).replace(".",",")
+      :"—"}</td>
+    <td>
+      ${mastery
+        ?`<span class="mastery-result ${mastery.cls}">${mastery.code} — ${mastery.label}</span>`
+        :"—"}
+    </td>
+  </tr>`;
+}).join("");
+  const box=document.getElementById("masteryPreview");
+  if(box)box.innerHTML=`<div class="criteria-box"><strong>📊 Maîtrise par compétence</strong><p class="small-note">La maîtrise est calculée séparément pour chaque compétence, selon le nombre de critères validés.</p><table class="mastery-table"><thead><tr><th>Compétence</th><th>Critères validés</th><th>Maîtrise</th></tr></thead><tbody>${compRows}</tbody></table></div>`;
+  document.querySelectorAll(".criterion-auto-status").forEach(el=>{
+    const cid=el.dataset.criterionStatus;
+    const st=c.criteriaStats[cid]||{checked:0,count:0,percent:0,validated:false};
+    el.innerHTML=st.count
+      ? `<span class="small-note">${st.checked} / ${st.count} indicateur(s) coché(s) — ${st.percent}%</span> <strong>${st.validated?"✅ Critère validé":"❌ Critère non validé"}</strong>`
+      : `<span class="small-note">Aucun indicateur</span>`;
+  });
+}
+async function generateEvaluationSummaryPDF(evalId){
+  try{
+    const ev=await getEvaluationById(evalId);
+    if(!ev){
+      alert("Évaluation introuvable.");
+      return;
+    }
+    /*
+     * Le récapitulatif est construit à partir :
+     * - de la classe actuellement sélectionnée ;
+     * - du chapitre de l'évaluation ;
+     * - des évaluations de chapitre du même chapitre.
+     *
+     * Les activités restent volontairement exclues.
+     */
+    const nav=loadEvalNav();
+    const selectedClass=String(
+      nav.classe ||
+      localStorage.getItem("EVAL_SELECTED_CLASS") ||
+      ev.classe ||
+      ""
+    ).trim();
+    if(!selectedClass){
+      alert("Sélectionne d'abord une classe.");
+      return;
+    }
+    const chapitre=Number(ev.chapitre||0);
+    if(!chapitre){
+      alert(
+        "Cette évaluation n'a pas de numéro de chapitre. " +
+        "Impossible de construire le récapitulatif du chapitre."
+      );
+      return;
+    }
+    /*
+     * Toutes les évaluations correspondant :
+     * - à la classe ;
+     * - au même chapitre ;
+     * - au type Évaluation de chapitre.
+     */
+    // Le récapitulatif regroupe les sujets de même type,
+    // pour la classe et le chapitre concernés.
+    // Les activités et les évaluations restent distinctes.
+    const typeCible=String(
+      ev.typeEvaluation || "evaluation"
+    );
+    const chapterEvaluations=evaluationsCache
+      .filter(e=>{
+        const classes=Array.isArray(e.assignedClasses)
+          ?e.assignedClasses
+          :String(e.classe||"")
+            .split(",")
+            .map(x=>x.trim())
+            .filter(Boolean);
+        return classes.includes(selectedClass)
+          && Number(e.chapitre||0)===chapitre
+          && String(e.typeEvaluation||"evaluation")===typeCible;
+      })
+      .sort((a,b)=>{
+        return String(a.titre||"")
+          .localeCompare(
+            String(b.titre||""),
+            "fr",
+            {numeric:true,sensitivity:"base"}
+          );
+      });
+    if(!chapterEvaluations.length){
+      alert(
+        `Aucun sujet du même type trouvé pour ${selectedClass}, chapitre ${chapitre}.`
+      );
+      return;
+    }
+    const escPrint=v=>String(v??"")
+      .replace(/[&<>]/g,m=>({
+        "&":"&amp;",
+        "<":"&lt;",
+        ">":"&gt;"
+      }[m]));
+    const normalizeName=v=>String(v??"")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g,"")
+      .toLocaleLowerCase("fr")
+      .replace(/[^a-z0-9]+/g," ")
+      .trim();
+    /*
+     * ---------------------------------------------------------
+     * 1. Récupération des élèves de la classe
+     * ---------------------------------------------------------
+     */
+    const elevesQ=await sb.from("Eleves")
+      .select("id,classe,nom,prenom")
+      .eq("classe",selectedClass)
+      .order("nom")
+      .order("prenom");
+    if(elevesQ.error){
+      throw new Error(elevesQ.error.message);
+    }
+    const students=(elevesQ.data||[]).map(s=>({
+      id:String(s.id),
+      name:studentDisplayName(s),
+      sortKey:normalizeName(
+        `${s.nom||""} ${s.prenom||""}`
+      )
+    }));
+    /*
+     * ---------------------------------------------------------
+     * 2. Récupération des corrections de TOUS les sujets
+     * ---------------------------------------------------------
+     */
+    const correctionsByEvaluation=new Map();
+    for(const evaluation of chapterEvaluations){
+      const q=await sb.from("EvaluationCorrections")
+        .select("id,eleve,eleve_id,resultat")
+        .eq("evaluation_id",evaluation.id);
+      if(q.error){
+        throw new Error(q.error.message);
+      }
+      correctionsByEvaluation.set(
+        String(evaluation.id),
+        q.data||[]
+      );
+    }
+    /*
+     * ---------------------------------------------------------
+     * 3. Construction des compétences du chapitre
+     * ---------------------------------------------------------
+     *
+     * Une même compétence peut apparaître :
+     * - dans plusieurs questions ;
+     * - dans plusieurs sujets.
+     *
+     * Elle n'apparaîtra donc qu'une seule fois dans le PDF.
+     */
+    const competencyMap=new Map();
+    chapterEvaluations.forEach(evaluation=>{
+      const crits=criteriaFromLegacy(evaluation);
+      crits.forEach((cr,i)=>{
+        const nom=String(
+          cr.competenceNom ||
+          "Compétence évaluée"
+        ).trim();
+        const key=normalizeName(nom)||`competence-${i}`;
+        if(!competencyMap.has(key)){
+          competencyMap.set(key,{
+            nom,
+            evaluations:[]
+          });
+        }
+        const group=competencyMap.get(key);
+        let evaluationGroup=group.evaluations
+          .find(x=>String(x.evaluationId)===String(evaluation.id));
+        if(!evaluationGroup){
+          evaluationGroup={
+            evaluationId:evaluation.id,
+            criteres:[],
+            questionIds:[]
+          };
+          group.evaluations.push(evaluationGroup);
+        }
+        evaluationGroup.criteres.push(cr);
+        const qid=cr.questionId||cr.questionNumero||"";
+        if(
+          qid &&
+          !evaluationGroup.questionIds.includes(String(qid))
+        ){
+          evaluationGroup.questionIds.push(String(qid));
+        }
+      });
+    });
+    const competencies=[...competencyMap.values()];
+    /*
+     * ---------------------------------------------------------
+     * 4. Fonction de calcul de maîtrise
+     * ---------------------------------------------------------
+     */
+    const masteryValues={
+      TBM:4,
+      MS:3,
+      MF:2,
+      MI:1
+    };
+    function masteryForEvaluationStudent(
+      evaluation,
+      correction,
+      competency
+    ){
+      if(!correction){
+        return [];
+      }
+      if(
+        isHistoricalEvaluation(evaluation) &&
+        correction.resultat?.masteryCode
+      ){
+        return [
+          correction.resultat.masteryCode
+        ];
+      }
+      const resultat=correction.resultat||{};
+      if(!resultat.criteriaStats){
+        return [];
+      }
+      /*
+       * On conserve la logique existante :
+       * la maîtrise est calculée question par question.
+       */
+      const evaluationGroups=competency.evaluations
+        .filter(g=>
+          String(g.evaluationId)===String(evaluation.id)
+        );
+      const values=[];
+      evaluationGroups.forEach(group=>{
+        group.questionIds.forEach(questionId=>{
+          const questionCriteria=
+            group.criteres.filter(cr=>{
+              const qid=String(
+                cr.questionId ||
+                cr.questionNumero ||
+                ""
+              );
+              return qid===String(questionId);
+            });
+          if(!questionCriteria.length){
+            return;
+          }
+          const validated=questionCriteria.filter(cr=>
+            !!resultat.criteriaStats?.[cr.id]?.validated
+          ).length;
+          const mastery=
+            getMasteryFromValidatedCriteria(validated);
+          if(masteryValues[mastery.code]){
+            values.push(
+              masteryValues[mastery.code]
+            );
+          }
+        });
+      });
+      return values;
+    }
+    function masteryFromValues(values){
+      if(!values.length){
+        return "—";
+      }
+      const average=
+        values.reduce((a,b)=>a+b,0)/
+        values.length;
+      if(average>=3.5)return "TBM";
+      if(average>=2.5)return "MS";
+      if(average>=1.5)return "MF";
+      return "MI";
+    }
+    /*
+     * ---------------------------------------------------------
+     * 5. Recherche d'une correction pour un élève
+     * ---------------------------------------------------------
+     */
+    function findCorrection(evaluation,student){
+      const corrections=
+        correctionsByEvaluation.get(
+          String(evaluation.id)
+        )||[];
+      const byId=corrections.find(c=>
+        c.eleve_id &&
+        String(c.eleve_id)===String(student.id)
+      );
+      if(byId){
+        return byId;
+      }
+      const studentKey=normalizeName(
+        student.name
+      );
+      return corrections.find(c=>
+        normalizeName(c.eleve||"")===studentKey
+      )||null;
+    }
+    /*
+     * ---------------------------------------------------------
+     * 6. Lignes du tableau
+     * ---------------------------------------------------------
+     */
+    const rows=students.map(student=>{
+      let weightedTotal=0;
+      let weightedCoefficient=0;
+      competencies.forEach(comp=>{
+        // Calcul des compétences plus bas.
+      });
+      chapterEvaluations.forEach(evaluation=>{
+        const correction=
+          findCorrection(evaluation,student);
+        if(!correction){
+          return;
+        }
+        const resultat=correction.resultat||{};
+        const noteValue=
+          resultat.note!==undefined
+            ?Number(resultat.note)
+            :resultat.score!==undefined
+              ?Number(resultat.score)
+              :null;
+        const total=Number(evaluation.total||0);
+        const coefficient=Number(
+          evaluation.coefficient ??
+          (["activite","exercice"].includes(evaluation.typeEvaluation)
+            ?0.5
+            :1)
+        );
+        if(
+          noteValue!==null &&
+          Number.isFinite(noteValue) &&
+          total>0
+        ){
+          const note20=
+            noteValue/total*20;
+          weightedTotal+=
+            note20*coefficient;
+          weightedCoefficient+=coefficient;
+        }
+      });
+      const moyenne=
+        weightedCoefficient>0
+          ?(weightedTotal/weightedCoefficient).toFixed(1)
+          :null;
+      return {
+        student,
+        moyenne,
+        competencies
+      };
+    });
+    /*
+     * ---------------------------------------------------------
+     * 7. Calcul des maîtrises par compétence
+     * ---------------------------------------------------------
+     */
+    const bodyRows=rows.length
+      ?rows.map(row=>{
+          const masteryCells=competencies.length
+            ?competencies.map(comp=>{
+                const values=[];
+                chapterEvaluations.forEach(evaluation=>{
+                  const correction=
+                    findCorrection(
+                      evaluation,
+                      row.student
+                    );
+                  if(!correction){
+                    return;
+                  }
+                  const result=
+                    masteryForEvaluationStudent(
+                      evaluation,
+                      correction,
+                      comp
+                    );
+                  values.push(...result);
+                });
+                const mastery=
+                  masteryFromValues(values);
+                return `
+                  <td style="text-align:center">
+                    <strong>${escPrint(mastery)}</strong>
+                  </td>
+                `;
+              }).join("")
+            :`<td style="text-align:center">—</td>`;
+          return `
+            <tr>
+              <td>
+                <strong>${escPrint(row.student.name)}</strong>
+              </td>
+
+              <td style="text-align:center">
+                ${
+                  row.moyenne!==null
+                    ?escPrint(row.moyenne)+" / 20"
+                    :"—"
+                }
+              </td>
+
+              ${masteryCells}
+            </tr>
+          `;
+        }).join("")
+      :`
+        <tr>
+          <td
+            colspan="${2+Math.max(1,competencies.length)}"
+            style="text-align:center"
+          >
+            Aucun élève enregistré.
+          </td>
+        </tr>
+      `;
+    /*
+     * ---------------------------------------------------------
+     * 8. En-têtes des compétences
+     * ---------------------------------------------------------
+     */
+    const headers=competencies.length
+      ?competencies.map(comp=>`
+          <th style="
+            width:${Math.max(
+              14,
+              Math.floor(58/competencies.length)
+            )}%;
+          ">
+            ${escPrint(comp.nom)}
+          </th>
+        `).join("")
+      :`<th>Maîtrise</th>`;
+    /*
+     * ---------------------------------------------------------
+     * 9. Liste des sujets utilisés
+     * ---------------------------------------------------------
+     */
+    const sujets=chapterEvaluations
+      .map(e=>escPrint(e.titre))
+      .join(" · ");
+    /*
+     * ---------------------------------------------------------
+     * 10. PDF final
+     * ---------------------------------------------------------
+     */
+    const body=`
+      <div class="print-page evaluation-summary-page">
+
+        <h1>
+          📊 Récapitulatif — Chapitre ${escPrint(chapitre)}
+        </h1>
+
+        <p>
+          <strong>Classe :</strong>
+          ${escPrint(selectedClass)}
+          &nbsp; · &nbsp;
+
+          <strong>Type :</strong>
+          ${typeCible==="activite" ? "Activité" : typeCible==="exercice" ? "Exercice" : "Évaluation de chapitre"}
+        </p>
+
+        <p class="small-note">
+          <strong>Sujets pris en compte :</strong>
+          ${sujets}
+        </p>
+
+        <table class="summary-table">
+
+          <thead>
+            <tr>
+              <th style="width:30%">
+                Élève
+              </th>
+
+              <th style="width:14%">
+                Moyenne /20
+              </th>
+
+              ${headers}
+            </tr>
+          </thead>
+
+          <tbody>
+            ${bodyRows}
+          </tbody>
+
+        </table>
+
+        <p
+          class="small-note"
+          style="margin-top:10px"
+        >
+          Récapitulatif du chapitre — les compétences
+          identiques entre les différents sujets sont regroupées.
+          Les maîtrises sont moyennées entre les questions et les sujets.
+        </p>
+
+      </div>
+    `;
+    const extraCss=`
+      .evaluation-summary-page h1{
+        margin-bottom:10px!important
+      }
+
+      .evaluation-summary-page
+      .summary-table th,
+      .evaluation-summary-page
+      .summary-table td{
+        padding:7px!important;
+        font-size:11px!important
+      }
+
+      .evaluation-summary-page
+      .summary-table th{
+        text-align:center!important;
+        background:#f0f0f0!important
+      }
+
+      .evaluation-summary-page
+      .summary-table th:first-child{
+        text-align:left!important
+      }
+
+      .evaluation-summary-page
+      .summary-table td:first-child{
+        text-align:left!important
+      }
+
+      .evaluation-summary-page
+      .small-note{
+        font-size:9px!important;
+        color:#666
+      }
+    `;
+    printHtmlInCurrentWindow(
+      `Récapitulatif — Chapitre ${chapitre} — ${selectedClass}`,
+      body,
+      extraCss
+    );
+  }catch(e){
+    alert(
+      "Génération du récapitulatif impossible : "+
+      e.message
+    );
+  }
+}
+async function printAllCorrectionGrids(evalId){
+  try{
+    const ev=await getEvaluationById(evalId);
+    if(!ev){
+      alert("Évaluation introuvable.");
+      return;
+    }
+    const nav=loadEvalNav();
+    const selectedClass=String(
+      nav.classe ||
+      localStorage.getItem("EVAL_SELECTED_CLASS") ||
+      ""
+    ).trim();
+    if(!selectedClass){
+      alert("Sélectionne d'abord une classe.");
+      return;
+    }
+    // Récupération des élèves de la classe sélectionnée
+    const studentsQ=await sb
+      .from("Eleves")
+      .select("id,classe,nom,prenom")
+      .eq("classe",selectedClass)
+      .order("nom")
+      .order("prenom");
+    if(studentsQ.error){
+      throw new Error(studentsQ.error.message);
+    }
+    const students=studentsQ.data||[];
+    const studentById=new Map(
+      students.map(s=>[
+        String(s.id),
+        s
+      ])
+    );
+    const studentIds=new Set(
+      students.map(s=>String(s.id))
+    );
+    // Récupération des corrections de l'évaluation
+    const q=await sb
+      .from("EvaluationCorrections")
+      .select(
+        "id,eleve,eleve_id,resultat,created_at"
+      )
+      .eq("evaluation_id",evalId)
+      .order("created_at",{ascending:true});
+    if(q.error){
+      throw new Error(q.error.message);
+    }
+    // On garde uniquement les corrections des élèves
+    // appartenant à la classe sélectionnée
+    const corrections=(q.data||[])
+      .filter(c=>
+        c.eleve_id &&
+        studentIds.has(String(c.eleve_id))
+      )
+      .map(c=>{
+        const student=
+          studentById.get(String(c.eleve_id));
+        const nomComplet=student
+          ?studentDisplayName(student)
+          :String(c.eleve||"Élève");
+        return {
+          ...c,
+          eleve:nomComplet,
+          classe:selectedClass
+        };
+      });
+    if(!corrections.length){
+      alert(
+        `Aucune correction enregistrée pour ${selectedClass}.`
+      );
+      return;
+    }
+    const pages=corrections
+      .map(c=>
+        correctionGridHtml(
+          ev,
+          c,
+          selectedClass
+        )
+      )
+      .join("");
+    printHtmlInCurrentWindow(
+      `${ev.titre||"Grilles"} — ${selectedClass}`,
+      pages
+    );
+  }catch(e){
+    alert(
+      "Impression impossible : "+
+      e.message
+    );
+  }
+}
+function correctionGridHtml(ev,c,selectedClass=""){
+  const r=c?.resultat||{};
+  const crits=criteriaFromLegacy(ev);
+  const escPrint=v=>String(v??"").replace(
+    /[&<>]/g,
+    m=>({
+      "&":"&amp;",
+      "<":"&lt;",
+      ">":"&gt;"
+    }[m])
+  );
+  const total=Number(ev.total||0);
+  const score=Number(r.note ?? r.score ?? 0);
+  const pct=total
+    ?Math.round(score/total*100)
+    :0;
+  /*
+   * =========================================================
+   * 1. GROUPER PAR QUESTION
+   * =========================================================
+   */
+  const questionGroups={};
+  crits.forEach((cr,i)=>{
+    const questionNumero=Number(
+      cr.questionNumero||i+1
+    );
+    const questionId=String(
+      cr.questionId||
+      `q${questionNumero}`
+    );
+    if(!questionGroups[questionId]){
+      questionGroups[questionId]={
+        id:questionId,
+        questionNumero,
+        nom:
+          cr.competenceNom||
+          "Compétence évaluée",
+        criteres:[]
+      };
+    }
+    questionGroups[questionId]
+      .criteres
+      .push(cr);
+  });
+  const questions=
+    Object.values(questionGroups)
+      .sort(
+        (a,b)=>
+          a.questionNumero-b.questionNumero
+      );
+  /*
+   * =========================================================
+   * 2. MAÎTRISE D'UNE QUESTION
+   * =========================================================
+   */
+  function masteryForQuestion(question){
+    const validated=
+      question.criteres.filter(
+        cr=>!!r.criteriaStats?.[cr.id]?.validated
+      ).length;
+    return {
+      validated,
+      total:question.criteres.length,
+      mastery:getMasteryFromValidatedCriteria(
+        validated
+      )
+    };
+  }
+  /*
+   * =========================================================
+   * 3. REGROUPER LES QUESTIONS PAR COMPÉTENCE
+   * =========================================================
+   */
+  const competenceGroups={};
+  questions.forEach(question=>{
+    const nom=String(
+      question.nom||
+      "Compétence évaluée"
+    ).trim();
+    const key=nom
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g,"")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g," ")
+      .trim();
+    if(!competenceGroups[key]){
+      competenceGroups[key]={
+        nom,
+        questions:[]
+      };
+    }
+    competenceGroups[key]
+      .questions
+      .push(question);
+  });
+  /*
+   * =========================================================
+   * 4. MAÎTRISE FINALE D'UNE COMPÉTENCE
+   * =========================================================
+   */
+  function masteryForCompetence(comp){
+    const values={
+      TBM:4,
+      MS:3,
+      MF:2,
+      MI:1
+    };
+    const results=
+      comp.questions
+        .map(q=>
+          masteryForQuestion(q)
+            .mastery
+            .code
+        )
+        .filter(code=>values[code]);
+    if(!results.length){
+      return {
+        code:"—",
+        label:"Non évaluée"
+      };
+    }
+    const average=
+      results.reduce(
+        (sum,code)=>
+          sum+values[code],
+        0
+      )/results.length;
+    if(average>=3.5){
+      return {
+        code:"TBM",
+        label:"Très bonne maîtrise"
+      };
+    }
+    if(average>=2.5){
+      return {
+        code:"MS",
+        label:"Maîtrise satisfaisante"
+      };
+    }
+    if(average>=1.5){
+      return {
+        code:"MF",
+        label:"Maîtrise fragile"
+      };
+    }
+    return {
+      code:"MI",
+      label:"Maîtrise insuffisante"
+    };
+  }
+  /*
+   * =========================================================
+   * 5. SYNTHÈSE DES COMPÉTENCES
+   * =========================================================
+   */
+  const masterySummary=
+    Object.values(competenceGroups)
+      .map(comp=>{
+        const m=masteryForCompetence(comp);
+        return `
+          <tr>
+            <td style="
+              padding:7px;
+              border-bottom:1px solid #ccd5d1
+            ">
+              <strong>
+                ${escPrint(comp.nom)}
+              </strong>
+            </td>
+
+            <td style="
+              text-align:center;
+              padding:7px;
+              border-bottom:1px solid #ccd5d1
+            ">
+              <strong>${m.code}</strong>
+              — ${escPrint(m.label)}
+            </td>
+          </tr>
+        `;
+      })
+      .join("");
+  /*
+   * =========================================================
+   * 6. CONSTRUIRE LA PAGE
+   * =========================================================
+   */
+const acquired=[];
+const toConsolidate=[];
+Object.values(competenceGroups).forEach(comp=>{
+  const m=masteryForCompetence(comp);
+  const item=`${comp.nom} (${m.code})`;
+  if(m.code==="TBM"||m.code==="MS"){
+    acquired.push(item);
+  }else if(m.code==="MF"||m.code==="MI"){
+    toConsolidate.push(item);
+  }
+});
+const summaryHtml=`
+  <div class="a4-recap">
+    <div class="a4-recap-box a4-ok">
+      <strong>✅ Acquis</strong>
+      <div>${acquired.length?acquired.map(escPrint).join("<br>"):"—"}</div>
+    </div>
+    <div class="a4-recap-box a4-todo">
+      <strong>🎯 À consolider</strong>
+      <div>${toConsolidate.length?toConsolidate.map(escPrint).join("<br>"):"—"}</div>
+    </div>
+  </div>
+`;
+  const blocks=questions.map(question=>{
+    const qm=masteryForQuestion(question);
+    const rows=question.criteres.map(cr=>{
+      const st=r.criteriaStats?.[cr.id];
+      const indicators=cr.indicateurs||[];
+      const checked=indicators.filter((it,ii)=>!!r.points?.[`${cr.id}_${ii}`]).length;
+      const validated=st ? !!st.validated : indicators.length>0 && checked/indicators.length>=2/3;
+      const list=(wanted)=>indicators.map((it,ii)=>({it,checked:!!r.points?.[`${cr.id}_${ii}`]}))
+        .filter(x=>x.checked===wanted).map(x=>escPrint(x.it.nom)).join(' ; ')||'—';
+      return `<tr><td><strong>${escPrint(cr.nom)}</strong><br><small>${validated?'Validé':'Reste à valider'}</small></td><td>${list(true)}</td><td>${list(false)}</td></tr>`;
+    }).join('');
+    return `<section class="a4-question"><h2>${isTransversalLanguageCompetency(question.nom)?'Compétence transversale':'Question '+question.questionNumero} — ${escPrint(question.nom)} <small>(${qm.mastery.code} · ${qm.validated}/${qm.total} critères)</small></h2><table><colgroup><col style="width:24%"><col style="width:38%"><col style="width:38%"></colgroup><thead><tr><th>Critère / bilan</th><th>✓ Validé : indicateurs réussis</th><th>Reste à valider : indicateurs à travailler</th></tr></thead><tbody>${rows}</tbody></table></section>`;
+  }).join('');
+  return `<div class="print-page svt-a4-grid"><div class="svt-a4-content"><h1>${escPrint(ev.titre||'Évaluation')}</h1><div class="a4-identity"><strong>${escPrint(c.eleve||'Élève')}</strong> — ${escPrint(selectedClass||c.classe||ev.classe)} <strong>Note : ${score} / ${total}</strong></div><table class="a4-summary"><tbody>${masterySummary}</tbody></table>${summaryHtml}${blocks}</div></div>`;
+}
+async function generateCorrectionPDF(evalId){
+  try{
+    let ev=currentCorrectionEvaluation;
+    if(!ev || String(ev.id)!==String(evalId)){
+      ev=await getEvaluationById(evalId);
+    }
+    if(!ev || String(ev.id)!==String(evalId)){
+      throw new Error("Évaluation introuvable.");
+    }
+    currentCorrectionEvaluation=ev;
+    const c=computeCorrection(ev);
+    const crits=criteriaFromLegacy(ev);
+    const nav=loadEvalNav();
+const correctionId=nav.correctionId||"";
+let student="Élève";
+let studentClass=String(
+  nav.classe ||
+  ev.classe ||
+  "Classe"
+).trim();
+if(correctionId){
+  const cq=await sb
+    .from("EvaluationCorrections")
+    .select("eleve,eleve_id")
+    .eq("id",correctionId)
+    .maybeSingle();
+  if(cq.error)throw new Error(cq.error.message);
+  if(cq.data?.eleve_id){
+    const sq=await sb
+      .from("Eleves")
+      .select("id,classe,nom,prenom")
+      .eq("id",cq.data.eleve_id)
+      .maybeSingle();
+    if(sq.error)throw new Error(sq.error.message);
+    if(sq.data){
+      student=studentDisplayName(sq.data);
+      studentClass=String(
+        sq.data.classe ||
+        studentClass
+      ).trim();
+    }
+  }else if(cq.data?.eleve){
+    student=String(cq.data.eleve);
+  }
+}
+    const body=correctionGridHtml(ev,{eleve:student,classe:studentClass,resultat:{...c,note:c.score}},studentClass);
+    printHtmlInCurrentWindow(`Correction — ${ev.titre}`,body);
+  }catch(e){alert("Impression impossible : "+e.message);}
+}
+async function saveCorrection(evalId,correctionId,eleve,eleveId,next=false){
+  if(window.__savingCorrection)return false;
+  if(!localDraftCanValidate())return false;
+  const ctx=correctionSession;
+  if(!ctx || String(ctx.evalId)!==String(evalId)){alert('Ouvre une correction avant de l’enregistrer.');return false;}
+  if(next && (ctx.groupIds.length>1 || !ctx.eleveId)){alert('Le passage au suivant est disponible pour une correction individuelle avec un élève identifié.');return false;}
+  const draft=computeCorrection(currentCorrectionEvaluation);
+  const resultat={note:draft.score,points:draft.points,criteriaStats:draft.criteriaStats};
+  const fingerprint=correctionFingerprint();
+  const localDraftTicket=localDraftBeforeSave();
+  if(!localDraftCanValidate())return false;
+  window.__savingCorrection=true;
+  correctionSetBusy(true);
+  correctionStatus('Enregistrement…');
+  let success=false;
+  try{
+    await correctionCheckAbsences(ctx);
+    async function persist(studentName,studentId,id){
+      let existingId=id,previousResult={};
+      if(existingId || studentId){
+        let query=sb.from('EvaluationCorrections').select('id,resultat');
+        query=existingId ? query.eq('id',existingId) : query.eq('evaluation_id',evalId).eq('eleve_id',String(studentId));
+        const q=await query.maybeSingle();
+        if(q.error)throw new Error(q.error.message);
+        if(existingId&&!q.data)throw new Error('La correction à mettre à jour est introuvable.');
+        existingId=q.data?.id||null;
+        previousResult=q.data?.resultat||{};
+      }
+      const payload={evaluation_id:evalId,eleve:studentName,eleve_id:studentId||null,resultat:{...previousResult,...resultat}};
+      const query=existingId ? sb.from('EvaluationCorrections').update(payload).eq('id',existingId) : sb.from('EvaluationCorrections').insert(payload);
+      const r=await query.select('id').single();
+      if(r.error)throw new Error(r.error.message);
+      if(!r.data?.id)throw new Error('La base n’a pas confirmé la sauvegarde.');
+      return r.data.id;
+    }
+    if(ctx.groupIds.length>1){
+      const q=await sb.from('Eleves').select('id,classe,nom,prenom').in('id',ctx.groupIds);
+      if(q.error)throw new Error(q.error.message);
+      const students=sortStudents(q.data||[]);
+      if(students.length!==new Set(ctx.groupIds).size)throw new Error('Certains élèves du groupe ne sont pas accessibles. Aucune nouvelle écriture lancée.');
+      const failures=[];
+      for(const student of students){
+        try{await persist(studentDisplayName(student),student.id,null);}
+        catch(e){failures.push(studentDisplayName(student)+' : '+e.message);}
+      }
+      if(failures.length)throw new Error('Sauvegarde partielle : '+(students.length-failures.length)+'/'+students.length+' élèves. Réessaie pour terminer. '+failures.join(' | '));
+    }else{
+      ctx.correctionId=await persist(ctx.eleve,ctx.eleveId,ctx.correctionId);
+    }
+    ctx.saved=true;
+    ctx.baseline=fingerprint;
+    saveEvalNav({view:'studentCorrection',evaluationId:ctx.evalId,correctionId:ctx.correctionId,eleve:ctx.eleve,eleveId:ctx.eleveId,groupIds:ctx.groupIds,classe:ctx.classe});
+    studentTrackingCache=[];
+    correctionStatus('Enregistré à '+new Date().toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}));
+    localDraftSaved(localDraftTicket);
+    success=true;
+  }catch(e){
+    correctionStatus('Échec de l’enregistrement : '+e.message+' — clique à nouveau sur Enregistrer pour réessayer.',true);
+  }finally{
+    window.__savingCorrection=false;
+    correctionSetBusy(false);
+  }
+  if(success){
+    if(next)await correctionOpenNext(ctx);
+    else await openCorrection(ctx.evalId,ctx.classe);
+  }
+  return success;
+}
+/* ==================== SUIVI PP — V62 ==================== */
+const PP_TABLES={events:"PP_Events",contacts:"PP_Contacts",amenagements:"PP_Amenagements",actions:"PP_Actions",conseils:"PP_Conseils",moyennes:"PP_Moyennes"};
+const PP_DISCIPLINES=[{nom:"Français",coef:3},{nom:"Mathématiques",coef:3},{nom:"Anglais",coef:2},{nom:"Histoire-Géographie",coef:2},{nom:"Arts plastiques",coef:1},{nom:"Éducation musicale",coef:1},{nom:"EPS",coef:2}];
+const PP_SCIENCES={pc:"Physique-Chimie",svt:"SVT",coef:2};
+let ppStudents=[],ppClass="6e3",ppStudentId="",ppPeriod="year";
+function ppName(s){return `${safe(s?.prenom)} ${safe(s?.nom)}`.trim()||"Élève"}
+function ppToday(){return new Date().toISOString().slice(0,10)}
+function ppPeriodStart(p){
+  const now=new Date();
+  const calendarYear=now.getFullYear();
+  const month=now.getMonth()+1;
+  const schoolYearStart=month>=9?calendarYear:calendarYear-1;
+  if(p==="t1")return `${schoolYearStart}-09-01`;
+  if(p==="t2")return `${schoolYearStart}-11-21`;
+  if(p==="t3")return `${schoolYearStart+1}-02-13`;
+  return "1900-01-01";
+}
+function ppPeriodEnd(p){
+  const now=new Date();
+  const calendarYear=now.getFullYear();
+  const month=now.getMonth()+1;
+  const schoolYearStart=month>=9?calendarYear:calendarYear-1;
+  if(p==="t1")return `${schoolYearStart}-11-20`;
+ if(p==="t2")return `${schoolYearStart+1}-02-12`;
+ if(p==="t3")return `${schoolYearStart+1}-06-04`;
+  return "2999-12-31";
+}
+function ppStudentById(id){return ppStudents.find(s=>String(s.id)===String(id))||null}
+function ppClassStudents(){return ppStudents.filter(s=>!ppClass||String(s.classe)===String(ppClass))}
+async function ppLoadStudents(){
+  const {data,error}=await sb.from("Eleves").select("id,classe,nom,prenom,created_at").eq("classe","6e3").order("nom").order("prenom");
+  if(error)throw new Error(error.message);ppStudents=data||[];studentsCache=ppStudents.slice();return ppStudents;
+}
+async function ppLoadTable(table,studentId=null,classeFilter=null){
+  let q=sb.from(table).select("*");
+  if(table===PP_TABLES.conseils){
+    q=q.order("created_at",{ascending:false});
+  }else{
+    q=q.order("date",{ascending:false}).order("created_at",{ascending:false});
+  }
+  if(studentId)q=q.eq("eleve_id",String(studentId));
+  if(classeFilter)q=q.eq("classe",classeFilter);
+  const {data,error}=await q;
+  if(error)throw new Error(error.message);
+  return data||[];
+}
+async function ppInsert(table,payload){
+  const row={...payload,created_by:user?.id||null};
+  const {data,error}=await sb.from(table).insert(row).select("*").single();if(error)throw new Error(error.message);return data;
+}
+async function ppDelete(table,id){const {error}=await sb.from(table).delete().eq("id",id);if(error)throw new Error(error.message)}
+function ppStatusBadges(s,stats){
+  const b=[];if(stats.amenagements)b.push(`<span class="pp-badge info">🧩 ${stats.amenagements}</span>`);if(stats.contacts)b.push(`<span class="pp-badge">👪 ${stats.contacts}</span>`);if(stats.actions)b.push(`<span class="pp-badge ${stats.overdue?"danger":"warn"}">📋 ${stats.actions}</span>`);if(stats.events)b.push(`<span class="pp-badge">📝 ${stats.events}</span>`);return b.join("")||'<span class="small-note">Aucun suivi</span>';
+}
+async function openPP(){
+  if(!correctionAllowLeave())return;
+  try{localStorage.setItem(EVAL_NAV_KEY,JSON.stringify({view:"pp",classe:ppClass,period:ppPeriod}))}catch(e){}
+label.textContent="Suivi PP";
+  content.innerHTML=`<button type="button" onclick="home()">← Accueil</button><section class="hero" style="margin-top:14px"><span class="eyebrow">Professeur principal</span><h2>👨‍🏫 Suivi PP</h2><p class="muted">Un espace dédié au suivi des élèves, des familles, des aménagements et des actions de la classe.</p><div class="pp-toolbar"><div><label>Classe suivie</label><div class="editbox" style="margin-top:6px;padding:10px 12px"><strong>6e3</strong><span class="small-note" style="margin-left:8px">Professeur principal</span></div></div><div><label>Période</label><select id="ppPeriodSelect" onchange="ppPeriod=this.value;renderPPDashboard()"><option value="year">Année</option><option value="t1">Trimestre 1</option><option value="t2">Trimestre 2</option><option value="t3">Trimestre 3</option></select></div></div></section><div id="ppDashboard"><p class="muted">Chargement…</p></div>`;
+  try{ppClass="6e3";await ppLoadStudents();const per=document.getElementById("ppPeriodSelect");if(per)per.value=ppPeriod;await renderPPDashboard();}catch(e){showError("Suivi PP : "+e.message)}
+}
+async function renderPPDashboard(){
+  if(document.getElementById("ppDashboard"))saveEvalNav({view:"pp",classe:ppClass,period:ppPeriod});
+  const target=document.getElementById("ppDashboard");if(!target)return;target.innerHTML='<section class="hero"><p class="muted">Chargement du suivi…</p></section>';
+  try{
+    const students=ppClassStudents(),ids=students.map(s=>String(s.id));
+    const [events,contacts,amenagements,actions]=await Promise.all([ppLoadTable(PP_TABLES.events,null,ppClass||null),ppLoadTable(PP_TABLES.contacts,null,ppClass||null),ppLoadTable(PP_TABLES.amenagements,null,ppClass||null),ppLoadTable(PP_TABLES.actions,null,ppClass||null)]);
+    const start=ppPeriodStart(ppPeriod),end=ppPeriodEnd(ppPeriod),inPeriod=x=>!x.date||(String(x.date)>=start&&String(x.date)<=end);
+    const ev=events.filter(inPeriod),co=contacts.filter(inPeriod),ac=actions.filter(inPeriod),am=amenagements.filter(x=>x.actif!==false);
+    const overdue=actions.filter(x=>x.statut!=="termine"&&x.echeance&&x.echeance<=ppToday()).length;
+    const statsBy=new Map(ids.map(id=>[id,{events:0,contacts:0,amenagements:0,actions:0,overdue:0}]));
+    ev.forEach(x=>{const z=statsBy.get(String(x.eleve_id));if(z)z.events++});co.forEach(x=>{const z=statsBy.get(String(x.eleve_id));if(z)z.contacts++});am.forEach(x=>{const z=statsBy.get(String(x.eleve_id));if(z)z.amenagements++});ac.forEach(x=>{const z=statsBy.get(String(x.eleve_id));if(z){z.actions++;if(x.statut!=="termine"&&x.echeance&&x.echeance<=ppToday())z.overdue++}});
+    target.innerHTML=`<div class="pp-grid"><div class="pp-stat"><div class="n">${students.length}</div><div class="l">Élèves suivis</div></div><div class="pp-stat"><div class="n">${am.length}</div><div class="l">Aménagements actifs</div></div><div class="pp-stat"><div class="n">${co.length}</div><div class="l">Contacts (${ppPeriod==="year"?"année":ppPeriod.toUpperCase()})</div></div><div class="pp-stat"><div class="n">${overdue}</div><div class="l">Actions à relancer</div></div></div><section class="pp-section"><div class="entry-head"><div><h3>👥 Élèves</h3><p class="small-note">Clique sur un élève pour ouvrir sa fiche PP.</p></div><div class="row"><button type="button" onclick="openPPCouncil()">📅 Conseil de classe</button><button type="button" onclick="ppNewStudentEvent()">＋ Ajouter un suivi</button></div></div><div class="pp-student-list">${students.map(s=>`<div class="pp-student" onclick="openPPStudent('${esc(s.id)}')"><div><strong>${esc(ppName(s))}</strong><div class="small-note">${esc(s.classe||"")}</div></div><div class="pp-badges">${ppStatusBadges(s,statsBy.get(String(s.id))||{})}</div></div>`).join("")||'<div class="pp-empty">Aucun élève dans cette sélection.</div>'}</div></section>`;
+  }catch(e){target.innerHTML=`<section class="hero error"><h3>⚠️ Suivi PP indisponible</h3><p>${esc(e.message)}</p><p class="small-note">Vérifie que les tables PP ont bien été créées dans Supabase.</p></section>`}
+}
+function ppModal(html){const d=document.createElement("div");d.className="pp-modal";d.innerHTML=`<div class="pp-modal-card">${html}</div>`;d.addEventListener("click",e=>{if(e.target===d)d.remove()});document.body.appendChild(d);return d}
+function ppCloseModal(){document.querySelectorAll(".pp-modal").forEach(x=>x.remove())}
+function ppSelectOptions(list,selected=""){return list.map(x=>`<option value="${esc(x[0])}" ${String(x[0])===String(selected)?"selected":""}>${esc(x[1])}</option>`).join("")}
+async function ppNewStudentEvent(){
+  const students=ppClassStudents();if(!students.length){alert("Aucun élève disponible.");return}
+  const modal=ppModal(`<h2>＋ Nouveau suivi PP</h2><div class="editbox"><label>Élève</label><select id="ppf_student">${students.map(s=>`<option value="${esc(s.id)}">${esc(ppName(s))} — ${esc(s.classe||"")}</option>`).join("")}</select><label>Type</label><select id="ppf_type">${ppSelectOptions([["observation","Observation"],["vigilance","Point de vigilance"],["contact","Contact famille"],["rendez_vous","Rendez-vous"],["action","Action à mener"],["conseil","Conseil de classe"]])}</select><label>Date</label><input id="ppf_date" type="date" value="${ppToday()}"><label>Titre</label><input id="ppf_title" placeholder="Ex. Point de vigilance, rencontre famille…"><label>Compte rendu / contenu</label><textarea id="ppf_content" rows="6" placeholder="Notes de suivi…"></textarea></div><div class="row"><button type="button" onclick="ppCloseModal()">Annuler</button><button class="primary" type="button" onclick="ppSaveQuickEvent()">💾 Enregistrer</button></div>`);modal.dataset.x="1";
+}
+async function ppSaveQuickEvent(){const m=document.querySelector(".pp-modal"),sid=document.getElementById("ppf_student")?.value,s=ppStudentById(sid);if(!s)return;try{await ppInsert(PP_TABLES.events,{eleve_id:String(s.id),classe:s.classe,date:document.getElementById("ppf_date").value,type:document.getElementById("ppf_type").value,titre:document.getElementById("ppf_title").value.trim(),contenu:document.getElementById("ppf_content").value.trim()});m.remove();await renderPPDashboard();alert("Suivi enregistré ✓")}catch(e){alert("Enregistrement impossible : "+e.message)}}
+async function openPPStudent(id){
+  if(!correctionAllowLeave())return;
+  ppStudentId=String(id);try{localStorage.setItem(EVAL_NAV_KEY,JSON.stringify({view:"ppStudent",id:String(id)}))}catch(e){}const s=ppStudentById(id);if(!s){await ppLoadStudents();}const student=ppStudentById(id);if(!student)return;label.textContent=`Suivi PP · ${ppName(student)}`;content.innerHTML=`<button type="button" onclick="openPP()">← Suivi PP</button><section class="hero" style="margin-top:14px"><span class="eyebrow">${esc(student.classe||"")}</span><h2>👤 ${esc(ppName(student))}</h2><p class="muted">Fiche de suivi du professeur principal.</p><div class="pp-tabs"><button class="active" onclick="ppRenderStudent('synthese')">Synthèse</button><button onclick="ppRenderStudent('events')">📝 Suivi</button><button onclick="ppRenderStudent('contacts')">👪 Familles</button><button onclick="ppRenderStudent('amenagements')">🧩 Aménagements</button><button onclick="ppRenderStudent('actions')">📋 Actions</button></div></section><div id="ppStudentBody"><p class="muted">Chargement…</p></div>`;await ppRenderStudent("synthese")}
+async function ppRenderStudent(tab="synthese"){
+  if(document.getElementById("ppStudentBody"))saveEvalNav({view:"ppStudent",id:String(ppStudentId),period:ppPeriod,ppTab:tab});
+  const target=document.getElementById("ppStudentBody"),s=ppStudentById(ppStudentId);if(!target||!s)return;target.innerHTML='<section class="pp-section"><p class="muted">Chargement…</p></section>';
+  try{
+    const [events,contacts,amenagements,actions]=await Promise.all([ppLoadTable(PP_TABLES.events,ppStudentId),ppLoadTable(PP_TABLES.contacts,ppStudentId),ppLoadTable(PP_TABLES.amenagements,ppStudentId),ppLoadTable(PP_TABLES.actions,ppStudentId)]);
+    if(tab==="synthese"){
+      let evals=[];try{if(!studentTrackingCache.length)await loadStudentTracking();evals=studentTrackingCache.filter(x=>String(x.eleveId||"")===String(s.id)||normalizeTrackingStudentName(x.eleve)===normalizeTrackingStudentName(ppName(s)));}catch(e){}
+      const avg=evals.length?formatAverage20(evals.map(trackingScore20)):"—";const activeAm=amenagements.filter(x=>x.actif!==false).length;const openActions=actions.filter(x=>x.statut!=="termine").length;const gradePeriod=ppPeriod==="year"?"T1":ppPeriod.toUpperCase();let grades=[];try{grades=await ppLoadGrades(s.id,gradePeriod)}catch(e){}const vigilanceEvents=events.filter(x=>{
+  if(String(x.type)!=="vigilance") return false;
+  if(ppPeriod==="year") return true;
+  const date=String(x.date||"").slice(0,10);
+  const start=ppPeriodStart(ppPeriod);
+  const end=ppPeriodEnd(ppPeriod);
+  return date>=start && date<=end;
+});
+const vigilance=vigilanceEvents.length;const vigilanceHtml=vigilanceEvents.length
+  ?vigilanceEvents.map(x=>'<div class="pp-item"><strong>'+esc(x.titre||"Point de vigilance")+'</strong><div class="small-note">'+esc(x.date||"")+'</div>'+(x.contenu?'<p>'+esc(x.contenu)+'</p>':"")+'</div>').join("")
+  :'<div class="pp-empty">Aucun point de vigilance.</div>';const manualAvg=ppWeightedAverage(grades);const generated=ppGenerateAppreciation(grades,s);
+      target.innerHTML=`<div class="pp-grid"><div class="pp-stat"><div class="n">${contacts.length}</div><div class="l">Contacts familles</div></div><div class="pp-stat"><div class="n">${manualAvg===null?"—":ppFormatGrade(manualAvg)+" / 20"}</div><div class="l">Moyenne générale</div></div><div class="pp-stat"><div class="n">${activeAm}</div><div class="l">Aménagement(s) actif(s)</div></div><div class="pp-stat">
+  <div class="n">${vigilance}</div>
+  <div class="l">Points de vigilance</div>
+</div></div></section><section class="pp-section"><h3>⚠️ Points de vigilance</h3>${vigilanceHtml}</section><section class="pp-section"><div class="entry-head"><div><h3>📊 Résultats du trimestre</h3><p class="small-note">Saisis la moyenne de chaque discipline. La moyenne générale est la moyenne des disciplines renseignées.</p></div><button class="primary" type="button" onclick="ppSaveGrades()">💾 Enregistrer les moyennes</button></div>${ppGradesEditor(grades)}<div class="pp-appreciation" style="margin-top:14px"><strong>💬 Proposition d’appréciation générale</strong><textarea id="ppGeneratedAppreciation" rows="4" style="width:100%;margin-top:8px">${esc(generated)}</textarea><div class="row" style="margin-top:8px"><button type="button" onclick="ppGenerateAndFillAppreciation()">✨ Régénérer à partir des résultats et du comportement</button></div><p class="small-note">Le texte est une proposition modifiable avant d’être repris dans le conseil de classe.</p></div></section><div class="pp-two"><section class="pp-section"><h3>📝 Derniers suivis</h3>${events.filter(x=>{
+  if(ppPeriod==="year") return true;
+  const date=String(x.date||"").slice(0,10);
+  return date>=ppPeriodStart(ppPeriod) && date<=ppPeriodEnd(ppPeriod);
+}).slice(0,5).map(ppEventHtml).join("")||'<div class="pp-empty">Aucun suivi enregistré pour cette période.</div>'}</section><section class="pp-section"><h3>📋 À faire / relances</h3>${actions.filter(x=>x.statut!=="termine").slice(0,5).map(ppActionHtml).join("")||'<div class="pp-empty">Aucune action en cours.</div>'}</section></div><section class="pp-section"><h3>🧩 Aménagements</h3>${amenagements.filter(x=>x.actif!==false).map(ppAmenagementHtml).join("")||'<div class="pp-empty">Aucun aménagement actif.</div>'}</section>`;
+    } else if(tab==="events")target.innerHTML=ppListSection("📝 Suivi et observations",events,"event");
+    else if(tab==="contacts")target.innerHTML=ppListSection("👪 Contacts familles",contacts,"contact");
+    else if(tab==="amenagements")target.innerHTML=ppListSection("🧩 Aménagements",amenagements,"amenagement");
+    else target.innerHTML=ppListSection("📋 Actions",actions,"action");
+  }catch(e){target.innerHTML=`<section class="pp-section error"><p>${esc(e.message)}</p></section>`}
+}
+function ppFormatGrade(v){const n=Number(v);return Number.isFinite(n)?n.toFixed(2).replace(".",","):""}
+async function ppLoadGrades(studentId,period){
+  const {data,error}=await sb.from(PP_TABLES.moyennes).select("*").eq("eleve_id",String(studentId)).eq("periode",period);
+  if(error)throw new Error(error.message);return data||[];
+}
+function ppWeightedAverage(grades){
+  const by=new Map(grades.map(x=>[String(x.discipline),Number(x.moyenne)]));
+  let total=0,coefTotal=0;
+  PP_DISCIPLINES.forEach(d=>{const v=by.get(d.nom);if(Number.isFinite(v)){total+=v*d.coef;coefTotal+=d.coef;}});
+  const pc=by.get(PP_SCIENCES.pc), svt=by.get(PP_SCIENCES.svt);
+  if(Number.isFinite(pc) && Number.isFinite(svt)){
+    const sciences=(pc*2+svt*2)/4;
+    total+=sciences*PP_SCIENCES.coef;coefTotal+=PP_SCIENCES.coef;
+  }
+  return coefTotal?total/coefTotal:null;
+}
+function ppGenerateAppreciation(grades,student,events=[]){
+  const avg=ppWeightedAverage(grades);
+  let result="";
+  if(avg===null) result="Résultats à compléter pour établir une appréciation générale.";
+  else if(avg>=16) result="Très bons résultats d’ensemble";
+  else if(avg>=14) result="Bons résultats d’ensemble";
+  else if(avg>=12) result="Résultats satisfaisants dans l’ensemble";
+  else if(avg>=10) result="Résultats encore fragiles dans plusieurs disciplines";
+  else result="Résultats insuffisants dans l’ensemble, avec des progrès à poursuivre";
+  if(avg!==null){
+    result+=`. Moyenne générale pondérée : ${ppFormatGrade(avg)}/20.`;
+  }
+  const remarques=events
+    .filter(x=>["observation","vigilance","équipe","autre"].includes(String(x.type)))
+    .filter(x=>String(x.contenu||"").trim())
+    .sort((a,b)=>String(b.date||"").localeCompare(String(a.date||"")));
+  if(remarques.length){
+    const textes=remarques
+      .slice(0,3)
+      .map(x=>String(x.contenu||"").trim())
+      .filter(Boolean);
+    if(textes.length){
+      result+=" "+textes.join(" ");
+    }
+  }
+  return result;
+}
+function ppGradesEditor(grades){
+  const by=new Map(grades.map(x=>[String(x.discipline),x]));
+  const pcVal=by.get("Physique-Chimie")?.moyenne;
+  const svtVal=by.get("SVT")?.moyenne;
+  const scienceAvg=(pcVal!=null&&svtVal!=null)?((Number(pcVal)+Number(svtVal))/2):null;
+  const scienceHtml=`<div class="pp-sciences"><div class="pp-sciences-title"><div><strong>Sciences</strong> <span class="small-note">coef. 2 dans la moyenne générale</span></div><span class="small-note">PC + SVT regroupées</span></div><div class="pp-sciences-fields"><div class="pp-sciences-field"><label>Physique-Chimie <span class="small-note">coef. 2</span></label><input class="pp-grade" data-discipline="Physique-Chimie" type="number" min="0" max="20" step="0.01" value="${pcVal==null?"":esc(pcVal)}" placeholder="/20"></div><div class="pp-sciences-field"><label>SVT <span class="small-note">coef. 2</span></label><input class="pp-grade" data-discipline="SVT" type="number" min="0" max="20" step="0.01" value="${svtVal==null?"":esc(svtVal)}" placeholder="/20"></div></div><div class="pp-sciences-average">Moyenne Sciences : <output id="ppScienceAverage">${scienceAvg==null?"—":ppFormatGrade(scienceAvg)+" /20"}</output></div><div class="small-note" style="margin-top:6px">Les deux moyennes sont regroupées en une seule moyenne Sciences, qui compte coef. 2 dans la moyenne générale.</div></div>`;
+  return `<div class="pp-grades"><div class="small-note" style="margin-bottom:10px">Les coefficients sont appliqués automatiquement. Pour Sciences, saisis les moyennes École Directe de Physique-Chimie et de SVT.</div>${PP_DISCIPLINES.map(d=>{const r=by.get(d.nom)||{};return `<div class="pp-grade-row"><label>${esc(d.nom)} <span class="small-note">coef. ${d.coef}</span></label><input class="pp-grade" data-discipline="${esc(d.nom)}" type="number" min="0" max="20" step="0.01" value="${r.moyenne==null?"":esc(r.moyenne)}" placeholder="/20"></div>`}).join("")}${scienceHtml}</div>`;
+}
+function ppCollectGrades(){
+  const out=[...document.querySelectorAll(".pp-grade")].map(i=>({discipline:i.dataset.discipline,moyenne:i.value===""?null:Number(i.value)})).filter(x=>Number.isFinite(x.moyenne));
+  const d=document.getElementById("pp_other_discipline")?.value.trim(),v=document.getElementById("pp_other_grade")?.value;
+  if(d&&v!==""&&Number.isFinite(Number(v)))out.push({discipline:d,moyenne:Number(v)});
+  return out;
+}
+function ppUpdateScienceAverage(){
+  const pc=Number(document.querySelector('.pp-grade[data-discipline="Physique-Chimie"]')?.value);
+  const svt=Number(document.querySelector('.pp-grade[data-discipline="SVT"]')?.value);
+  const out=document.getElementById("ppScienceAverage");
+  if(!out)return;
+  out.textContent=(Number.isFinite(pc)&&Number.isFinite(svt))?`${ppFormatGrade((pc+svt)/2)} /20`:"—";
+}
+async function ppSaveGrades(){
+  const s=ppStudentById(ppStudentId);if(!s)return;
+  const period=ppPeriod==="year"?"T1":ppPeriod.toUpperCase();
+  try{
+    const grades=ppCollectGrades();
+    const {error:delError}=await sb.from(PP_TABLES.moyennes).delete().eq("eleve_id",String(s.id)).eq("periode",period);if(delError)throw new Error(delError.message);
+    if(grades.length){const rows=grades.map(x=>({eleve_id:String(s.id),classe:s.classe,periode:period,discipline:x.discipline,moyenne:x.moyenne,created_by:user?.id||null}));const {error}=await sb.from(PP_TABLES.moyennes).insert(rows);if(error)throw new Error(error.message);}
+    await ppRenderStudent("synthese");alert("Moyennes enregistrées ✓");
+  }catch(e){alert("Enregistrement impossible : "+e.message)}
+}
+async function ppGenerateAndFillAppreciation(){
+  const s=ppStudentById(ppStudentId);if(!s)return;
+  try{
+    const period=ppPeriod==="year"?"T1":ppPeriod.toUpperCase();
+const grades=await ppLoadGrades(s.id,period);
+const events=await ppLoadTable(PP_TABLES.events,s.id);
+const txt=ppGenerateAppreciation(grades,s,events);
+    const el=document.getElementById("ppGeneratedAppreciation");if(el)el.value=txt;
+  }catch(e){alert("Génération impossible : "+e.message)}
+}
+function ppEventHtml(x){return `<div class="pp-item"><div class="meta">${esc(x.date||"")} · ${esc(x.type||"Observation")}</div><strong>${esc(x.titre||"Suivi")}</strong><div>${esc(x.contenu||"")}</div></div>`}
+function ppContactHtml(x){return `<div class="pp-item"><div class="meta">${esc(x.date||"")} · ${esc(x.type||"Contact")} · ${esc(x.interlocuteur||"")}</div><strong>${esc(x.motif||"Contact famille")}</strong><div>${esc(x.compte_rendu||"")}</div>${x.suite?`<div class="small-note">Suite : ${esc(x.suite)}</div>`:""}</div>`}
+function ppAmenagementHtml(x){return `<div class="pp-item"><div class="meta">${esc(x.type||"Aménagement")} · ${x.actif===false?"Inactif":"Actif"}</div><strong>${esc(x.description||"Aménagement")}</strong>${x.date?`<div class="small-note">Depuis le ${esc(x.date)}</div>`:""}</div>`}
+function ppActionHtml(x){return `<div class="pp-item"><div class="meta">${esc(x.date||"")} · ${esc(x.statut||"à faire")}${x.echeance?` · Échéance : ${esc(x.echeance)}`:""}</div><strong>${esc(x.action||"Action")}</strong>${x.responsable?`<div class="small-note">Responsable : ${esc(x.responsable)}</div>`:""}${x.notes?`<div>${esc(x.notes)}</div>`:""}</div>`}
+function ppListSection(title,rows,type){
+  let add="";if(type==="event")add=`<button type="button" onclick="ppAddEvent()">＋ Ajouter</button>`;if(type==="contact")add=`<button type="button" onclick="ppAddContact()">＋ Ajouter</button>`;if(type==="amenagement")add=`<button type="button" onclick="ppAddAmenagement()">＋ Ajouter</button>`;if(type==="action")add=`<button type="button" onclick="ppAddAction()">＋ Ajouter</button>`;
+  const fn=type==="event"?ppEventHtml:type==="contact"?ppContactHtml:type==="amenagement"?ppAmenagementHtml:ppActionHtml;
+  return `<section class="pp-section"><div class="entry-head"><div><h3>${title}</h3><p class="small-note">Les données sont enregistrées dans Supabase et restent séparées de l'interface élèves.</p></div>${add}</div>${rows.map(x=>`${fn(x)}<div class="row" style="justify-content:flex-end;margin-top:-5px"><button type="button" class="danger" onclick="ppRemove('${esc(type)}','${esc(x.id)}')">🗑️ Supprimer</button></div>`).join("")||'<div class="pp-empty">Aucun élément enregistré.</div>'}</section>`
+}
+async function ppRemove(type,id){if(!confirm("Supprimer définitivement cet élément ?"))return;const table=type==="event"?PP_TABLES.events:type==="contact"?PP_TABLES.contacts:type==="amenagement"?PP_TABLES.amenagements:PP_TABLES.actions;try{await ppDelete(table,id);await ppRenderStudent(type==="event"?"events":type==="contact"?"contacts":type==="amenagement"?"amenagements":"actions")}catch(e){alert("Suppression impossible : "+e.message)}}
+function ppForm(title,fields,saveFn){const modal=ppModal(`<h2>${title}</h2><div class="editbox">${fields.join("")}</div><div class="row"><button type="button" onclick="ppCloseModal()">Annuler</button><button class="primary" type="button" onclick="${saveFn}">💾 Enregistrer</button></div>`);return modal}
+function ppAddEvent(){ppForm("＋ Ajouter un suivi",[`<label>Date</label><input id="ppx_date" type="date" value="${ppToday()}"><label>Type</label><select id="ppx_type">${ppSelectOptions([["observation","Observation"],["vigilance","Point de vigilance"],["rendez_vous","Rendez-vous"],["équipe","Équipe éducative"],["autre","Autre"]])}</select><label>Titre</label><input id="ppx_title" placeholder="Objet du suivi"><label>Contenu</label><textarea id="ppx_content" rows="7"></textarea>`],"ppSaveEvent()")}
+async function ppSaveEvent(){const s=ppStudentById(ppStudentId);try{await ppInsert(PP_TABLES.events,{eleve_id:String(s.id),classe:s.classe,date:ppx_date.value,type:ppx_type.value,titre:ppx_title.value.trim(),contenu:ppx_content.value.trim()});ppCloseModal();await ppRenderStudent("events")}catch(e){alert(e.message)}}
+function ppAddContact(){ppForm("＋ Contact famille",[`<label>Date</label><input id="ppx_date" type="date" value="${ppToday()}"><label>Type</label><select id="ppx_type">${ppSelectOptions([["téléphone","Téléphone"],["email","E-mail"],["rendez_vous","Rendez-vous"],["EcoleDirecte","EcoleDirecte"],["autre","Autre"]])}</select><label>Interlocuteur</label><input id="ppx_inter" placeholder="Parent, responsable légal…"><label>Motif</label><input id="ppx_title" placeholder="Motif du contact"><label>Compte rendu</label><textarea id="ppx_content" rows="6"></textarea><label>Suite à donner</label><textarea id="ppx_suite" rows="3"></textarea><label>Date de relance</label><input id="ppx_relance" type="date">`],"ppSaveContact()")}
+async function ppSaveContact(){const s=ppStudentById(ppStudentId);try{await ppInsert(PP_TABLES.contacts,{eleve_id:String(s.id),classe:s.classe,date:ppx_date.value,type:ppx_type.value,interlocuteur:ppx_inter.value.trim(),motif:ppx_title.value.trim(),compte_rendu:ppx_content.value.trim(),suite:ppx_suite.value.trim(),relance_date:ppx_relance.value||null});ppCloseModal();await ppRenderStudent("contacts")}catch(e){alert(e.message)}}
+function ppAddAmenagement(){ppForm("＋ Aménagement",[`<label>Type</label><select id="ppx_type">${ppSelectOptions([["PAP","PAP"],["PPS","PPS"],["PAI","PAI"],["ULIS","ULIS"],["autre","Autre"]])}</select><label>Date de mise en place</label><input id="ppx_date" type="date" value="${ppToday()}"><label>Description / adaptations</label><textarea id="ppx_content" rows="7" placeholder="Aménagements, adaptations, outils…"></textarea><label>Actif</label><select id="ppx_actif"><option value="true">Oui</option><option value="false">Non</option></select>`],"ppSaveAmenagement()")}
+async function ppSaveAmenagement(){const s=ppStudentById(ppStudentId);try{await ppInsert(PP_TABLES.amenagements,{eleve_id:String(s.id),classe:s.classe,date:ppx_date.value,type:ppx_type.value,description:ppx_content.value.trim(),actif:ppx_actif.value==="true"});ppCloseModal();await ppRenderStudent("amenagements")}catch(e){alert(e.message)}}
+function ppAddAction(){ppForm("＋ Action à mener",[`<label>Date</label><input id="ppx_date" type="date" value="${ppToday()}"><label>Action</label><input id="ppx_title" placeholder="Ex. contacter la famille, proposer un rendez-vous…"><label>Responsable</label><input id="ppx_resp" placeholder="PP, CPE, professeur…"><label>Échéance</label><input id="ppx_echeance" type="date"><label>Statut</label><select id="ppx_statut">${ppSelectOptions([["a_faire","À faire"],["en_cours","En cours"],["termine","Terminé"]])}</select><label>Notes</label><textarea id="ppx_content" rows="5"></textarea>`],"ppSaveAction()")}
+async function ppSaveAction(){const s=ppStudentById(ppStudentId);try{await ppInsert(PP_TABLES.actions,{eleve_id:String(s.id),classe:s.classe,date:ppx_date.value,action:ppx_title.value.trim(),responsable:ppx_resp.value.trim(),echeance:ppx_echeance.value||null,statut:ppx_statut.value,notes:ppx_content.value.trim()});ppCloseModal();await ppRenderStudent("actions")}catch(e){alert(e.message)}}
+async function openPPCouncil(){
+  if(!correctionAllowLeave())return;
+  saveEvalNav({view:"ppCouncil",classe:ppClass,period:ppPeriod});
+  if(!ppClass){alert("Sélectionne d'abord une classe dans le Suivi PP.");return;}
+  label.textContent=`Conseil de classe · ${ppClass}`;
+  content.innerHTML=`<button type="button" onclick="openPP()">← Suivi PP</button><section class="hero" style="margin-top:14px"><span class="eyebrow">${esc(ppClass)}</span><h2>📅 Conseil de classe</h2><p class="muted">Prépare les appréciations et les décisions pour chaque élève. Les textes restent modifiables avant le conseil.</p><div class="pp-toolbar"><div><label>Période</label><select id="ppCouncilPeriod"><option>T1</option><option>T2</option><option>T3</option></select></div></div></section><div id="ppCouncilBody"><p class="muted">Chargement…</p></div>`;
+  const per=document.getElementById("ppCouncilPeriod");per.value=ppPeriod==="year"?"T1":ppPeriod.toUpperCase();
+  try{const [students,rows]=await Promise.all([Promise.resolve(ppClassStudents()),ppLoadTable(PP_TABLES.conseils,null,ppClass)]);const period=per.value;const by=new Map(rows.filter(x=>String(x.periode).toUpperCase()===period).map(x=>[String(x.eleve_id),x]));document.getElementById("ppCouncilBody").innerHTML=`<section class="pp-section"><div class="entry-head"><div><h3>Appréciations de ${esc(period)}</h3><p class="small-note">Une ligne par élève. Enregistre la préparation quand elle est prête.</p></div><button class="primary" type="button" onclick="ppSaveCouncil()">💾 Enregistrer le conseil</button></div><div style="overflow:auto"><table class="data-table" style="width:100%"><thead><tr><th>Élève</th><th>Appréciation / synthèse</th><th>Décisions / suites</th></tr></thead><tbody>${students.map(s=>{const r=by.get(String(s.id))||{};return `<tr><td style="vertical-align:top"><strong>${esc(ppName(s))}</strong><div class="small-note">${esc(s.classe||"")}</div></td><td><textarea class="pp-council-app" data-id="${esc(s.id)}" rows="4" style="width:100%">${esc(r.appreciation||"")}</textarea></td><td><textarea class="pp-council-dec" data-id="${esc(s.id)}" rows="4" style="width:100%">${esc(r.decisions||"")}</textarea></td></tr>`}).join("")}</tbody></table></div></section>`;document.getElementById("ppCouncilPeriod").onchange=()=>{ppPeriod=document.getElementById("ppCouncilPeriod")?.value?.toLowerCase()||"t1";openPPCouncil();};}catch(e){document.getElementById("ppCouncilBody").innerHTML=`<section class="hero error"><p>${esc(e.message)}</p></section>`}
+}
+async function ppSaveCouncil(){if(!ppClass)return;const period=document.getElementById("ppCouncilPeriod")?.value||"T1";ppPeriod=String(period).toLowerCase();try{const apps=[...document.querySelectorAll(".pp-council-app")],decs=[...document.querySelectorAll(".pp-council-dec")];for(const a of apps){const d=decs.find(x=>x.dataset.id===a.dataset.id);const sid=a.dataset.id;const student=ppStudentById(sid);if(!student)continue;const appreciation=a.value.trim(),decisions=d?.value.trim()||"";const existing=(await sb.from(PP_TABLES.conseils).select("id").eq("eleve_id",String(sid)).eq("classe",student.classe).eq("periode",period).maybeSingle()).data;if(existing?.id){const {error}=await sb.from(PP_TABLES.conseils).update({appreciation,decisions,updated_at:new Date().toISOString()}).eq("id",existing.id);if(error)throw new Error(error.message)}else await ppInsert(PP_TABLES.conseils,{classe:student.classe,periode:period,eleve_id:String(sid),appreciation,decisions});}alert("Préparation du conseil enregistrée ✓");}catch(e){alert("Enregistrement impossible : "+e.message)}}
+async function init(){
+  /*
+    On installe le listener AUTH AVANT de vérifier
+    la session existante.
+    Ainsi, il fonctionne aussi lorsque l'utilisateur
+    arrive sur la page sans être encore connecté.
+  */
+  sb.auth.onAuthStateChange(async(event,session)=>{
+    console.log("AUTH EVENT :",event);
+    if(String(user?.id||'')!==String(session?.user?.id||''))localDraftStop(true);
+    user=session?.user ?? null;
+    if(event==="SIGNED_OUT" || !user){
+      logoutBtn.classList.add("hidden");
+      globalHome?.classList.remove("show");
+      login();
+      return;
+    }
+    /*
+      L'utilisateur vient de se connecter.
+      On affiche immédiatement l'espace professeur.
+    */
+    logoutBtn.classList.remove("hidden");
+    globalHome?.classList.add("show");
+    if (event === "SIGNED_IN") {
+  setTimeout(() => {
+    openProfSpaceIfMfaReady().catch(e => {
+      console.error("Vérification MFA après connexion impossible :", e);
+    });
+  }, 0);
+}
+  });
+  /*
+    Vérification de la session déjà existante.
+  */
+ await openProfSpaceIfMfaReady();
+}
+function login(){
+  label.textContent="Espace professeur";
+  content.innerHTML=`<section class="hero login"><span class="eyebrow">Espace sécurisé</span><h2>👨‍🏫 Espace professeur</h2><p class="muted">Connecte-toi pour gérer les évaluations et le suivi de tes élèves.</p><div class="editbox"><label>Email</label><input id="email" type="email" autocomplete="username" placeholder="ton adresse e-mail"><label>Mot de passe</label><input id="password" type="password" autocomplete="current-password" placeholder="Mot de passe"><button class="primary" style="width:100%;margin-top:5px" onclick="doLogin()">Se connecter</button><div id="loginStatus" class="status" style="margin-top:10px"></div></div></section>`;
+}
+async function doLogin(){
+  const email=
+    document.getElementById("email")?.value.trim() || "";
+  const password=
+    document.getElementById("password")?.value || "";
+  const status=
+    document.getElementById("loginStatus");
+  const button=
+    document.querySelector(".login button.primary");
+  if(!email || !password){
+    if(status){
+      status.textContent=
+        "Renseigne l'adresse e-mail et le mot de passe.";
+    }
+    return;
+  }
+  if(status){
+    status.textContent="Connexion…";
+  }
+  if(button){
+    button.disabled=true;
+  }
+  try{
+    const {data,error}=
+      await sb.auth.signInWithPassword({
+        email,
+        password
+      });
+    if(error){
+      throw new Error(error.message);
+    }
+    /*
+      Sécurité supplémentaire :
+      même si l'événement SIGNED_IN tarde à être traité,
+      on ouvre l'espace professeur directement.
+    */
+    user = data?.user ?? null;
+
+if (!user) {
+  throw new Error("Connexion réussie mais utilisateur non récupéré.");
+}
+
+if (status) status.textContent = "Vérification de la double validation…";
+
+await openProfSpaceIfMfaReady();
+  }catch(e){
+    console.error(
+      "Erreur de connexion :",
+      e
+    );
+    if(status){
+      status.textContent=
+        "Connexion impossible : " +
+        e.message;
+    }
+  }finally{
+    if(button){
+      button.disabled=false;
+    }
+  }
+}
+async function logout(){
+  if(!correctionAllowLeave())return;await sb.auth.signOut()}
+  function qcuEsc(v){
+  return String(v ?? "").replace(/[&<>"']/g, c => ({
+    "&":"&amp;", "<":"&lt;", ">":"&gt;",
+    '"':"&quot;", "'":"&#39;"
+  }[c]));
+}
+function qcuNote(correct, total){
+  return Math.round(Number(correct) / Number(total) * 2000) / 100;
+}
+async function openQCU(){
+  if(!correctionAllowLeave())return;
+  saveEvalNav({view:"qcu",qcuClass:"",qcuId:null});
+  label.textContent = "QCU – Mémorisation";
+  window.qcuSelectedClass = null;
+  content.innerHTML = `
+    <button onclick="home()">← Accueil</button>
+
+    <section class="hero" style="margin-top:14px">
+      <span class="eyebrow">Mémorisation active</span>
+      <h2>🧠 QCU – Mémorisation</h2>
+      <p class="muted">
+        Choisis une classe pour gérer ses QCU et consulter ses moyennes.
+      </p>
+    </section>
+
+    <div id="qcuList">Chargement…</div>
+    <div id="qcuDetail"></div>
+    <div id="qcuAverages"></div>
+  `;
+  await qcuLoad();
+}
+function qcuOpenClass(c){
+  saveEvalNav({view:"qcu",qcuClass:String(c||""),qcuId:null});
+  window.qcuSelectedClass = c;
+  const host = document.getElementById("qcuList");
+  if(!host) return;
+  host.innerHTML = `
+    <section class="hero">
+      <button onclick="qcuBackToClasses()">← Toutes les classes</button>
+      <h3 style="margin-top:12px">${qcuEsc(c)} — QCU de mémorisation</h3>
+
+      <h4>Créer un QCU</h4>
+      <input id="qcuClasse" type="hidden" value="${qcuEsc(c)}">
+
+      <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr))">
+        <label>Trimestre
+          <select id="qcuTrim">
+            <option value="1">Trimestre 1</option>
+            <option value="2">Trimestre 2</option>
+            <option value="3">Trimestre 3</option>
+          </select>
+        </label>
+
+        <label>Titre du QCU
+          <input id="qcuTitre" placeholder="Ex. Mémo 1 + 2">
+        </label>
+
+        <label>Nombre de questions
+          <input id="qcuTotal" type="number" min="1" step="1" value="20">
+        </label>
+
+        <label>Date
+          <input id="qcuDate" type="date" value="${new Date().toISOString().slice(0,10)}">
+        </label>
+      </div>
+
+      <button class="primary" onclick="qcuCreate()">＋ Créer le QCU</button>
+    </section>
+
+    <section class="hero">
+      <h3>QCU de ${qcuEsc(c)}</h3>
+      <div id="qcuClassItems"></div>
+    </section>
+  `;
+  qcuRenderClassItems();
+  qcuRenderAverages();
+}
+function qcuBackToClasses(){
+  saveEvalNav({view:"qcu",qcuClass:"",qcuId:null});
+  window.qcuSelectedClass = null;
+  document.getElementById("qcuDetail").innerHTML = "";
+  document.getElementById("qcuAverages").innerHTML = "";
+  qcuLoad();
+}
+function qcuRenderClassItems(){
+  const host = document.getElementById("qcuClassItems");
+  if(!host) return;
+  const items = (window.qcuItems || [])
+    .filter(q => q.classe === window.qcuSelectedClass);
+  if(!items.length){
+    host.innerHTML = '<p class="muted">Aucun QCU pour cette classe. Crée le premier ci-dessus.</p>';
+    return;
+  }
+  host.innerHTML = `
+    <div class="grid">
+      ${items.map(q => `
+        <article class="card">
+          <span class="tag">Trimestre ${q.trimestre}</span>
+          <h3>${qcuEsc(q.titre)}</h3>
+          <p class="muted">${qcuEsc(q.date_qcu)} · ${q.total_questions} questions</p>
+          <button class="primary" onclick="qcuOpen('${q.id}')">Saisir les scores</button>
+          <button onclick="qcuDelete('${q.id}')">Supprimer</button>
+        </article>
+      `).join("")}
+    </div>
+  `;
+}
+async function qcuLoad(){
+  const host = document.getElementById("qcuList");
+  if(!host) return;
+  const {data, error} = await sb
+    .from("qcu_memorisation")
+    .select("*")
+    .order("date_qcu", {ascending:false});
+  if(error){
+    host.innerHTML = `
+      <section class="hero">
+        <h3>Erreur de chargement</h3>
+        <p>${qcuEsc(error.message)}</p>
+      </section>`;
+    return;
+  }
+  window.qcuItems = data || [];
+  const {data:eleves, error:elevesError} = await sb
+    .from("Eleves")
+    .select("id,classe,nom,prenom");
+  window.qcuStudentsAll = elevesError ? [] : (eleves || []);
+  if(window.qcuSelectedClass){
+    qcuOpenClass(window.qcuSelectedClass);
+    return;
+  }
+  const classes = [...new Set([
+    ...Object.values(CLASSES).flat(),
+    ...window.qcuItems.map(q => q.classe)
+  ])].sort();
+  host.innerHTML = `
+    <section class="hero">
+      <h3>Choisir une classe</h3>
+      <div class="grid"
+        style="grid-template-columns:repeat(auto-fit,minmax(120px,1fr))">
+
+        ${classes.map(c => {
+          const n = window.qcuItems.filter(q => q.classe === c).length;
+
+          return `
+            <button class="card"
+              style="text-align:center;padding:20px"
+              onclick="qcuOpenClass('${qcuEsc(c)}')">
+
+              <strong style="font-size:1.15rem">
+                ${qcuEsc(c)}
+              </strong>
+
+              <p class="muted">
+                ${n} QCU
+              </p>
+            </button>`;
+        }).join("")}
+
+      </div>
+    </section>`;
+}
+async function qcuCreate(){
+  const classe = document.getElementById("qcuClasse").value;
+  const trimestre = Number(document.getElementById("qcuTrim").value);
+  const titre = document.getElementById("qcuTitre").value.trim();
+  const total_questions = Number(document.getElementById("qcuTotal").value);
+  const date_qcu = document.getElementById("qcuDate").value;
+  if(!titre || !Number.isInteger(total_questions) || total_questions < 1){
+    alert("Indique un titre et un nombre de questions valide.");
+    return;
+  }
+  const {data:{user:u}} = await sb.auth.getUser();
+  const {error} = await sb.from("qcu_memorisation").insert({
+    classe, trimestre, titre, total_questions, date_qcu,
+    resultats:{},
+    created_by:u?.id
+  });
+  if(error){
+    alert("Création impossible : " + error.message);
+    return;
+  }
+  document.getElementById("qcuTitre").value = "";
+  await qcuLoad();
+}
+async function qcuOpen(id){
+  const q = window.qcuItems.find(x => x.id === id);
+  if(!q) return;
+  window.qcuCurrent = q;
+  saveEvalNav({view:"qcu",qcuClass:String(q.classe||""),qcuId:q.id});
+  document.getElementById("qcuDetail").innerHTML = `
+    <section class="hero">
+      <h3>${qcuEsc(q.titre)} — ${qcuEsc(q.classe)}</h3>
+      <p class="muted">Trimestre ${q.trimestre} · ${q.total_questions} questions</p>
+      <input id="qcuSearch" placeholder="Rechercher un élève…" oninput="qcuFilter()">
+      <div style="overflow-x:auto">
+        <table>
+          <thead><tr>
+            <th>Élève</th>
+            <th>Bonnes réponses / ${q.total_questions}</th>
+            <th>Pourcentage</th>
+            <th>Note /20</th>
+          </tr></thead>
+          <tbody id="qcuRows"><tr><td colspan="4">Chargement…</td></tr></tbody>
+        </table>
+      </div>
+      <button class="primary" onclick="qcuSave()">Enregistrer les scores</button>
+      <button onclick="document.getElementById('qcuDetail').innerHTML='';window.qcuCurrent=null;saveEvalNav({qcuId:null})">Fermer</button>
+    </section>`;
+  const {data, error} = await sb.from("Eleves")
+    .select("id,classe,nom,prenom")
+    .eq("classe", q.classe)
+    .order("nom");
+  if(error){
+    document.getElementById("qcuRows").innerHTML =
+      `<tr><td colspan="4">${qcuEsc(error.message)}</td></tr>`;
+    return;
+  }
+  window.qcuCurrentStudents = data || [];
+  qcuDrawRows();
+}
+function qcuDrawRows(){
+  const q = window.qcuCurrent;
+  const host = document.getElementById("qcuRows");
+  if(!host || !q) return;
+  host.innerHTML = (window.qcuCurrentStudents || []).map(e => {
+    const v = q.resultats?.[e.id];
+    const n = v == null ? "" : Number(v);
+    return `<tr data-name="${qcuEsc((e.nom+" "+e.prenom).toLowerCase())}">
+      <td>${qcuEsc(e.nom+" "+e.prenom)}</td>
+      <td><input class="qcuScore" data-id="${e.id}"
+        type="number" min="0" max="${q.total_questions}" step="1"
+        value="${n}" style="width:100px" oninput="qcuPreview(this)"></td>
+      <td class="qcuPct">${n==="" ? "—" : (n/q.total_questions*100).toFixed(1)+" %"}</td>
+      <td class="qcuGrade">${n==="" ? "—" : qcuNote(n,q.total_questions).toFixed(2).replace(".",",")}</td>
+    </tr>`;
+  }).join("") || '<tr><td colspan="4">Aucun élève trouvé dans la table Eleves.</td></tr>';
+}
+function qcuPreview(input){
+  const q = window.qcuCurrent;
+  const tr = input.closest("tr");
+  const n = Number(input.value);
+  if(input.value === "" || !Number.isInteger(n) || n < 0 || n > q.total_questions){
+    tr.querySelector(".qcuPct").textContent = "—";
+    tr.querySelector(".qcuGrade").textContent = "—";
+    return;
+  }
+  tr.querySelector(".qcuPct").textContent =
+    (n/q.total_questions*100).toFixed(1)+" %";
+  tr.querySelector(".qcuGrade").textContent =
+    qcuNote(n,q.total_questions).toFixed(2).replace(".",",");
+}
+function qcuFilter(){
+  const v = (document.getElementById("qcuSearch")?.value || "").toLowerCase();
+  document.querySelectorAll("#qcuRows tr[data-name]").forEach(tr => {
+    tr.style.display = tr.dataset.name.includes(v) ? "" : "none";
+  });
+}
+async function qcuSave(){
+  const q = window.qcuCurrent;
+  if(!q) return;
+  const resultats = {...(q.resultats || {})};
+  let invalide = false;
+  document.querySelectorAll(".qcuScore").forEach(input => {
+    if(input.value === ""){
+      delete resultats[input.dataset.id];
+      return;
+    }
+    const n = Number(input.value);
+    if(!Number.isInteger(n) || n < 0 || n > q.total_questions){
+      invalide = true;
+    }else{
+      resultats[input.dataset.id] = n;
+    }
+  });
+  if(invalide){
+    alert("Chaque score doit être un entier compris entre 0 et "+q.total_questions+".");
+    return;
+  }
+  const {error} = await sb.from("qcu_memorisation")
+    .update({resultats})
+    .eq("id", q.id);
+  if(error){
+    alert("Enregistrement impossible : "+error.message);
+    return;
+  }
+  q.resultats = resultats;
+  alert("Scores enregistrés.");
+  qcuRenderAverages();
+}
+async function qcuDelete(id){
+  const q = window.qcuItems.find(x => x.id === id);
+  if(!q || !confirm("Supprimer ce QCU et tous ses scores ?")) return;
+  const {error} = await sb.from("qcu_memorisation").delete().eq("id", id);
+  if(error){
+    alert("Suppression impossible : "+error.message);
+    return;
+  }
+  document.getElementById("qcuDetail").innerHTML = "";
+  await qcuLoad();
+}
+function qcuRenderAverages(){
+  const host = document.getElementById("qcuAverages");
+  if(!host) return;
+  const c = window.qcuSelectedClass;
+  if(!c){
+    host.innerHTML = "";
+    return;
+  }
+  const items = (window.qcuItems || [])
+    .filter(q => q.classe === c);
+  if(!items.length){
+    host.innerHTML = "";
+    return;
+  }
+  host.innerHTML = `
+    <details class="hero">
+      <summary style="cursor:pointer;font-weight:700">
+        📊 Moyennes trimestrielles — ${qcuEsc(c)}
+      </summary>
+
+      <p class="muted">
+        Moyenne des notes sur 20.
+        Les QCU sans score pour un élève ne sont pas comptés.
+      </p>
+
+      <label>Trimestre
+        <select id="qcuAvgTrim" onchange="qcuDrawAverages()">
+          <option value="1">Trimestre 1</option>
+          <option value="2">Trimestre 2</option>
+          <option value="3">Trimestre 3</option>
+        </select>
+      </label>
+
+      <div id="qcuAvgRows"></div>
+    </details>
+  `;
+  qcuDrawAverages();
+}
+function qcuDrawAverages(){
+  const host = document.getElementById("qcuAvgRows");
+  if(!host) return;
+  const c = window.qcuSelectedClass;
+if(!c) return;
+  const t = Number(document.getElementById("qcuAvgTrim").value);
+  const qs = (window.qcuItems || []).filter(q =>
+    q.classe === c && Number(q.trimestre) === t
+  );
+  if(!qs.length){
+    host.innerHTML = '<p class="muted">Aucun QCU pour cette sélection.</p>';
+    return;
+  }
+  const eleves = (window.qcuStudentsAll || []).filter(e => e.classe === c);
+  const rows = eleves.map(e => {
+    const notes = qs.filter(q => q.resultats?.[e.id] !== undefined)
+      .map(q => qcuNote(q.resultats[e.id], q.total_questions));
+    return {
+      nom:e.nom+" "+e.prenom,
+      notes,
+      moyenne:notes.length ? notes.reduce((a,b)=>a+b,0)/notes.length : null
+    };
+  });
+  host.innerHTML = `<p>${qs.length} QCU dans ce trimestre.</p>
+    <div style="overflow-x:auto"><table>
+      <thead><tr><th>Élève</th><th>QCU notés</th><th>Moyenne /20</th></tr></thead>
+      <tbody>${rows.map(e => `<tr>
+        <td>${qcuEsc(e.nom)}</td>
+        <td>${e.notes.length} / ${qs.length}</td>
+        <td><strong>${e.moyenne===null ? "—" : e.moyenne.toFixed(2).replace(".",",")}</strong></td>
+      </tr>`).join("")}</tbody>
+    </table></div>`;
+}
+/* Accueil : tableau de bord de lecture, sans écriture en base */
+let pendingDashboardData=null;
+let pendingDashboardRequest=0;
+async function dashboardReadAll(table,columns){
+  const rows=[];let from=0;
+  while(true){
+    const q=await sb.from(table).select(columns).order('id').range(from,from+499);
+    if(q.error)throw new Error(q.error.message);
+    const page=q.data||[];rows.push(...page);
+    if(page.length<500)break;from+=500;
+  }
+  return rows;
+}
+const ABSENCE_TABLE='EvaluationAbsences';
+const SUBJECT_ASSIGNMENT_TABLE='EvaluationSubjectAssignments';
+function isAdaptedSubjectTitle(title){
+  return /sujet\\s+am[eé]nag[eé]/i.test(String(title||""));
+}
+async function filterRosterForAssignedSubject(ev, classe, roster, members=[]){
+  // Sans attribution enregistrée pour ce travail, conserver le fonctionnement habituel.
+  const chapter=Number(ev.chapitre||0);
+  if(!chapter || isHistoricalEvaluation(ev))return roster;
+  const workId=String(ev.evaluationGroupId||`evaluation_${ev.id}`);
+  const q=await sb.from(SUBJECT_ASSIGNMENT_TABLE)
+    .select("eleve_id,evaluation_id,travail_id,classe,chapitre")
+    .eq("classe",classe)
+    .eq("chapitre",chapter)
+    .eq("travail_id",workId);
+  if(q.error)throw new Error("Impossible de lire les attributions des sujets : "+q.error.message);
+  const assignments=q.data||[];
+  if(!assignments.length)return roster;
+  const assignedByStudent=new Map(assignments.map(a=>[String(a.eleve_id),String(a.evaluation_id)]));
+  const adapted=isAdaptedSubjectTitle(ev.titre);
+  const defaultSubject=(members.length?members:[ev])
+    .filter(subject=>!isAdaptedSubjectTitle(subject.titre))
+    .slice()
+    .sort((a,b)=>Number(a.id)-Number(b.id))[0];
+  return roster.filter(student=>{
+    const assigned=assignedByStudent.get(String(student.id));
+    if(assigned)return assigned===String(ev.id);
+    // Sans attribution explicite, l'élève reste sur une seule version par défaut.
+    return !adapted && String(defaultSubject?.id||ev.id)===String(ev.id);
+  });
+}
+function evaluationScopeKey(ev){
+  // Une copie est rattachée au travail précis : les versions ne sont réunies
+  // que si elles partagent explicitement le même evaluationGroupId.
+  return ev.evaluationGroupId?'group:'+ev.evaluationGroupId:'evaluation:'+ev.id;
+}
+function evaluationScopeMembers(ev,evaluations,classe){return evaluations.map(evalNormalize).filter(e=>evaluationScopeKey(e)===evaluationScopeKey(ev)&&evaluationAppliesToClass(e,classe));}
+function absenceMatches(a,ev,members,classe){return String(a.classe)===String(classe)&&(a.scope_key===evaluationScopeKey(ev)||members.some(e=>String(a.evaluation_id)===String(e.id)||(e.evaluationGroupId&&a.scope_key==='group:'+e.evaluationGroupId)));}
+function evaluationStudentStatus(rows){
+  const rank={non_evalue:3,absent:2,rattrapage:1};
+  const ordered=rows.filter(a=>rank[a.statut]).slice().sort((a,b)=>String(b.updated_at||b.created_at||'').localeCompare(String(a.updated_at||a.created_at||''))||(rank[b.statut]-rank[a.statut]));
+  return ordered[0]?.statut||'';
+}
+function scopeStudentSummary(ev,members,roster,corrections,absences,classe){
+  const ids=new Set(members.map(e=>String(e.id)));
+  const report=buildIndicatorReport(ev,roster,corrections.filter(c=>ids.has(String(c.evaluation_id))));
+  const missingIds=new Set(report.missing.map(st=>String(st.id)));
+  const missing=[],absent=[],notEvaluated=[],retake=[],conflicts=[];
+  roster.forEach(st=>{
+    const matches=absences.filter(a=>String(a.eleve_id)===String(st.id)&&absenceMatches(a,ev,members,classe));
+    if(!missingIds.has(String(st.id))){if(matches.length)conflicts.push(st);return;}
+    const status=evaluationStudentStatus(matches);
+    if(status==='rattrapage')retake.push(st);else if(status==='non_evalue')notEvaluated.push(st);else if(status==='absent')absent.push(st);else missing.push(st);
+  });return {done:report.corrected,missing,absent,notEvaluated,retake,conflicts};
+}
+let absencePanelContext=null,absenceWriteBusy=false;
+async function openEvaluationAbsences(evalId,classe){
+  if(!correctionAllowLeave())return;
+  classe=String(classe||loadEvalNav().classe||'').trim();if(!classe){alert('Sélectionne une classe.');return;}
+  document.getElementById('absenceDialog')?.remove();
+  const dialog=document.createElement('div');dialog.id='absenceDialog';dialog.className='pp-modal';
+  dialog.innerHTML=`<div class="pp-modal-card"><button type="button" onclick="document.getElementById('absenceDialog')?.remove()">Fermer</button><div id="absenceBody" role="status">Chargement…</div></div>`;document.body.appendChild(dialog);
+  try{
+    const [evaluations,students,corrections,absences]=await Promise.all([dashboardReadAll('Evaluations','id,titre,classe,total,criteres,exercices,created_at'),dashboardReadAll('Eleves','id,classe,nom,prenom'),dashboardReadAll('EvaluationCorrections','id,evaluation_id,eleve,eleve_id,resultat,created_at'),dashboardReadAll(ABSENCE_TABLE,'*')]);
+    const ev=evaluations.map(evalNormalize).find(e=>String(e.id)===String(evalId));if(!ev)throw new Error('Évaluation introuvable.');
+    const members=evaluationScopeMembers(ev,evaluations,classe),roster=sortStudents(students.filter(st=>String(st.classe).trim()===classe));
+    absencePanelContext={ev,members,roster,classe};
+    const summary=scopeStudentSummary(ev,members,roster,corrections,absences,classe);
+    const corrected=new Set(roster.filter(st=>![...summary.missing,...summary.absent,...summary.notEvaluated,...summary.retake].some(x=>String(x.id)===String(st.id))).map(st=>String(st.id)));
+    const host=document.getElementById('absenceBody');if(!host)return;
+    host.innerHTML=`<h2>Statuts des élèves — ${esc(classe)} — ${evaluationScopeKey(ev).startsWith('chapter:')?'Chapitre '+esc(ev.chapitre):esc(ev.titre)}</h2><p>Un statut commun à ${members.length} sujet(s), sans création de note. Absent et Non évalué clôturent la situation ; seul Rattrapage à prévoir reste à terminer.</p><div id="absenceSaveMessage" role="status"></div>${roster.map(st=>{
+      const rows=absences.filter(a=>String(a.eleve_id)===String(st.id)&&absenceMatches(a,ev,members,classe));
+      const savedStatus=evaluationStudentStatus(rows);
+      const status=savedStatus==='rattrapage'?'Rattrapage à prévoir':savedStatus==='non_evalue'?'Non évalué — terminé':savedStatus==='absent'?'Absent — terminé':'Sans correction enregistrée';
+      return `<div class="pending-row" data-absence-student="${esc(st.id)}"><strong>${esc(studentDisplayName(st))}</strong><p>${corrected.has(String(st.id))?'Corrigé'+(rows.length?' — ancien statut à annuler':''):status}</p>${!corrected.has(String(st.id))?`<button type="button" onclick="setEvaluationAbsence(${jsArg(st.id)},'absent')">Absent</button> <button type="button" onclick="setEvaluationAbsence(${jsArg(st.id)},'non_evalue')">NON ÉVALUÉ</button> <button type="button" onclick="setEvaluationAbsence(${jsArg(st.id)},'rattrapage')">Rattrapage à prévoir</button>`:''}${rows.length?` <button type="button" onclick="setEvaluationAbsence(${jsArg(st.id)},'')">Annuler le statut</button>`:''}</div>`;
+    }).join('')}`;
+  }catch(e){const host=document.getElementById('absenceBody');if(host)host.innerHTML='<p role="alert">Absences indisponibles : '+esc(e.message)+'</p>';}
+}
+async function setEvaluationAbsence(studentId,status){
+  if(absenceWriteBusy||!absencePanelContext)return;
+  const ctx=absencePanelContext,st=ctx.roster.find(s=>String(s.id)===String(studentId));if(!st)return;
+  if(!['','absent','non_evalue','rattrapage'].includes(status))return;
+  if(!confirm((status?'Enregistrer '+(status==='absent'?'Absent — terminé':status==='non_evalue'?'Non évalué — terminé':'Rattrapage à prévoir'):'Annuler le statut')+' pour '+studentDisplayName(st)+' sur tous les sujets de cette évaluation ?'))return;
+  absenceWriteBusy=true;document.querySelectorAll('#absenceDialog button').forEach(b=>b.disabled=true);
+  try{
+    if(!user?.id)throw new Error('Reconnecte-toi pour enregistrer.');
+    if(status){
+      const q=await sb.from('EvaluationCorrections').select('id,evaluation_id,eleve,eleve_id,resultat,created_at').in('evaluation_id',ctx.members.map(e=>e.id));if(q.error)throw new Error(q.error.message);
+      if(buildIndicatorReport(ctx.ev,[st],q.data||[]).corrected)throw new Error('Une correction existe déjà sur un sujet : aucun statut ajouté.');
+      const payload={created_by:user.id,scope_key:evaluationScopeKey(ctx.ev),evaluation_id:String(ctx.ev.id),classe:ctx.classe,eleve_id:String(st.id),statut:status,updated_at:new Date().toISOString()};
+      const r=await sb.from(ABSENCE_TABLE).upsert(payload,{onConflict:'created_by,scope_key,classe,eleve_id'}).select('id').single();if(r.error)throw new Error(r.error.message);if(!r.data?.id)throw new Error('Sauvegarde non confirmée.');
+      // Remove obsolete per-subject/group statuses only after the new status is confirmed.
+      const all=await dashboardReadAll(ABSENCE_TABLE,'*');
+      const old=all.filter(a=>String(a.eleve_id)===String(st.id)&&a.id!==r.data.id&&absenceMatches(a,ctx.ev,ctx.members,ctx.classe)).map(a=>a.id);
+      if(old.length){const clean=await sb.from(ABSENCE_TABLE).delete().in('id',old);if(clean.error)throw new Error('Statut enregistré, nettoyage des anciens statuts impossible : '+clean.error.message);}
+    }else{
+      const all=await dashboardReadAll(ABSENCE_TABLE,'*');const ids=all.filter(a=>String(a.eleve_id)===String(st.id)&&absenceMatches(a,ctx.ev,ctx.members,ctx.classe)).map(a=>a.id);
+      if(ids.length){const r=await sb.from(ABSENCE_TABLE).delete().in('id',ids);if(r.error)throw new Error(r.error.message);}
+    }
+    await openEvaluationAbsences(ctx.ev.id,ctx.classe);if(document.getElementById('pendingDashboard'))await loadPendingDashboard();
+    if(document.getElementById('copiesBoard'))await copiesBoardRefresh();
+  }catch(e){const host=document.getElementById('absenceSaveMessage');if(host)host.textContent=e.message;}
+  finally{absenceWriteBusy=false;document.querySelectorAll('#absenceDialog button').forEach(b=>b.disabled=false);}
+}
+async function correctionCheckAbsences(ctx){
+  const [evaluations,absences]=await Promise.all([dashboardReadAll('Evaluations','id,titre,classe,total,criteres,exercices,created_at'),dashboardReadAll(ABSENCE_TABLE,'*')]);
+  const ev=evaluations.map(evalNormalize).find(e=>String(e.id)===String(ctx.evalId));if(!ev)throw new Error('Évaluation introuvable.');
+  const members=evaluationScopeMembers(ev,evaluations,ctx.classe),ids=(ctx.groupIds.length>1?ctx.groupIds:[ctx.eleveId]).map(String);
+  if(absences.some(a=>ids.includes(String(a.eleve_id))&&absenceMatches(a,ev,members,ctx.classe)))throw new Error('Annule le statut Absent, Non évalué ou Rattrapage à prévoir avant d’enregistrer cette correction.');
+}
+function dashboardBuild(data,selectedClass=''){
+  const students=data.students||[];
+  const classes=[...new Set(students.map(st=>String(st.classe||'').trim()).filter(Boolean))];
+  const evalRows=[],seen=new Set();
+  const evaluations=(data.evaluations||[]).map(evalNormalize);
+  for(const ev of evaluations){
+    for(const cls of classes.filter(c=>(!selectedClass||selectedClass===c)&&evaluationAppliesToClass(ev,c))){
+      const key=JSON.stringify([cls,evaluationScopeKey(ev)]);if(seen.has(key))continue;seen.add(key);
+      const members=evaluationScopeMembers(ev,evaluations,cls),roster=students.filter(st=>String(st.classe||'').trim()===cls);
+      const summary=scopeStudentSummary(ev,members,roster,data.corrections||[],data.absences||[],cls);
+      if(summary.missing.length||summary.retake.length)evalRows.push({id:ev.id,title:evaluationScopeKey(ev).startsWith('chapter:')?'Évaluation du chapitre '+ev.chapitre+' — '+members.length+' sujet(s)':ev.titre,classe:cls,total:roster.length,members,...summary});
+    }
+  }
+  const qcuRows=[];
+  for(const q of data.qcu||[]){
+    const cls=String(q.classe||'').trim();if(selectedClass&&selectedClass!==cls)continue;
+    const roster=students.filter(st=>String(st.classe||'').trim()===cls);if(!roster.length)continue;
+    let done=0,invalid=0;const missing=[];
+    roster.forEach(st=>{
+      const v=q.resultats?.[st.id];
+      if(v===null||v===undefined||String(v).trim()===''){missing.push(st);return;}
+      const score=Number(v);
+      if((typeof v==='number'||typeof v==='string')&&Number.isInteger(score)&&score>=0&&score<=Number(q.total_questions)){done++;}
+      else{invalid++;missing.push(st);}
+    });
+    if(missing.length)qcuRows.push({id:q.id,title:q.titre||'QCU',classe:cls,total:roster.length,done,invalid,missing,trimestre:q.trimestre});
+  }
+  const byId=new Map(students.map(st=>[String(st.id),st]));
+  const today=ppToday();
+  const actions=(data.actions||[]).filter(a=>{
+    const st=byId.get(String(a.eleve_id));const cls=String(a.classe||st?.classe||'').trim();
+    return cls==='6e3'&&(!selectedClass||selectedClass===cls)&&String(a.statut||'').toLowerCase()!=='termine';
+  }).map(a=>{
+    const student=byId.get(String(a.eleve_id));const due=String(a.echeance||'').slice(0,10);
+    const dateValid=/^\d{4}-\d{2}-\d{2}$/.test(due);
+    return {...a,student,due:dateValid?due:'',timing:!dateValid?'Sans échéance':due<today?'Échéance dépassée':due===today?'À échéance aujourd’hui':'À venir'};
+  }).sort((a,b)=>(a.due||'9999').localeCompare(b.due||'9999'));
+  return {evalRows,qcuRows,actions};
+}
+async function loadPendingDashboard(){
+  const host=document.getElementById('pendingDashboard');if(!host)return;
+  const request=++pendingDashboardRequest;
+  host.innerHTML='<p role="status">Chargement des éléments à terminer…</p>';
+  const jobs=[['students','Eleves','id,classe,nom,prenom'],['evaluations','Evaluations','id,titre,classe,total,criteres,exercices,created_at'],['corrections','EvaluationCorrections','id,evaluation_id,eleve,eleve_id,resultat,created_at'],['qcu','qcu_memorisation','id,titre,classe,trimestre,total_questions,resultats'],['actions',PP_TABLES.actions,'*'],['absences',ABSENCE_TABLE,'*']];
+  const results=await Promise.allSettled(jobs.map(([,table,columns])=>dashboardReadAll(table,columns)));
+  if(request!==pendingDashboardRequest || document.getElementById('pendingDashboard')!==host)return;
+  const data={errors:{}};
+  results.forEach((r,i)=>{const key=jobs[i][0];if(r.status==='fulfilled')data[key]=r.value;else{data[key]=[];data.errors[key]=r.reason?.message||String(r.reason);}});
+  pendingDashboardData=data;renderPendingDashboard();
+}
+function dashboardNames(students){return `<details><summary style="cursor:pointer">${students.length} élève(s) concerné(s)</summary>${indicatorStudentList(students)}</details>`;}
+function renderPendingDashboard(){
+  const host=document.getElementById('pendingDashboard'),data=pendingDashboardData;if(!host||!data)return;
+  if(data.errors.students){host.innerHTML=`<p role="alert">Liste des élèves indisponible : ${esc(data.errors.students)}</p><button type="button" onclick="loadPendingDashboard()">Réessayer</button>`;return;}
+  let cls='';try{cls=localStorage.getItem('SVT_PENDING_CLASS')||'';}catch(e){}
+  const classes=[...new Set((data.students||[]).map(st=>String(st.classe||'').trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'fr',{numeric:true}));
+  if(!classes.includes(cls))cls='';
+  const summary=dashboardBuild(data,cls);
+  const errors=data.errors;
+  const error=(keys)=>keys.filter(k=>errors[k]).map(k=>`<p role="alert" style="color:#9d3030">Chargement incomplet : ${esc(errors[k])}. Ce bloc ne peut pas être calculé.</p>`).join('');
+  const evalHtml=summary.evalRows.map(r=>`<div class="pending-row"><strong>${esc(r.classe)} — ${esc(r.title)}</strong><p>${r.done} corrigé(s) · ${r.absent.length} absent(s) · ${r.notEvaluated.length} non évalué(s) · ${r.retake.length} rattrapage(s) · ${r.missing.length} sans correction enregistrée — ${r.total} élèves.</p>${dashboardNames(r.missing)}${r.absent.length?`<details><summary>Absents (${r.absent.length})</summary>${indicatorStudentList(r.absent)}</details>`:''}${r.notEvaluated.length?`<details><summary>Non évalués (${r.notEvaluated.length})</summary>${indicatorStudentList(r.notEvaluated)}</details>`:''}${r.retake.length?`<details><summary>Rattrapages à prévoir (${r.retake.length})</summary>${indicatorStudentList(r.retake)}</details>`:''}${r.conflicts.length?`<p role="alert">${r.conflicts.length} élève(s) corrigés ont aussi une absence : annule les anciens statuts concernés.</p>`:''}<div class="row">${r.members.map(e=>`<button type="button" onclick="openCorrection(${jsArg(e.id)},${jsArg(r.classe)})">${esc(e.titre)}</button>`).join('')}<button type="button" onclick="openEvaluationAbsences(${jsArg(r.id)},${jsArg(r.classe)})">Absences / non évalués</button></div></div>`).join('');
+  const qcuHtml=summary.qcuRows.map(r=>`<div class="pending-row"><strong>${esc(r.classe)} — ${esc(r.title)}</strong><p>Trimestre ${esc(r.trimestre)} · ${r.done} / ${r.total} scores valides · ${r.missing.length-r.invalid} non renseigné(s)${r.invalid?' · '+r.invalid+' à vérifier':''}.</p>${dashboardNames(r.missing)}<button type="button" onclick="dashboardResumeQCU(${jsArg(r.id)},${jsArg(r.classe)})">Saisir les scores</button></div>`).join('');
+  const ppHtml=summary.actions.map(a=>`<div class="pending-row"><strong>${esc(a.action||'Action PP')}</strong><p>${a.student?esc(studentDisplayName(a.student)):'Élève non retrouvé'} · ${esc(a.timing)}${a.due?' — '+esc(a.due.split('-').reverse().join('/')):''}</p>${a.student?`<button type="button" onclick="dashboardResumePP(${jsArg(a.student.id)})">Ouvrir les actions de l’élève</button>`:''}</div>`).join('');
+  host.innerHTML=`<div class="entry-head"><div><span class="eyebrow">Reprendre le travail</span><h2 style="margin:5px 0">À terminer</h2></div><button type="button" onclick="loadPendingDashboard()">Actualiser</button></div>
+    <label for="pendingClass" style="display:block;margin:12px 0 6px">Classe</label><select id="pendingClass" style="max-width:280px" onchange="try{localStorage.setItem('SVT_PENDING_CLASS',this.value)}catch(e){};renderPendingDashboard()"><option value="">Toutes les classes</option>${classes.map(c=>`<option value="${esc(c)}" ${c===cls?'selected':''}>${esc(c)}</option>`).join('')}</select>
+    <p class="small-note">Vue des données enregistrées, avec les effectifs actuels. Une correction ou un score manquant ne signifie pas que l’élève est en retard ou absent. Un score de zéro est compté comme renseigné.</p>
+    <details open class="pending-category"><summary>Évaluations${!errors.evaluations&&!errors.corrections&&!errors.absences?' — '+summary.evalRows.length+' à compléter':''}</summary>${error(['evaluations','corrections','absences'])}${errors.evaluations||errors.corrections||errors.absences?'':evalHtml||'<p>Aucune correction manquante pour les classes affichées.</p>'}</details>
+    <details class="pending-category"><summary>QCU${!errors.qcu?' — '+summary.qcuRows.length+' à compléter':''}</summary>${error(['qcu'])}${errors.qcu?'':qcuHtml||'<p>Aucun score manquant pour les classes affichées.</p>'}</details>
+    <details class="pending-category"><summary>Suivi PP — actions ouvertes (6e3)${!errors.actions?' : '+summary.actions.length:''}</summary>${error(['actions'])}${errors.actions?'':ppHtml||'<p>Aucune action ouverte pour la sélection.</p>'}</details>`;
+}
+async function dashboardResumeQCU(id,classe){
+  try{await openQCU();qcuOpenClass(classe);const q=(window.qcuItems||[]).find(q=>String(q.id)===String(id));if(!q)throw new Error('QCU introuvable.');await qcuOpen(q.id);}catch(e){alert('Ouverture du QCU impossible : '+e.message);}
+}
+async function dashboardResumePP(id){
+  try{await ppLoadStudents();await openPPStudent(id);await ppRenderStudent('actions');}catch(e){alert('Ouverture du suivi PP impossible : '+e.message);}
+}
+let behaviorTrackingStudentId='';
+async function openBehaviorTracking(classe,studentId,period){
+  if(!correctionAllowLeave())return;
+  if(classe!==undefined)classTrackingClass=String(classe||'');
+  if(studentId!==undefined)behaviorTrackingStudentId=String(studentId||'');
+  if(period!==undefined)classTrackingPeriod=String(period||'year');
+  saveEvalNav({view:'behaviorTracking',classe:classTrackingClass,studentId:behaviorTrackingStudentId,period:classTrackingPeriod});
+  label.textContent='Suivi du comportement';
+  content.innerHTML='<p role="status">Chargement des élèves et des observations…</p>';
+  try{await loadBehaviorStudents();await loadBehaviorEvents();renderBehaviorTracking();}catch(e){showError(e.message);}
+}
+function renderBehaviorTracking(){
+  if(loadEvalNav().view!=='behaviorTracking')return;
+  label.textContent='Suivi du comportement';
+  const classes=[...new Set([...Object.values(CLASSES).flat(),...behaviorStudentsCache.map(st=>st.classe),...behaviorEventsCache.map(e=>e.classe)].map(c=>String(c||'').trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'fr',{numeric:true}));
+  const roster=behaviorStudentsForClass(classTrackingClass);
+  if(behaviorTrackingStudentId&&!roster.some(st=>String(st.id)===behaviorTrackingStudentId))behaviorTrackingStudentId='';
+  saveEvalNav({view:'behaviorTracking',classe:classTrackingClass,studentId:behaviorTrackingStudentId,period:classTrackingPeriod});
+  const visible=behaviorTrackingStudentId?roster.filter(st=>String(st.id)===behaviorTrackingStudentId):roster;
+  const events=behaviorEventsCache.filter(e=>(!classTrackingClass||String(e.classe)===classTrackingClass)&&(!behaviorTrackingStudentId||String(e.studentId)===behaviorTrackingStudentId)&&(classTrackingPeriod==='year'||trackingPeriodMatch(e.date,classTrackingPeriod))).slice().sort((a,b)=>new Date(b.date)-new Date(a.date));
+  const rosterRows=visible.map(st=>`<label class="behavior-roster-row" style="display:flex;gap:10px;align-items:center;padding:10px;border-bottom:1px solid #ddd"><input type="checkbox" class="behavior-student-check" value="${esc(st.id)}"><strong>${esc(st.nom)}</strong><span class="small-note">${behaviorEventsForStudent(st.nom,st.classe,classTrackingPeriod,st.id).length} observation(s)</span></label>`).join('');
+  content.innerHTML=`<button type="button" onclick="home()">← Accueil</button>
+    <section class="hero" style="margin-top:14px"><span class="eyebrow">Travail et comportement</span><h2>📝 Suivi du comportement</h2><p class="muted">Choisis une classe, puis sélectionne un ou plusieurs élèves pour enregistrer une observation. Ce suivi est distinct des notes.</p>
+    <div class="tracking-filters"><div><label for="behaviorClass">Classe</label><select id="behaviorClass" onchange="classTrackingClass=this.value;behaviorTrackingStudentId='';renderBehaviorTracking()"><option value="">Choisir une classe…</option>${classes.map(c=>`<option value="${esc(c)}" ${c===classTrackingClass?'selected':''}>${esc(c)}</option>`).join('')}</select></div>
+    <div><label for="behaviorStudent">Élève — filtre facultatif</label><select id="behaviorStudent" onchange="behaviorTrackingStudentId=this.value;renderBehaviorTracking()"><option value="">Toute la classe</option>${roster.map(st=>`<option value="${esc(st.id)}" ${String(st.id)===behaviorTrackingStudentId?'selected':''}>${esc(st.nom)}</option>`).join('')}</select></div>
+    <div><label for="behaviorPeriod">Période</label><select id="behaviorPeriod" onchange="classTrackingPeriod=this.value;renderBehaviorTracking()">${[['year','Année'],['t1','Trimestre 1'],['t2','Trimestre 2'],['t3','Trimestre 3']].map(([v,n])=>`<option value="${v}" ${v===classTrackingPeriod?'selected':''}>${n}</option>`).join('')}</select></div></div></section>
+    <section class="hero" style="margin-top:14px"><h3>Enregistrer une observation</h3><p class="small-note">Coche les élèves concernés avant de choisir le type d’observation.</p><div class="row"><button type="button" onclick="toggleAllBehaviorStudents(true)">Tout sélectionner</button><button type="button" onclick="toggleAllBehaviorStudents(false)">Tout désélectionner</button></div>
+    <div class="behavior-actions" style="display:flex;flex-wrap:wrap;gap:8px;margin:12px 0">${BEHAVIOR_TYPES.map(m=>`<button type="button" ${!visible.length?'disabled':''} onclick="addBehaviorEventToSelected(${jsArg(m.code)})">${m.icon} ${esc(m.label)}</button>`).join('')}</div>
+    ${rosterRows||'<p class="muted">Sélectionne une classe disposant d’élèves enregistrés.</p>'}</section>
+    <section class="hero" style="margin-top:14px"><h3>Historique — ${events.length} observation(s)</h3>${events.map(e=>{
+      const meta=behaviorMeta(e.type),st=behaviorStudentsCache.find(st=>String(st.id)===String(e.studentId));
+      return `<div class="behavior-event"><div><strong>${esc(st?.nom||e.student||'Élève')} · ${esc(e.classe)} — ${meta.icon} ${esc(meta.label)}</strong><div class="meta">${esc(trackingDate(e.date))}${e.note?' · '+esc(e.note):''}</div></div><button type="button" class="danger" onclick="deleteBehaviorEvent(${jsArg(e.id)})">Supprimer</button></div>`;
+    }).join('')||'<p class="muted">Aucune observation pour cette sélection.</p>'}</section>`;
+}
+function naturalistIcon(name){
+  const paths={"openEvaluations": "<path d=\"M4 4h6a3 3 0 0 1 3 3v14a4 4 0 0 0-4-3H4zM13 7a3 3 0 0 1 3-3h5v14h-5a3 3 0 0 0-3 3\"/>", "openQCU": "<path d=\"M9 4a3 3 0 0 0-5 3 4 4 0 0 0-1 7 4 4 0 0 0 6 5V4zm6 0a3 3 0 0 1 5 3 4 4 0 0 1 1 7 4 4 0 0 1-6 5V4zM6 9h3M15 14h3\"/>", "openStudentTracking": "<circle cx=\"12\" cy=\"7\" r=\"3\"/><path d=\"M5 21v-2a7 7 0 0 1 14 0v2\"/>", "openClassTracking": "<circle cx=\"9\" cy=\"7\" r=\"3\"/><path d=\"M2 21v-2a7 7 0 0 1 14 0v2M17 4a3 3 0 0 1 0 6M18 14a6 6 0 0 1 4 5v2\"/>", "openBehaviorTracking": "<path d=\"M5 20C1 7 9 2 21 3c0 12-5 18-16 17zM5 20L17 7M10 15v-5M10 15h5\"/>", "openPP": "<rect x=\"5\" y=\"5\" width=\"14\" height=\"16\" rx=\"2\"/><rect x=\"9\" y=\"3\" width=\"6\" height=\"4\" rx=\"1\"/><path d=\"M9 12h6M9 16h6\"/>", "openBanks": "<path d=\"M3 9l9-6 9 6M5 10v9M12 10v9M19 10v9M3 21h18\"/>"};
+  return '<span class="natural-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">'+(paths[name]||paths.openBehaviorTracking)+'</svg></span>';
+}
+function openNotebookEditor(){
+  if(window.__savingCorrection){alert("Enregistrement en cours. Attends sa fin avant d’ouvrir le cahier.");return false;}
+  if(!correctionAllowLeave())return false;
+  window.location.href='prof.html';
+  return true;
+}
+async function home(){
+  if(!correctionAllowLeave())return;
+  saveEvalNav({view:'home'});label.textContent='Évaluations et suivi';
+  const card=(fn,tag,title,description)=>`<article class="card"><span class="tag">${tag}</span><h3 class="natural-card-title">${naturalistIcon(fn)}<span>${title.replace(/^\S+\s+/,'')}</span></h3><p class="muted">${description}</p><button type="button" class="primary" onclick="${fn}()">Ouvrir</button></article>`;
+  content.innerHTML=`<section class="hero home-intro natural-welcome"><div class="welcome-copy"><span class="eyebrow">SVT · Espace professeur</span><h2>Évaluations et suivi des élèves</h2><p class="muted">Tes outils pour évaluer les acquis, observer les progrès et accompagner chaque élève.</p><p class="welcome-caption">Observer · Comprendre · Transmettre</p></div><figure class="welcome-emblem" aria-hidden="true"><img src="data:image/webp;base64,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" alt="" width="144" height="144" decoding="async"></figure></section>
+  <section aria-labelledby="homeEvaluate"><h2 id="homeEvaluate">Évaluer</h2><div class="grid">
+  ${card('openEvaluations','Évaluations','📝 Mes évaluations','Chapitres, sujets, corrections, absences et élèves non évalués.')}
+  ${card('openQCU','Mémorisation','🧠 QCU – Mémorisation','Saisir les scores et consulter les résultats trimestriels.')}</div></section>
+  <section aria-labelledby="homeFollow" style="margin-top:24px"><h2 id="homeFollow">Suivre</h2><div class="grid">
+  ${card('openStudentTracking','Suivi individuel','👤 Suivi d’un élève','Résultats, compétences, progression et historique des évaluations.')}
+  ${card('openClassTracking','Suivi collectif','🏫 Suivi de classe','Moyennes, résultats et maîtrise des compétences de la classe.')}
+  ${card('openBehaviorTracking','Observations','📝 Suivi du comportement','Observations individuelles ou collectives et historique par période.')}
+  ${card('openPP','Professeur principal','📋 Suivi PP','Familles, aménagements, actions et conseils de classe.')}</div></section>
+  <section aria-labelledby="homeManage" style="margin-top:24px"><h2 id="homeManage">Gérer</h2><div class="grid">
+  ${card('openBanks','Banques','👥 Élèves & compétences','Gérer les élèves, leurs classes et le référentiel de compétences.')}</div></section>
+  <section class="hero" id="pendingDashboard" style="margin-top:24px"></section>`;
+  await loadPendingDashboard();
+}
+async function restoreLastPosition(){
+  if(!correctionAllowLeave())return;
+  try{
+    const en=JSON.parse(localStorage.getItem(EVAL_NAV_KEY)||"null");
+    if(en?.view){
+      if(en.view==='behaviorTracking'){await openBehaviorTracking(en.classe||'',en.studentId||'',en.period||'year');return;}
+      if(en.view==="indicatorReport"&&en.evaluationId){await openIndicatorReport(en.evaluationId,en.classe||"");return;}
+      if(en.view==="home"){await home();return;}
+      if(en.view==="banks"){await openBanks();return;}
+      if(en.view==="qcu"){
+        await openQCU();
+        if(en.qcuClass)qcuOpenClass(en.qcuClass);
+        if(en.qcuId){const item=(window.qcuItems||[]).find(q=>String(q.id)===String(en.qcuId));if(item)await qcuOpen(item.id);}
+        const trim=document.getElementById("qcuAvgTrim");
+        if(trim && en.qcuAvgTrim){trim.value=en.qcuAvgTrim;qcuDrawAverages();}
+        return;
+      }
+      if(en.view==="ppCouncil"){ppClass=en.classe||"6e3";ppPeriod=en.period||"year";await ppLoadStudents();await openPPCouncil();return;}
+      if(en.view==="pp"){ppClass="6e3";ppPeriod=en.period||"year";await openPP();return;}
+      if(en.view==="ppStudent"&&en.id){ppPeriod=en.period||"year";await ppLoadStudents();await openPPStudent(en.id);if(en.ppTab && en.ppTab!=="synthese")await ppRenderStudent(en.ppTab);return;}
+      if(en.view==="list"){await openEvaluations({classe:en.classe||""});return;}
+      if(en.view==="editor"){
+        const editorId=en.evaluationId||en.id||null;
+        if(editorId){const all=await loadEvaluations();const ev=all.find(x=>String(x.id)===String(editorId));if(ev){editEvaluationObject(ev);return;}}
+        if(en.draft){editEvaluationObject(en.draft);return;}
+      }
+      if(en.view==="correction"){
+        const correctionEvalId=en.evaluationId||en.id||null;
+        if(correctionEvalId){await openCorrection(correctionEvalId);return;}
+      }
+      if(en.view==="studentCorrection"){
+        const correctionEvalId=en.evaluationId||en.evalId||null;
+        if(correctionEvalId){
+          let corr={eleve:en.eleve||"Élève",eleve_id:en.eleveId||"",resultat:{points:{},note:0,criteriaStats:{}}};
+          if(en.correctionId){
+            const q=await sb.from("EvaluationCorrections").select("id,eleve,eleve_id,resultat").eq("id",en.correctionId).maybeSingle();
+            if(q.error)throw new Error(q.error.message);
+            if(q.data)corr=q.data;
+          }
+          await renderCorrectionEditor(correctionEvalId,en.correctionId||null,corr,en.groupIds||[]);
+          return;
+        }
+      }
+      if(en.view==="tracking"){studentTrackingClass=en.classe||"";studentTrackingStudent=en.student||"";studentTrackingStudentId=en.studentId||"";studentTrackingPeriod=en.period||"year";await openStudentTracking();return;}
+      if(en.view==="classTracking"){classTrackingClass=en.classe||"";classTrackingPeriod=en.period||"year";await openClassTracking();return;}
+    }
+  }catch(e){}
+  home();
+}
+function captureNavigationFilters(){
+  const nav=loadEvalNav();
+  if(nav.view==="qcu"){
+    const trim=document.getElementById("qcuAvgTrim");
+    if(trim)saveEvalNav({qcuAvgTrim:trim.value});
+  }
+  if(nav.view==="ppCouncil"){
+    const period=document.getElementById("ppCouncilPeriod");
+    if(period)saveEvalNav({period:String(period.value||"T1").toLowerCase()});
+  }
+}
+document.addEventListener("change",captureNavigationFilters);
+window.addEventListener("pagehide",captureNavigationFilters);
+init();
