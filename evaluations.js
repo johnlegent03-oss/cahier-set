@@ -168,15 +168,17 @@ async function openProfSpaceIfMfaReady() {
   }
 
   try {
+    const factor = await mfaGetVerifiedFactor();
+
+    if (!factor) {
+      await mfaShowEnrollment();
+      return;
+    }
+
     const aal = await mfaGetAal();
 
-    if (aal.currentLevel !== "aal2" && aal.nextLevel === "aal2") {
-      const factor = await mfaGetVerifiedFactor();
-      if (factor) {
-        await mfaShowChallenge();
-      } else {
-        await mfaShowEnrollment();
-      }
+    if (aal.currentLevel !== "aal2") {
+      await mfaShowChallenge();
       return;
     }
 
