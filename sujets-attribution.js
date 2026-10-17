@@ -27,16 +27,25 @@
   }
 
   async function loadChapterSubjects(classe, chapitre) {
-    const { data, error } = await sb
-      .from("Evaluations")
-      .select("id, titre, chapitre, classe, total, createdat")
-      .eq("classe", classe)
-      .eq("chapitre", Number(chapitre))
-      .order("titre", { ascending: true });
+  const evaluations = await loadEvaluations();
+  const selectedClass = String(classe).trim();
+  const chapterNumber = Number(chapitre);
 
-    if (error) throw new Error(error.message);
-    return data || [];
-  }
+  return evaluations
+    .filter(ev =>
+      evaluationAppliesToClass(ev, selectedClass) &&
+      Number(ev.chapitre) === chapterNumber &&
+      String(ev.typeEvaluation || "evaluation") === "evaluation" &&
+      !isHistoricalEvaluation(ev)
+    )
+    .sort((a, b) =>
+      String(a.titre || "").localeCompare(
+        String(b.titre || ""),
+        "fr",
+        { numeric: true, sensitivity: "base" }
+      )
+    );
+}
 
   async function loadStudents(classe) {
     const { data, error } = await sb
