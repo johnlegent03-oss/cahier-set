@@ -7,6 +7,185 @@ function getMasteryFromValidatedCriteria(validatedCount){
 }
 ;
 const sb=supabase.createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY,{auth:{persistSession:true,autoRefreshToken:true,storage:window.sessionStorage}});
+let mfaBusy = false;
+
+function mfaRender(title, html) {
+  label.textContent = "Espace professeur";
+  content.innerHTML = `
+    <section class="hero login">
+      <span class="eyebrow">Espace sécurisé</span>
+      <h2>${title}</h2>
+      ${html}
+    </section>
+  `;
+}
+
+async function mfaGetAal() {
+  const { data, error } = await sb.auth.mfa.getAuthenticatorAssuranceLevel();
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+async function mfaGetVerifiedFactor() {
+  const { data, error } = await sb.auth.mfa.listFactors();
+  if (error) throw new Error(error.message);
+  return (data?.totp || []).find(f => f.status === "verified") || null;
+}
+
+function mfaEnterProfSpace() {
+  logoutBtn?.classList.remove("hidden");
+  globalHome?.classList.add("show");
+  restoreLastPosition();
+}
+
+async function mfaShowEnrollment() {
+  if (mfaBusy) return;
+  mfaBusy = true;
+
+  try {
+    const { data, error } = await sb.auth.mfa.enroll({
+      factorType: "totp",
+      friendlyName: "Espace professeur"
+    });
+    if (error) throw new Error(error.message);
+
+    const qr = data?.totp?.qr_code || "";
+    const secret = data?.totp?.secret || "";
+    const factorId = data?.id;
+
+    mfaRender("Active la double validation", `
+      <p class="muted">Scanne ce QR code avec Google Authenticator, Authy ou l’application Authenticator de ton téléphone.</p>
+      <div style="text-align:center;margin:16px 0;">
+        ${qr ? `<img src="${qr}" alt="QR code MFA" style="max-width:240px;width:100%;background:#fff;padding:10px;border-radius:12px;">` : ""}
+      </div>
+      ${secret ? `<p class="small-note">Si tu ne peux pas scanner, entre cette clé dans l’application :<br><code>${secret}</code></p>` : ""}
+      <div class="editbox">
+        <label>Code à 6 chiffres</label>
+        <input id="mfaCode" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="123456">
+        <button id="mfaVerifyBtn" class="primary" style="width:100%;margin-top:5px;">Valider</button>
+      </div>
+      <div id="mfaStatus" class="status" style="margin-top:10px;"></div>
+    `);
+
+    document.getElementById("mfaVerifyBtn").onclick = async () => {
+      const code = document.getElementById("mfaCode").value.trim();
+      const status = document.getElementById("mfaStatus");
+      const btn = document.getElementById("mfaVerifyBtn");
+
+      if (!/^\d{6}$/.test(code)) {
+        status.textContent = "Entre les 6 chiffres affichés par l’application.";
+        return;
+      }
+
+      btn.disabled = true;
+      status.textContent = "Vérification…";
+
+      try {
+        const { error } = await sb.auth.mfa.challengeAndVerify({
+          factorId,
+          code
+        });
+        if (error) throw new Error(error.message);
+
+        status.textContent = "Double validation activée.";
+        mfaEnterProfSpace();
+      } catch (e) {
+        status.textContent = "Code incorrect : " + e.message;
+        btn.disabled = false;
+      }
+    };
+  } catch (e) {
+    mfaRender("Double validation indisponible", `
+      <p class="muted">${e.message}</p>
+      <button class="primary" onclick="location.reload()">Réessayer</button>
+    `);
+  } finally {
+    mfaBusy = false;
+  }
+}
+
+async function mfaShowChallenge() {
+  const factor = await mfaGetVerifiedFactor();
+  if (!factor) {
+    await mfaShowEnrollment();
+    return;
+  }
+
+  mfaRender("Validation en deux étapes", `
+    <p class="muted">Entre le code à 6 chiffres généré par ton application d’authentification.</p>
+    <div class="editbox">
+      <label>Code à 6 chiffres</label>
+      <input id="mfaCode" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="123456">
+      <button id="mfaVerifyBtn" class="primary" style="width:100%;margin-top:5px;">Valider</button>
+    </div>
+    <div id="mfaStatus" class="status" style="margin-top:10px;"></div>
+  `);
+
+  document.getElementById("mfaVerifyBtn").onclick = async () => {
+    const code = document.getElementById("mfaCode").value.trim();
+    const status = document.getElementById("mfaStatus");
+    const btn = document.getElementById("mfaVerifyBtn");
+
+    if (!/^\d{6}$/.test(code)) {
+      status.textContent = "Entre les 6 chiffres affichés par l’application.";
+      return;
+    }
+
+    btn.disabled = true;
+    status.textContent = "Vérification…";
+
+    try {
+      const { error } = await sb.auth.mfa.challengeAndVerify({
+        factorId: factor.id,
+        code
+      });
+      if (error) throw new Error(error.message);
+
+      mfaEnterProfSpace();
+    } catch (e) {
+      status.textContent = "Code incorrect : " + e.message;
+      btn.disabled = false;
+    }
+  };
+}
+
+async function openProfSpaceIfMfaReady() {
+  const { data, error } = await sb.auth.getSession();
+  if (error) {
+    console.error("Erreur de session :", error);
+    login();
+    return;
+  }
+
+  const currentUser = data?.session?.user || null;
+  user = currentUser;
+
+  if (!currentUser) {
+    logoutBtn?.classList.add("hidden");
+    globalHome?.classList.remove("show");
+    login();
+    return;
+  }
+
+  try {
+    const aal = await mfaGetAal();
+
+    if (aal.currentLevel !== "aal2" && aal.nextLevel === "aal2") {
+      const factor = await mfaGetVerifiedFactor();
+      if (factor) {
+        await mfaShowChallenge();
+      } else {
+        await mfaShowEnrollment();
+      }
+      return;
+    }
+
+    mfaEnterProfSpace();
+  } catch (e) {
+    console.error("Vérification MFA impossible :", e);
+    mfaEnterProfSpace();
+  }
+}
 const CLASSES={"6e":["6e1","6e2","6e3","6e4","6e5"],"5e":["5e1","5e3","5e5"],"3e":["3e2","3e3"]};
 const content=document.getElementById("content"),label=document.getElementById("label"),logoutBtn=document.getElementById("logoutBtn"),globalHome=document.getElementById("globalHome");
 let user=null;
@@ -5555,57 +5734,18 @@ async function init(){
     */
     logoutBtn.classList.remove("hidden");
     globalHome?.classList.add("show");
-    if(event==="SIGNED_IN"){
-      setTimeout(()=>{
-        restoreLastPosition().catch(e=>{
-          console.error(
-            "Restauration après connexion impossible :",
-            e
-          );
-        });
-      },0);
-    }
+    if (event === "SIGNED_IN") {
+  setTimeout(() => {
+    openProfSpaceIfMfaReady().catch(e => {
+      console.error("Vérification MFA après connexion impossible :", e);
+    });
+  }, 0);
+}
   });
   /*
     Vérification de la session déjà existante.
   */
-  try{
-    const {data,error}=await sb.auth.getSession();
-    if(error){
-      console.error(
-        "Erreur de session :",
-        error
-      );
-      user=null;
-      logoutBtn.classList.add("hidden");
-      globalHome?.classList.remove("show");
-      login();
-      return;
-    }
-    user=data?.session?.user ?? null;
-    if(!user){
-      logoutBtn.classList.add("hidden");
-      globalHome?.classList.remove("show");
-      login();
-      return;
-    }
-    /*
-      Session déjà présente :
-      on ouvre directement l'espace professeur.
-    */
-    logoutBtn.classList.remove("hidden");
-    globalHome?.classList.add("show");
-    await restoreLastPosition();
-  }catch(error){
-    console.error(
-      "Initialisation impossible :",
-      error
-    );
-    user=null;
-    logoutBtn.classList.add("hidden");
-    globalHome?.classList.remove("show");
-    login();
-  }
+ await openProfSpaceIfMfaReady();
 }
 function login(){
   label.textContent="Espace professeur";
@@ -5647,18 +5787,15 @@ async function doLogin(){
       même si l'événement SIGNED_IN tarde à être traité,
       on ouvre l'espace professeur directement.
     */
-    user=data?.user ?? null;
-    if(!user){
-      throw new Error(
-        "Connexion réussie mais utilisateur non récupéré."
-      );
-    }
-    if(status){
-      status.textContent="Connexion réussie ✓";
-    }
-    logoutBtn?.classList.remove("hidden");
-    globalHome?.classList.add("show");
-    await restoreLastPosition();
+    user = data?.user ?? null;
+
+if (!user) {
+  throw new Error("Connexion réussie mais utilisateur non récupéré.");
+}
+
+if (status) status.textContent = "Vérification de la double validation…";
+
+await openProfSpaceIfMfaReady();
   }catch(e){
     console.error(
       "Erreur de connexion :",
