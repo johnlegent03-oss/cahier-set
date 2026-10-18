@@ -3890,6 +3890,64 @@ return {
   exercices:[]
 };
 }
+async function recalculateSavedCopyScores(ev) {
+  const criteria = criteriaFromLegacy(ev);
+
+  if (!criteria.length) {
+    throw new Error(
+      "Aucun critère disponible : recalcul des copies annulé."
+    );
+  }
+
+  const corrections = [];
+
+  // Lecture paginée pour ne pas oublier de copies.
+  for (let offset = 0; ; offset += 500) {
+    const { data, error } = await sb
+      .from("EvaluationCorrections")
+      .select("id,resultat")
+      .eq("evaluation_id", ev.id)
+      .order("id")
+      .range(offset, offset + 499);
+
+    if (error) throw new Error(error.message);
+
+    const page = data || [];
+    corrections.push(...page);
+
+    if (page.length < 500) break;
+  }
+
+  const plans = [];
+  const skipped = [];
+
+  for (const correction of corrections) {
+    const result = correction.resultat;
+    const points = result?.points;
+    const stats = result?.criteriaStats;
+
+    const compatible =
+      result &&
+      points &&
+      typeof points === "object" &&
+      !Array.isArray(points) &&
+      stats &&
+      typeof stats === "object" &&
+      Object.keys(stats).length === criteria.length &&
+      criteria.every(criterion => {
+        const indicators = criterion.indicateurs || [];
+        return (
+          stats[criterion.id] &&
+          Number(stats[criterion.id].count) === indicators.length &&
+          indicators.every(indicator =>
+            Number.isFinite(Number(indicator.points)) &&
+            Number(indicator.points) >= 0
+          )
+        );
+      });
+
+    if (!compatible) {
+      skipped.push(correctio
 async function saveEvaluationFromEditor(id){
   if(window.__savingEvaluation)return;
   if(!localDraftCanValidate())return;
