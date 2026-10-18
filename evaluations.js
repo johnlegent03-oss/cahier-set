@@ -3947,32 +3947,165 @@ async function recalculateSavedCopyScores(ev) {
       });
 
     if (!compatible) {
-      skipped.push(correctio
-async function saveEvaluationFromEditor(id){
-  if(window.__savingEvaluation)return;
-  if(!localDraftCanValidate())return;
-  id=id||localDraftSession?.evaluationId||null;
-  const localDraftTicket=localDraftBeforeSave();
-  if(!localDraftCanValidate())return;
-  window.__savingEvaluation=true;
-  try{
-    const btn=document.querySelector('#evalSaveStatus')?.parentElement?.querySelector('button.primary');
-    if(btn)btn.disabled=true;
-    const e=collectEvaluationEditor();e.id=id||null;
-    const saved=await saveEvaluationObject(e);
-    const idx=evaluationsCache.findIndex(x=>x.id===saved.id);
-    if(idx>=0)evaluationsCache[idx]=saved;else evaluationsCache.unshift(saved);
-    evalRememberFromEvaluation(saved,"editor",{evaluationId:saved.id,classe:loadEvalNav().classe||saved.classe});
-    const s=document.getElementById("evalSaveStatus");if(s)s.textContent="Enregistré ✓";
-    localDraftSaved(localDraftTicket,saved.id);
-  }catch(err){alert("Enregistrement impossible : "+err.message)}
-  finally{
-    window.__savingEvaluation=false;
-    const btn=document.querySelector('#evalSaveStatus')?.parentElement?.querySelector('button.primary');
-    if(btn)btn.disabled=false;
+      skipped.push(correction.id);
+      continue;
+    }
+
+    let note = 0;
+    const updatedStats = { ...stats };
+
+    for (const criterion of criteria) {
+      let obtained = 0;
+
+      criterion.indicateurs.forEach((indicator, index) => {
+        const checked =
+          !!points[`${criterion.id}_${index}`] ||
+          !!points[criterion.id]?.[index];
+
+        if (checked) {
+          obtained += Number(indicator.points);
+        }
+      });
+
+      note += obtained;
+
+      // Conserve la validation et le niveau de maîtrise.
+      updatedStats[criterion.id] = {
+        ...stats[criterion.id],
+        got: obtained
+      };
+    }
+
+    note = Math.round((note + Number.EPSILON) * 1000000) / 1000000;
+
+    plans.push({
+      id: correction.id,
+      resultat: {
+        ...result,
+        note,
+        ...(Object.prototype.hasOwnProperty.call(result, "score")
+          ? { score: note }
+          : {}),
+        criteriaStats: updatedStats
+      }
+    });
+  }
+
+  let updated = 0;
+
+  for (const plan of plans) {
+    const { data, error } = await sb
+      .from("EvaluationCorrections")
+      .update({ resultat: plan.resultat })
+      .eq("id", plan.id)
+      .eq("evaluation_id", ev.id)
+      .select("id")
+      .maybeSingle();
+
+    if (error || !data) {
+      throw new Error(
+        `${updated} copie(s) recalculée(s) sur ${plans.length}. ` +
+        "Le recalcul n'est pas terminé : " +
+        (error?.message || "mise à jour non confirmée") +
+        ". Recharge l'évaluation puis enregistre-la à nouveau pour réessayer."
+      );
+    }
+
+    updated++;
+  }
+
+  return { updated, skipped };
+}
+async function saveEvaluationFromEditor(id) {
+  if (window.__savingEvaluation) return;
+  if (!localDraftCanValidate()) return;
+
+  id = id || localDraftSession?.evaluationId || null;
+
+  const localDraftTicket = localDraftBeforeSave();
+  if (!localDraftCanValidate()) return;
+
+  window.__savingEvaluation = true;
+
+  const btn = document
+    .querySelector("#evalSaveStatus")
+    ?.parentElement?.querySelector("button.primary");
+
+  const status = document.getElementById("evalSaveStatus");
+
+  let evaluationSaved = false;
+
+  if (btn) btn.disabled = true;
+
+  try {
+    if (status) {
+      status.textContent = "Enregistrement de l'évaluation…";
+    }
+
+    const evaluation = collectEvaluationEditor();
+    evaluation.id = id || null;
+
+    const saved = await saveEvaluationObject(evaluation);
+    evaluationSaved = true;
+
+    const idx = evaluationsCache.findIndex(
+      item => String(item.id) === String(saved.id)
+    );
+
+    if (idx >= 0) {
+      evaluationsCache[idx] = saved;
+    } else {
+      evaluationsCache.unshift(saved);
+    }
+
+    evalRememberFromEvaluation(saved, "editor", {
+      evaluationId: saved.id,
+      classe: loadEvalNav().classe || saved.classe
+    });
+
+    // L'évaluation elle-même est bien sauvegardée,
+    // même si le recalcul échoue ensuite.
+    localDraftSaved(localDraftTicket, saved.id);
+
+    if (status) {
+      status.textContent = "Évaluation enregistrée. Recalcul des copies…";
+    }
+
+    const report = await recalculateSavedCopyScores(saved);
+
+    // Force une nouvelle lecture des résultats dans les suivis.
+    studentTrackingCache = [];
+    evaluationStatisticsCache = {};
+
+    if (report.skipped.length) {
+      const message =
+        `Évaluation enregistrée. ${report.updated} copie(s) recalculée(s). ` +
+        `${report.skipped.length} copie(s) non recalculée(s), car leurs ` +
+        "données ne correspondent pas à la grille actuelle. " +
+        "Ces copies sont conservées sans modification.";
+
+      if (status) status.textContent = message;
+      alert(message);
+    } else if (status) {
+      status.textContent =
+        `Enregistré ✓ — ${report.updated} copie(s) recalculée(s).`;
+    }
+  } catch (err) {
+    studentTrackingCache = [];
+    evaluationStatisticsCache = {};
+
+    const message = evaluationSaved
+      ? "L'évaluation est enregistrée, mais le recalcul des copies " +
+        "n'a pas été entièrement confirmé : " + err.message
+      : "Enregistrement impossible : " + err.message;
+
+    if (status) status.textContent = message;
+    alert(message);
+  } finally {
+    window.__savingEvaluation = false;
+    if (btn) btn.disabled = false;
   }
 }
-
 /* Tableau central des copies : lecture de la classe, statuts existants et brouillons locaux. */
 let copiesBoardState=null,copiesBoardRequest=0;
 function copiesBoardName(value){return String(value||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/\s+/g,' ').trim();}
