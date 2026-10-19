@@ -323,7 +323,7 @@ function sanitizeRichHtml(value){
   const doc=new DOMParser().parseFromString(`<div>${html}</div>`,"text/html");
   const root=doc.body.firstElementChild;
   if(!root)return "";
-  const allowedTags=new Set(["B","I","U","BR","P","DIV","SPAN","FONT","STRONG","EM","MARK","SMALL","SUB","SUP","UL","OL","LI","H1","H2","H3","H4","H5","H6","TABLE","THEAD","TBODY","TR","TH","TD","A"]);
+  const allowedTags=new Set(["B","I","U","BR","P","DIV","SPAN","FONT","STRONG","EM","MARK","SMALL","SUB","SUP","UL","OL","LI","H1","H2","H3","H4","H5","H6","TABLE","THEAD","TBODY","TR","TH","TD","A","IMG"]);
   const allowedStyle=new Set(["color","background-color","font-family","font-size","font-weight","font-style","text-decoration","text-align"]);
   [...root.querySelectorAll("*")].forEach(el=>{
     if(!allowedTags.has(el.tagName)){
@@ -347,6 +347,20 @@ function sanitizeRichHtml(value){
         if(clean)el.setAttribute("style",clean);else el.removeAttribute("style");
         return;
       }
+      if(name==="src"&&el.tagName==="IMG"){
+  try{
+    const u=new URL(attr.value,location.href);
+    if(u.protocol!=="https:")throw new Error("unsafe");
+    el.setAttribute("src",u.href);
+  }catch(e){
+    el.removeAttribute("src");
+  }
+  return;
+}
+if(name==="alt"&&el.tagName==="IMG"){
+  el.setAttribute("alt",attr.value);
+  return;
+}
       if(name==="href"&&el.tagName==="A"){
         try{
           const u=new URL(attr.value,location.href);
