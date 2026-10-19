@@ -933,7 +933,7 @@ async function cropSelectedRichImage(id) {
 
   function observeRichImage(img){
   if(!img||img.dataset.resizeObserved==="1")return;
-  img.dataset.resizeObserved="1";img.draggable=true;img.tabIndex=0;
+  img.dataset.resizeObserved="1";img.draggable=false;img.tabIndex=0;
   if("ResizeObserver" in window){
     let initialized=false;
     const ro=new ResizeObserver(entries=>{
@@ -957,32 +957,74 @@ document.addEventListener("click", e => {
     observeRichImage(img);
   }
 });
-document.addEventListener("dragstart",e=>{
-  const img=e.target.closest?.(".rich-editor img");if(!img)return;
-  observeRichImage(img);draggedRichImage=img;
-  try{e.dataTransfer.setData("text/plain","rich-editor-image");e.dataTransfer.effectAllowed="move";}catch(_){ }
-});
-document.addEventListener("dragover",e=>{
-  if(!draggedRichImage)return;
-  const editor=e.target.closest?.(".rich-editor");
-  if(editor&&editor.contains(draggedRichImage)){e.preventDefault();try{e.dataTransfer.dropEffect="move";}catch(_){ }}
-});
-document.addEventListener("drop",e=>{
-  if(!draggedRichImage)return;
-  const editor=e.target.closest?.(".rich-editor");
-  if(!editor||!editor.contains(draggedRichImage)){draggedRichImage=null;return;}
+
+let movingRichImage = null;
+let richImageStartX = 0;
+let richImageStartY = 0;
+let richImageStartLeft = 0;
+let richImageStartTop = 0;
+let richImageEditor = null;
+
+document.addEventListener("pointerdown", e => {
+  const img = e.target.closest?.(".rich-editor img");
+  if (!img || e.button !== 0) return;
+
+  const editor = img.closest(".rich-editor");
+  if (!editor) return;
+
+  selectedRichImage = img;
+  observeRichImage(img);
+
+  const imgRect = img.getBoundingClientRect();
+  const editorRect = editor.getBoundingClientRect();
+
+  richImageStartX = e.clientX;
+  richImageStartY = e.clientY;
+  richImageStartLeft = imgRect.left - editorRect.left + editor.scrollLeft;
+  richImageStartTop = imgRect.top - editorRect.top + editor.scrollTop;
+  richImageEditor = editor;
+  movingRichImage = img;
+
+  editor.style.position = "relative";
+  img.style.position = "absolute";
+  img.style.left = richImageStartLeft + "px";
+  img.style.top = richImageStartTop + "px";
+  img.style.zIndex = "5";
+  img.style.cursor = "grabbing";
+
+  try {
+    img.setPointerCapture(e.pointerId);
+  } catch (_) {}
+
   e.preventDefault();
-  let range=null;
-  if(document.caretRangeFromPoint)range=document.caretRangeFromPoint(e.clientX,e.clientY);
-  if(!range&&document.caretPositionFromPoint){const p=document.caretPositionFromPoint(e.clientX,e.clientY);if(p){range=document.createRange();range.setStart(p.offsetNode,p.offset);range.collapse(true);}}
-  if(range&&editor.contains(range.startContainer)){
-    const img=draggedRichImage;range.deleteContents();range.insertNode(img);
-    const spacer=document.createTextNode(" ");img.after(spacer);
-    rememberSelection(editor.id);scheduleAutosave();
-  }
-  draggedRichImage=null;
 });
-document.addEventListener("dragend",()=>{draggedRichImage=null});
+
+document.addEventListener("pointermove", e => {
+  if (!movingRichImage || !richImageEditor) return;
+
+  const dx = e.clientX - richImageStartX;
+  const dy = e.clientY - richImageStartY;
+
+  movingRichImage.style.left =
+    Math.max(0, richImageStartLeft + dx) + "px";
+
+  movingRichImage.style.top =
+    Math.max(0, richImageStartTop + dy) + "px";
+});
+
+function finishRichImageMove() {
+  if (!movingRichImage) return;
+
+  movingRichImage.style.cursor = "grab";
+  movingRichImage = null;
+  richImageEditor = null;
+
+  scheduleAutosave();
+}
+
+document.addEventListener("pointerup", finishRichImageMove);
+document.addEventListener("pointercancel", finishRichImageMove);
+
 // Observe images already present when a saved chapter is opened.
 const richImageObserver=new MutationObserver(mutations=>{
   for(const m of mutations){
