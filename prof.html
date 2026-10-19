@@ -725,7 +725,213 @@ document.addEventListener("selectionchange",()=>{const a=document.activeElement;
 
 // Les images intégrées sont déplaçables à la souris et redimensionnables avec leur poignée.
 let draggedRichImage=null;
-function observeRichImage(img){
+
+async function cropSelectedRichImage(id) {
+  const img = selectedRichImage;
+
+  if (!img || !img.isConnected || !img.closest(".rich-editor")) {
+    alert("Clique d’abord sur l’image à rogner.");
+    return;
+  }
+
+  if (!classe) {
+    alert("Aucune classe n’est sélectionnée.");
+    return;
+  }
+
+  const source = new Image();
+  source.crossOrigin = "anonymous";
+
+  try {
+    await new Promise((resolve, reject) => {
+      source.onload = resolve;
+      source.onerror = () => reject(new Error("Impossible de charger l’image."));
+      source.src = img.currentSrc || img.src;
+    });
+  } catch (error) {
+    alert("Impossible de charger cette image pour le rognage.");
+    return;
+  }
+
+  const w = source.naturalWidth;
+  const h = source.naturalHeight;
+
+  if (!w || !h) {
+    alert("Les dimensions de l’image sont invalides.");
+    return;
+  }
+
+  const overlay = document.createElement("div");
+  Object.assign(overlay.style, {
+    position: "fixed",
+    inset: "0",
+    zIndex: "99999",
+    background: "rgba(25,20,35,.88)",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: "20px"
+  });
+
+  const panel = document.createElement("div");
+  Object.assign(panel.style, {
+    background: "#fff",
+    color: "#35243f",
+    borderRadius: "16px",
+    padding: "20px",
+    width: "min(900px, 96vw)",
+    maxHeight: "94vh",
+    overflow: "auto",
+    fontFamily: "Arial, sans-serif"
+  });
+
+  panel.innerHTML = `
+    <h2 style="margin-top:0">✂️ Rogner l’image</h2>
+    <p>Fais glisser la souris sur l’image pour sélectionner la zone à conserver.</p>
+    <canvas style="display:block;max-width:100%;max-height:60vh;margin:auto;cursor:crosshair;touch-action:none"></canvas>
+    <p class="crop-status" style="font-size:13px;color:#65566d">La sélection initiale correspond à l’image entière.</p>
+    <div style="display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap">
+      <button type="button" data-action="cancel">Annuler</button>
+      <button type="button" data-action="reset">Réinitialiser</button>
+      <button type="button" data-action="save" style="background:#7d3c98;color:white;border:0;border-radius:8px;padding:10px 16px">Valider le rognage</button>
+    </div>
+  `;
+
+  overlay.appendChild(panel);
+  document.body.appendChild(overlay);
+
+  const canvas = panel.querySelector("canvas");
+  const ctx = canvas.getContext("2d");
+  const status = panel.querySelector(".crop-status");
+
+  canvas.width = w;
+  canvas.height = h;
+
+  let crop = { x: 0, y: 0, width: w, height: h };
+  let start = null;
+  let drawing = false;
+
+  function redraw() {
+    ctx.clearRect(0, 0, w, h);
+    ctx.drawImage(source, 0, 0);
+
+    ctx.fillStyle = "rgba(25,20,35,.55)";
+    ctx.fillRect(0, 0, w, h);
+
+    ctx.drawImage(
+      source,
+      crop.x, crop.y, crop.width, crop.height,
+      crop.x, crop.y, crop.width, crop.height
+    );
+
+    ctx.strokeStyle = "#ffffff";
+    ctx.lineWidth = Math.max(2, Math.min(w, h) / 300);
+    ctx.strokeRect(crop.x, crop.y, crop.width, crop.height);
+
+    status.textContent =
+      `Zone sélectionnée : ${Math.round(crop.width)} × ${Math.round(crop.height)} pixels`;
+  }
+
+  function point(e) {
+    const rect = canvas.getBoundingClientRect();
+    return {
+      x: Math.max(0, Math.min(w, (e.clientX - rect.left) * w / rect.width)),
+      y: Math.max(0, Math.min(h, (e.clientY - rect.top) * h / rect.height))
+    };
+  }
+
+  canvas.addEventListener("pointerdown", e => {
+    e.preventDefault();
+    start = point(e);
+    crop = { x: start.x, y: start.y, width: 1, height: 1 };
+    drawing = true;
+    canvas.setPointerCapture(e.pointerId);
+    redraw();
+  });
+
+  canvas.addEventListener("pointermove", e => {
+    if (!drawing || !start) return;
+
+    const p = point(e);
+    crop = {
+      x: Math.min(start.x, p.x),
+      y: Math.min(start.y, p.y),
+      width: Math.abs(p.x - start.x),
+      height: Math.abs(p.y - start.y)
+    };
+    redraw();
+  });
+
+  canvas.addEventListener("pointerup", () => {
+    drawing = false;
+    start = null;
+  });
+
+  panel.querySelector('[data-action="reset"]').onclick = () => {
+    crop = { x: 0, y: 0, width: w, height: h };
+    redraw();
+  };
+
+  panel.querySelector('[data-action="cancel"]').onclick = () => overlay.remove();
+
+  panel.querySelector('[data-action="save"]').onclick = async () => {
+    if (crop.width < 2 || crop.height < 2) {
+      alert("Sélectionne une zone plus grande.");
+      return;
+    }
+
+    const button = panel.querySelector('[data-action="save"]');
+    button.disabled = true;
+    button.textContent = "Enregistrement…";
+
+    try {
+      const output = document.createElement("canvas");
+      output.width = Math.round(crop.width);
+      output.height = Math.round(crop.height);
+
+      output.getContext("2d").drawImage(
+        source,
+        crop.x, crop.y, crop.width, crop.height,
+        0, 0, output.width, output.height
+      );
+
+      const blob = await new Promise(resolve =>
+        output.toBlob(resolve, "image/png")
+      );
+
+      if (!blob) throw new Error("Création de l’image recadrée impossible.");
+
+      const path = `${classe}/images/${Date.now()}-rognee.png`;
+      const { error } = await sb.storage
+        .from("documents")
+        .upload(path, blob, {
+          contentType: "image/png",
+          upsert: false
+        });
+
+      if (error) throw new Error(error.message);
+
+      const { data } = sb.storage.from("documents").getPublicUrl(path);
+      if (!data?.publicUrl) throw new Error("URL de l’image indisponible.");
+
+      img.src = data.publicUrl;
+      img.style.objectFit = "contain";
+
+      overlay.remove();
+      scheduleAutosave();
+      alert("Image recadrée. Le chapitre va être enregistré automatiquement.");
+    } catch (error) {
+      console.error("Rognage :", error);
+      alert("Le rognage n’a pas pu être enregistré : " + error.message);
+      button.disabled = false;
+      button.textContent = "Valider le rognage";
+    }
+  };
+
+  redraw();
+}
+
+  function observeRichImage(img){
   if(!img||img.dataset.resizeObserved==="1")return;
   img.dataset.resizeObserved="1";img.draggable=true;img.tabIndex=0;
   if("ResizeObserver" in window){
@@ -742,7 +948,15 @@ function observeRichImage(img){
     ro.observe(img);
   }
 }
-document.addEventListener("click",e=>{const img=e.target.closest?.(".rich-editor img");if(img)observeRichImage(img)});
+let selectedRichImage = null;
+
+document.addEventListener("click", e => {
+  const img = e.target.closest?.(".rich-editor img");
+  if (img) {
+    selectedRichImage = img;
+    observeRichImage(img);
+  }
+});
 document.addEventListener("dragstart",e=>{
   const img=e.target.closest?.(".rich-editor img");if(!img)return;
   observeRichImage(img);draggedRichImage=img;
