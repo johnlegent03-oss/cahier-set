@@ -976,6 +976,19 @@ document.addEventListener("pointerdown", e => {
   observeRichImage(img);
 
   const imgRect = img.getBoundingClientRect();
+  // Si le clic est dans le coin inférieur droit,
+// laisser le navigateur redimensionner l'image.
+const handleSize = 20;
+
+const nearResizeHandle =
+  e.clientX >= imgRect.right - handleSize &&
+  e.clientY >= imgRect.bottom - handleSize;
+
+if (nearResizeHandle) {
+  selectedRichImage = img;
+  observeRichImage(img);
+  return;
+}
   // Laisser le navigateur gérer la poignée de redimensionnement
 const handleSize = 20;
 const nearResizeHandle =
