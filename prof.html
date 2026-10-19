@@ -597,6 +597,7 @@ function richToolbar(id){
     <button type="button" onmousedown="event.preventDefault()" onclick="richCmd('${id}','insertOrderedList')" title="Liste numérotée">1. Liste</button>
     <button type="button" onmousedown="event.preventDefault()" onclick="insertRichTable('${id}')" title="Insérer un tableau">▦ Tableau</button>
     <button type="button" onmousedown="event.preventDefault()" onclick="insertRichImage('${id}')" title="Insérer une image ; redimensionne-la avec la poignée en bas à droite et déplace-la par glisser-déposer">🖼️ Image</button>
+    <button type="button" onmousedown="event.preventDefault()" onclick="cropSelectedRichImage('${id}')" title="Rogner l’image sélectionnée">✂️ Rogner</button>
     <button type="button" onmousedown="event.preventDefault()" onclick="richCmd('${id}','foreColor','#c0392b')" title="Rouge">🔴</button>
     <button type="button" onmousedown="event.preventDefault()" onclick="richCmd('${id}','foreColor','#2980b9')" title="Bleu">🔵</button>
     <button type="button" class="palette-red" onmousedown="event.preventDefault()" onclick="richCmd('${id}','foreColor','#c0392b')" title="Texte rouge">🔴</button>
