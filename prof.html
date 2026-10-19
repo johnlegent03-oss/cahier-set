@@ -976,6 +976,15 @@ document.addEventListener("pointerdown", e => {
   observeRichImage(img);
 
   const imgRect = img.getBoundingClientRect();
+  // Laisser le navigateur gérer la poignée de redimensionnement
+const handleSize = 20;
+const nearResizeHandle =
+  e.clientX >= imgRect.right - handleSize &&
+  e.clientY >= imgRect.bottom - handleSize;
+
+if (nearResizeHandle) {
+  return;
+}
   const editorRect = editor.getBoundingClientRect();
 
   richImageStartX = e.clientX;
