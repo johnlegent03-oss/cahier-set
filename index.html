@@ -285,6 +285,35 @@ footer{text-align:center;color:var(--muted);font-size:12px;padding:0 20px 35px}
 }
 </style>
 
+.brand .logo {
+  background: #fffef9 !important;
+  box-shadow: 0 0 0 1px #d8ddcc !important;
+  border: 1px solid #d8ddcc !important;
+}
+.chapter-grid .session:nth-child(4n+1),
+.chapter-grid .session:nth-child(4n+2),
+.chapter-grid .session:nth-child(4n+3),
+.chapter-grid .session:nth-child(4n) {
+  background: #fffef9 !important;
+  border-color: #d9ddce !important;
+}
+.chapter-grid .session:nth-child(4n+1)::before,
+.chapter-grid .session:nth-child(4n+2)::before,
+.chapter-grid .session:nth-child(4n+3)::before,
+.chapter-grid .session:nth-child(4n)::before {
+  background: #84965f !important;
+}
+.section-title::after {
+  background: linear-gradient(90deg, #cbd4bb, transparent) !important;
+}
+.pdf-card {
+  background: #edf2df !important;
+  border-color: #d4debf !important;
+}
+.pdf-title {
+  color: #52673d !important;
+}
+
 <style id="naturalist-final-overrides">
 body {
   background: #f6f5ef !important;
