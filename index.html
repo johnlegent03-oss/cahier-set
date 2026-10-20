@@ -367,28 +367,23 @@ header {
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
 const sb=supabase.createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY,{auth:{persistSession:true,autoRefreshToken:true}});
-const params=new URLSearchParams(location.search);
-const code=(params.get("code")||"").trim().toLowerCase();
+const params = new URLSearchParams(location.search);
+const code = (params.get('code') || '').trim().toLowerCase();
 
-/*
-  Codes utilisés dans les QR codes.
-  Ils sont volontairement opaques : les élèves ne voient pas le nom
-  de la classe dans l'adresse.
-*/
-const CLASS_CODES={
-  "svt6e1-7kq4":"6e1",
-  "svt6e2-m8p2":"6e2",
-  "svt6e3-r5x9":"6e3",
-  "svt6e4-n3v7":"6e4",
-  "svt6e5-t6h2":"6e5",
-  "svt5e1-q9w4":"5e1",
-  "svt5e3-k2m8":"5e3",
-  "svt5e5-p7r3":"5e5",
-  "svt3e2-x4n6":"3e2",
-  "svt3e3-b8q5":"3e3"
+const CLASSCODES = {
+  '7kq4': '6e1',
+  'm8p2': '6e2',
+  'r5x9': '6e3',
+  'n3v7': '6e4',
+  't6h2': '6e5',
+  'q9w4': '5e1',
+  'k2m8': '5e3',
+  'p7r3': '5e5',
+  'x4n6': '3e2',
+  'b8q5': '3e3'
 };
 
-const classe=CLASS_CODES[code]||"";
+const classe = CLASSCODES[code];
 const content=document.getElementById("content");
 const label=document.getElementById("label");
 
@@ -494,17 +489,25 @@ function pdfButton(url,label){
   return `<div class="pdf-card"><div class="pdf-title">📄 ${esc(label)}</div><a class="btn" href="${esc(url)}" target="_blank" rel="noopener">Ouvrir le PDF</a></div>`;
 }
 
-function start(){
-  if(!classe){
-    label.textContent="Accès par QR code";
-    content.innerHTML=`<section class="hero error">
-      <span class="eyebrow">Cahier numérique</span>
-      <h2>🔒 Accès non disponible</h2>
-      <p class="muted">Utilise le QR code ou le lien transmis par ton professeur pour accéder au cahier de ta classe.</p>
-    </section>`;
+function start() {
+  if (!classe) {
+    label.textContent = 'Accès par QR code';
+
+    content.innerHTML = `
+      <section class="hero error">
+        <span class="eyebrow">Cahier numérique</span>
+        <h2>Accès non disponible</h2>
+        <p class="muted">
+          Utilise le QR code ou le lien transmis par ton professeur
+          pour accéder au cahier de ta classe.
+        </p>
+      </section>
+    `;
+
     return;
   }
-  label.textContent=`Classe ${classe}`;
+
+  label.textContent = 'Classe ' + classe;
   home();
 }
 
