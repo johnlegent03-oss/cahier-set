@@ -277,6 +277,58 @@ footer{text-align:center;color:var(--muted);font-size:12px;padding:0 20px 35px}
 }
 </style>
 
+<style id="naturalist-refonte">
+/* Cartes du cahier : esprit carnet naturaliste */
+@media screen {
+  #content .chapter-grid {
+    gap: 18px;
+  }
+
+  #content .chapter-grid .session {
+    position: relative;
+    overflow: hidden;
+    padding: 22px;
+    border: 1px solid #d5dcc8;
+    border-radius: 16px;
+    background: #fffef8;
+    box-shadow: 0 4px 14px rgba(48, 67, 43, 0.05);
+    transition: border-color .2s, box-shadow .2s;
+  }
+
+  #content .chapter-grid .session::before {
+    width: 4px;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    border-radius: 0;
+    background: #82916a;
+  }
+
+  #content .chapter-grid .session:hover {
+    border-color: #9eae87;
+    box-shadow: 0 8px 22px rgba(48, 67, 43, 0.09);
+  }
+
+  #content .chapter-grid .session h3 {
+    color: #304832;
+    font-family: Georgia, "Times New Roman", serif;
+    font-weight: 500;
+    line-height: 1.35;
+  }
+
+  #content .chapter-grid .muted {
+    color: #68715e;
+    line-height: 1.6;
+  }
+}
+
+@media screen and (max-width: 650px) {
+  #content .chapter-grid .session {
+    padding: 18px;
+  }
+}
+</style>
+
 </head>
 <body>
 <header><div class="head">
