@@ -448,7 +448,7 @@ input:focus,select:focus,textarea:focus{border-color:#8195e6!important;box-shado
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
 const sb=supabase.createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY,{auth:{persistSession:true,autoRefreshToken:true,storage:window.sessionStorage}});
-const CLASSES={"6e":["6e1","6e2","6e3","6e4","6e5"],"5e":["5e1","5e3","5e5"],"3e":["3e2","3e3"],"TEST"};
+const CLASSES={"6e":["6e1","6e2","6e3","6e4","6e5"],"5e":["5e1","5e3","5e5"],"3e":["3e2","3e3"]};
 const content=document.getElementById("content"),label=document.getElementById("label"),logoutBtn=document.getElementById("logoutBtn"),globalHome=document.getElementById("globalHome");
 let niveau=null,classe=null,user=null,currentClassData=null,currentChapterIndex=-1,showArchivedChapters=false;
 let autosaveTimer=null,autosaveRunning=false,autosaveAgain=false,hasUnsavedChanges=false;
