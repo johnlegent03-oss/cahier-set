@@ -20,13 +20,28 @@
   cursor: move;
 }
 
-/* 2. Impression / PDF : éviter les pages blanches et les coupures inutiles */
+/* 2. Impression / PDF : fond blanc et suppression des pages blanches */
 @media print {
   html,
-  body {
-    background: #fff !important;
+  body,
+  .print-sheet,
+  .print-sheet .print-page,
+  .student-preview-panel,
+  .student-preview-body {
+    background: #ffffff !important;
+    background-image: none !important;
+    color: #000000 !important;
     margin: 0 !important;
     padding: 0 !important;
+    box-shadow: none !important;
+  }
+
+  body::before,
+  body::after,
+  .print-sheet::before,
+  .print-sheet::after {
+    display: none !important;
+    content: none !important;
   }
 
   .print-sheet .print-page {
@@ -58,9 +73,15 @@
   }
 }
 
-/* 3. Aperçu : éviter les décorations fixes et les débordements */
+/* 3. Aperçu : fond blanc et absence de décorations fixes */
 #studentPreviewModal {
   overscroll-behavior: contain;
+}
+
+.student-preview-panel,
+.student-preview-body {
+  background: #ffffff !important;
+  background-image: none !important;
 }
 
 .student-preview-body img {

@@ -6,8 +6,6 @@
     CONFIGURATION
     - activityLinkPattern : liens à corriger s'ils pointent vers l'éditeur.
     - studentActivityBase : URL élève à utiliser pour les activités.
-    Exemple : si un lien généré est "prof.html#activite/123",
-    il devient "atelier.html#activite/123".
   */
   const CONFIG = {
     activityLinkPattern: /(^|\/)prof\.html(#|\?).*activite/i,
@@ -36,18 +34,38 @@
     });
   }
 
-  function cleanEmptyPrintPages() {
-    document.querySelectorAll('.print-sheet .print-page').forEach(function (page) {
-      const hasContent = page.textContent.trim().length > 0 || page.querySelector('img, table, canvas');
-      if (!hasContent) page.remove();
+  function isBlankPrintPage(page) {
+    if (!page) return true;
+
+    const clone = page.cloneNode(true);
+    clone.querySelectorAll('script, style, link, meta').forEach(function (node) {
+      node.remove();
     });
 
-    const pages = document.querySelectorAll('.print-sheet .print-page');
-    pages.forEach(function (page, index) {
-      if (index === pages.length - 1) {
-        page.style.pageBreakAfter = 'auto';
-        page.style.breakAfter = 'auto';
+    const text = (clone.textContent || '').replace(/\s|\u00a0/g, '');
+    const hasMedia = clone.querySelector('img:not([src=""]), canvas, svg, table');
+    const hasVisibleElement = Array.from(clone.querySelectorAll('*')).some(function (node) {
+      const style = window.getComputedStyle(node);
+      return style.display !== 'none' && style.visibility !== 'hidden' && node.offsetHeight > 0;
+    });
+
+    return text.length === 0 && !hasMedia && !hasVisibleElement;
+  }
+
+  function cleanEmptyPrintPages() {
+    const pages = Array.from(document.querySelectorAll('.print-sheet .print-page'));
+
+    pages.forEach(function (page) {
+      if (isBlankPrintPage(page)) {
+        page.remove();
       }
+    });
+
+    const remaining = document.querySelectorAll('.print-sheet .print-page');
+    remaining.forEach(function (page, index) {
+      const isLast = index === remaining.length - 1;
+      page.style.pageBreakAfter = isLast ? 'auto' : 'always';
+      page.style.breakAfter = isLast ? 'auto' : 'always';
     });
   }
 
@@ -84,11 +102,13 @@
     window.addEventListener('beforeprint', cleanEmptyPrintPages);
 
     document.addEventListener('click', function (event) {
-      const button = event.target.closest('button, [role=button]');
+      const button = event.target.closest('button, [role=button], a');
       if (!button) return;
-      const label = (button.textContent || '').toLowerCase();
-      if (label.includes('pdf') || label.includes('imprimer')) {
+
+      const label = (button.textContent || button.getAttribute('aria-label') || '').toLowerCase();
+      if (label.includes('pdf') || label.includes('imprimer') || label.includes('télécharger')) {
         setTimeout(cleanEmptyPrintPages, 50);
+        setTimeout(cleanEmptyPrintPages, 300);
       }
     });
   }
