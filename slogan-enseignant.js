@@ -19,7 +19,7 @@
   apply();
 })();
 
-/* Aligner uniquement le bandeau commun de prof.html sur son contenu existant. */
+/* Professeur uniquement : mesurer le menu visible, pas seulement le conteneur externe. */
 (() => {
   if (!/\/prof\.html$/i.test(location.pathname)) return;
   const style = document.createElement('style');
@@ -31,34 +31,51 @@
       margin-left:var(--svt-prof-content-left,0px)!important;
       margin-right:0!important;
       width:calc(100% - var(--svt-prof-content-left,0px))!important;
-      max-width:none!important;
-      box-sizing:border-box!important;
+      max-width:none!important;box-sizing:border-box!important;
     }
     body.svt-prof-layout-fix #svt-site-hero .copy {min-width:0}
     body.svt-prof-layout-fix #svt-site-hero h2,
     body.svt-prof-layout-fix #svt-site-hero p {overflow-wrap:anywhere}
   }`;
   document.head.append(style);
-  let frame = 0;
+  let frame=0;
+  function menuRight(){
+    if(innerWidth<=820)return 0;
+    const candidates=new Set(document.querySelectorAll('aside,nav,[role="navigation"],[id*="sidebar" i],[class*="sidebar" i]'));
+    document.querySelectorAll('h1,h2,h3,a,button,span,strong,div').forEach(el=>{
+      if(!['Mon espace SVT','Tableau de bord'].includes(el.textContent.trim()))return;
+      let parent=el;
+      for(let i=0;parent&&parent!==document.body&&i<8;i++,parent=parent.parentElement)candidates.add(parent);
+    });
+    let right=0;
+    candidates.forEach(el=>{
+      const r=el.getBoundingClientRect(),s=getComputedStyle(el);
+      if(s.display==='none'||s.visibility==='hidden'||Number(s.opacity)===0)return;
+      if(r.left<=20&&r.right>40&&r.width>=48&&r.width<innerWidth*.5&&r.height>=140&&r.bottom>0&&r.top<innerHeight)
+        right=Math.max(right,r.right+scrollX);
+    });
+    return right;
+  }
   function align(){
-    frame = 0;
-    const content = document.getElementById('content');
-    if (!content) return;
-    const left = Math.max(0, content.getBoundingClientRect().left + window.scrollX);
-    const value = (Math.round(left * 100) / 100) + 'px';
-    if (document.body.style.getPropertyValue('--svt-prof-content-left') !== value)
-      document.body.style.setProperty('--svt-prof-content-left', value);
+    frame=0;
+    const content=document.getElementById('content');if(!content)return;
+    const rect=content.getBoundingClientRect();
+    const padding=parseFloat(getComputedStyle(content).paddingLeft)||0;
+    const fallback=rect.left+scrollX+(innerWidth>820&&padding>=100?padding:0);
+    const left=Math.max(0,fallback,menuRight());
+    const value=(Math.round(left*100)/100)+'px';
+    if(document.body.style.getPropertyValue('--svt-prof-content-left')!==value)
+      document.body.style.setProperty('--svt-prof-content-left',value);
   }
   function schedule(){if(!frame)frame=requestAnimationFrame(align)}
   function start(){
     document.body.classList.add('svt-prof-layout-fix');
-    const content = document.getElementById('content');
-    if(window.ResizeObserver && content)new ResizeObserver(schedule).observe(content);
-    const observer = new MutationObserver(schedule);
-    observer.observe(document.body,{attributes:true,childList:true});
-    if(content)observer.observe(content,{attributes:true});
+    const content=document.getElementById('content');
+    if(window.ResizeObserver&&content)new ResizeObserver(schedule).observe(content);
+    new MutationObserver(schedule).observe(document.body,{attributes:true,attributeFilter:['class','style','hidden'],childList:true,subtree:true});
     window.addEventListener('resize',schedule);
     document.addEventListener('click',schedule);
+    document.addEventListener('transitionend',schedule);
     if(document.fonts?.ready)document.fonts.ready.then(schedule);
     schedule();
   }
