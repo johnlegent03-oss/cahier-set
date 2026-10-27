@@ -1,0 +1,105 @@
+name: Tests publics de production SVT
+on:
+  push:
+    branches: [harmonisation-identite-svt]
+    paths: [.github/workflows/tests-production.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  tester:
+    if: github.ref == 'refs/heads/harmonisation-identite-svt'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Installer le navigateur de test
+        run: |
+          python3 -m pip install playwright
+          python3 -m playwright install --with-deps chromium
+      - name: Tester les pages publiques sans connexion ni ecriture distante
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import asyncio, json
+          from pathlib import Path
+          from playwright.async_api import async_playwright
+
+          BASE = 'https://johnlegent03-oss.github.io/cahier-set/'
+          OUT = Path('rapport-production')
+          OUT.mkdir(exist_ok=True)
+
+          async def main():
+              results = []
+              async with async_playwright() as pw:
+                  browser = await pw.chromium.launch(headless=True)
+                  for width in (1440, 390):
+                      for filename in ('prof.html', 'evaluations.html', 'atelier.html'):
+                          context = await browser.new_context(viewport={'width': width, 'height': 1000}, service_workers='block')
+                          page = await context.new_page()
+                          page.set_default_timeout(10000)
+                          errors, blocked = [], []
+                          page.on('pageerror', lambda err, errors=errors: errors.append(str(err)))
+                          async def guard(route, blocked=blocked):
+                              if route.request.method not in ('GET', 'HEAD', 'OPTIONS'):
+                                  blocked.append({'method': route.request.method, 'url': route.request.url.split('?')[0]})
+                                  await route.abort()
+                              else:
+                                  await route.continue_()
+                          await context.route('**/*', guard)
+                          row = {'page': filename, 'width': width, 'tests': {}, 'errors': errors, 'blocked_writes': blocked}
+                          try:
+                              response = await page.goto(BASE + filename, wait_until='domcontentloaded', timeout=45000)
+                              row['http_status'] = response.status if response else None
+                              if not response or response.status >= 400:
+                                  raise RuntimeError('Page publique indisponible')
+                              await page.wait_for_timeout(1500)
+                              row['title'] = await page.title()
+                              row['tests']['body_visible'] = await page.locator('body').is_visible()
+                              row['tests']['runtime_no_error'] = not errors
+                              row['shared_theme_present'] = await page.locator('#svt-site-nav').count() > 0
+                              if row['shared_theme_present']:
+                                  row['links'] = await page.locator('#svt-site-nav a').evaluate_all('(xs)=>xs.map(a=>({text:a.textContent,href:a.href}))')
+                              if filename == 'atelier.html' and width == 1440:
+                                  supported = await page.evaluate("typeof insert === 'function' && typeof project !== 'undefined'")
+                                  if supported:
+                                      await page.locator('button[onclick="insert(\'text\')"]').click()
+                                      await page.locator('#label').fill('TEST AUTOMATIQUE LOCAL - SANS BASE')
+                                      await page.locator('#label').press('Tab')
+                                      await page.locator('#w').fill('333')
+                                      await page.locator('#w').press('Tab')
+                                      await page.reload(wait_until='domcontentloaded')
+                                      await page.wait_for_timeout(700)
+                                      record = await page.evaluate("project.pages.flatMap(p=>p.objects).find(o=>o.label==='TEST AUTOMATIQUE LOCAL - SANS BASE') || null")
+                                      row['tests']['local_save_reload'] = bool(record and record['w'] == 333)
+                                      if record:
+                                          content = page.locator('[data-id="' + record['id'] + '"] .content')
+                                          await content.dblclick()
+                                          row['tests']['text_doubleclick'] = await content.get_attribute('contenteditable') == 'true'
+                                      await page.pdf(path=str(OUT / 'atelier-public-test.pdf'), format='A4', print_background=True, prefer_css_page_size=True)
+                                      row['tests']['pdf_created'] = (OUT / 'atelier-public-test.pdf').stat().st_size > 0
+                                  else:
+                                      row['editor_test'] = 'Commandes attendues indisponibles : test non realise'
+                              await page.screenshot(path=str(OUT / (filename.replace('.html', '') + '-' + str(width) + '.png')), full_page=False)
+                          except Exception as exc:
+                              row['failure'] = str(exc)
+                          finally:
+                              results.append(row)
+                              await context.close()
+                  await browser.close()
+              report = {'scope': 'Site public reel, navigateurs vierges, sans identifiants. Requetes non GET/HEAD/OPTIONS bloquees. Aucune fusion. Les tests visent la version actuellement publiee, pas automatiquement la branche de travail.', 'results': results}
+              (OUT / 'rapport.json').write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
+              failed = any(r.get('failure') or any(not v for v in r['tests'].values()) for r in results)
+              print(json.dumps({'cases': len(results), 'failed': failed, 'report': 'rapport-production/rapport.json'}))
+              if failed:
+                  raise SystemExit(1)
+
+          asyncio.run(main())
+          PY
+      - name: Conserver le rapport et les captures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rapport-tests-production-svt
+          path: rapport-production/
+          retention-days: 7
