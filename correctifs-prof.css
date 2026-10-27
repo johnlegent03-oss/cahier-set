@@ -1,0 +1,77 @@
+/* Correctifs visuels — éditeur prof, atelier et export PDF */
+
+/* 1. Images de l'éditeur : suppression des espaces blancs résiduels */
+.rich-editor img,
+.rich-content img,
+.student-preview-body img,
+.print-sheet img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  object-fit: initial;
+  margin: 0 auto;
+  resize: none;
+  overflow: visible;
+}
+
+.rich-editor img {
+  min-width: 0;
+  min-height: 0;
+  cursor: move;
+}
+
+/* 2. Impression / PDF : éviter les pages blanches et les coupures inutiles */
+@media print {
+  html,
+  body {
+    background: #fff !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  .print-sheet .print-page {
+    min-height: 0 !important;
+    height: auto !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    overflow: visible !important;
+    page-break-after: auto !important;
+    break-after: auto !important;
+  }
+
+  .print-sheet .print-page:last-child {
+    page-break-after: auto !important;
+    break-after: auto !important;
+  }
+
+  .print-sheet img,
+  .print-sheet table,
+  .print-sheet .entry,
+  .print-sheet .session-box {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .print-sheet .print-page:empty,
+  .print-sheet .print-page:has(> :only-child:empty) {
+    display: none !important;
+  }
+}
+
+/* 3. Aperçu : éviter les décorations fixes et les débordements */
+#studentPreviewModal {
+  overscroll-behavior: contain;
+}
+
+.student-preview-body img {
+  max-width: 100%;
+  height: auto;
+}
+
+@media screen {
+  .rich-editor img:focus,
+  .rich-editor img:hover {
+    outline: 2px dashed #6c8e52;
+    outline-offset: 3px;
+  }
+}
