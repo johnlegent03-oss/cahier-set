@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Aperçu de l’identité du site SVT</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#f5f2e5;color:#344e39;font:14px Arial}header{padding:14px 20px;background:#fffdf3;border-bottom:1px solid #ccd7bf}h1{font:24px Georgia;margin:0 0 8px}p{margin:5px 0;line-height:1.5}.tabs{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}button{border:1px solid #c4d0b7;background:#edf2e2;border-radius:5px;color:#344e39;padding:9px 13px;cursor:pointer}button[aria-pressed=true]{background:#426849;color:white}#status{font-size:12px;color:#657958;margin-top:9px}iframe{display:block;width:100%;height:calc(100vh - 190px);min-height:500px;border:0;background:#f5f2e5}.note{font-size:12px;color:#6a7c60}
+</style>
+</head>
+<body>
+<header><h1>Aperçu de l’identité commune</h1><p>Comparaison visuelle des pages de la branche harmonisation-identite-svt. Les pages habituelles ne sont pas remplacées.</p><p class="note">Lecture seule : les scripts des applications, la connexion et les enregistrements sont désactivés. Le contenu qui nécessite une connexion n’est pas chargé.</p><div class="tabs"><button data-page="prof.html" aria-pressed="true">Espace professeur</button><button data-page="evaluations.html" aria-pressed="false">Évaluations</button><button data-page="atelier.html" aria-pressed="false">Atelier pédagogique</button><button id="reload">Actualiser l’aperçu</button></div><div id="status" role="status">Chargement…</div></header>
+<iframe id="frame" title="Aperçu visuel isolé" sandbox="allow-scripts" referrerpolicy="no-referrer"></iframe>
+<script>
+'use strict';
+const SITE='https://johnlegent03-oss.github.io/cahier-set/';
+const SOURCE='https://raw.githubusercontent.com/johnlegent03-oss/cahier-set/harmonisation-identite-svt/';
+const files=['prof.html','evaluations.html','atelier.html'];let current='prof.html',revision=0;
+async function text(file){const response=await fetch(SOURCE+file,{cache:'no-store',credentials:'omit',referrerPolicy:'no-referrer'});if(!response.ok)throw Error('Lecture de '+file+' impossible (HTTP '+response.status+').');return response.text()}
+async function show(file){const run=++revision;current=file;document.querySelectorAll('[data-page]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.page===file)));document.getElementById('status').textContent='Chargement de '+file+'…';try{
+const [html,theme]=await Promise.all([text(file),text('site-identite.js')]);if(run!==revision)return;
+const doc=new DOMParser().parseFromString(html,'text/html');
+doc.querySelectorAll('script,iframe,object,embed,base,form,meta[http-equiv]').forEach(n=>n.remove());
+doc.querySelectorAll('*').forEach(n=>{for(const a of [...n.attributes]){if(/^on/i.test(a.name)||a.name==='srcdoc')n.removeAttribute(a.name);if(['src','href','action','formaction'].includes(a.name)&&/^\s*javascript:/i.test(a.value))n.removeAttribute(a.name)}});
+doc.querySelectorAll('link').forEach(n=>{if(n.rel!=='stylesheet'){n.remove();return}try{const url=new URL(n.getAttribute('href'),SITE);if(url.origin!==new URL(SITE).origin)n.remove();else n.href=url.href}catch(e){n.remove()}});
+const base=doc.createElement('base');base.href=SITE;doc.head.prepend(base);
+const csp=doc.createElement('meta');csp.httpEquiv='Content-Security-Policy';csp.content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline' https://johnlegent03-oss.github.io; img-src data: https://johnlegent03-oss.github.io; font-src data: https://johnlegent03-oss.github.io; connect-src 'none'; frame-src 'none'; form-action 'none'; base-uri https://johnlegent03-oss.github.io";doc.head.prepend(csp);
+const marker=doc.createElement('p');marker.textContent='Aperçu de présentation : les fonctions et les données de cette page sont désactivées.';marker.style.cssText='padding:12px 20px;margin:0;background:#eef2e2;color:#52694a;font:12px Arial';doc.body.prepend(marker);
+let prepared=theme.replace("const root = new URL('.', document.currentScript.src);",'const root = new URL('+JSON.stringify(SITE)+');');
+if(prepared===theme)throw Error('Le format du thème a changé : aperçu interrompu pour ne pas afficher une version incorrecte.');
+prepared=prepared.replace('const evaluation = /evaluations\\.html$/i.test(location.pathname);','const evaluation = '+String(file==='evaluations.html')+';');
+const block=doc.createElement('script');block.textContent=prepared+"\ndocument.addEventListener('click',function(e){if(e.target.closest('a,button,input,select,textarea')){e.preventDefault();e.stopImmediatePropagation();}},true);document.addEventListener('submit',function(e){e.preventDefault();},true);";doc.body.append(block);
+document.getElementById('frame').srcdoc='<!doctype html>\n'+doc.documentElement.outerHTML;document.getElementById('status').textContent=file+' — thème de la branche de travail, aperçu visuel uniquement.';
+}catch(e){if(run===revision)document.getElementById('status').textContent='Aperçu indisponible : '+e.message}}
+document.querySelectorAll('[data-page]').forEach(b=>b.addEventListener('click',()=>show(b.dataset.page)));document.getElementById('reload').addEventListener('click',()=>show(current));show(files.includes(new URLSearchParams(location.search).get('page'))?new URLSearchParams(location.search).get('page'):current);
+</script>
+</body>
+</html>
