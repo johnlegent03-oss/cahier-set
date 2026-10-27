@@ -1,0 +1,934 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Cahier numérique de SVT</title>
+<style>
+:root{--bg:#f3f7f5;--card:#fff;--text:#203037;--muted:#6b7b7d;--a:#397466;--a2:#e4f1ec;--b:#d8e3df}
+*{box-sizing:border-box}
+body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:radial-gradient(circle at 10% 5%,#dceee7aa,transparent 28%),radial-gradient(circle at 95% 15%,#e2ebf6aa,transparent 25%),var(--bg);color:var(--text);min-height:100vh}
+header{position:sticky;top:0;z-index:5;background:#ffffffed;backdrop-filter:blur(10px);border-bottom:1px solid var(--b)}
+.head{max-width:1100px;margin:auto;padding:14px 20px;display:flex;align-items:center;gap:12px}
+.brand{display:flex;gap:11px;align-items:center}.logo{width:45px;height:45px;border-radius:14px;background:var(--a2);display:grid;place-items:center;font-size:23px}
+.brand h1{font-size:18px;margin:0}.brand p{font-size:12px;color:var(--muted);margin:3px 0}
+main{max-width:1000px;margin:auto;padding:26px 20px 50px}
+.hero,.session,.empty{background:#ffffffed;border:1px solid var(--b);border-radius:20px;padding:20px;box-shadow:0 6px 20px #23413b0b}
+.hero{border-radius:22px;margin-bottom:18px}.hero h2{font-size:29px;margin:7px 0}
+.eyebrow{font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:var(--a);font-weight:800}
+.muted{color:var(--muted);line-height:1.55}
+.session{margin:14px 0}.session h3{margin:7px 0 15px}
+.problem{background:#edf6f2;border-left:4px solid var(--a);border-radius:10px;padding:15px;margin-top:14px;line-height:1.55}
+.section-title{margin:28px 0 12px}
+.small{font-size:12px;color:var(--muted);font-weight:750;letter-spacing:.04em}
+.btn{display:inline-flex;align-items:center;gap:7px;margin-top:9px;padding:10px 13px;border-radius:10px;border:1px solid var(--b);background:#fff;color:var(--text);font-weight:700;text-decoration:none}
+.btn:hover{border-color:#9dbdb5}
+.pdf-card{background:#f4faf7;border:1px solid #cfe4dc;border-radius:12px;padding:12px;margin-top:10px}
+.pdf-title{font-size:12px;color:#42645c;font-weight:800}
+footer{text-align:center;color:var(--muted);font-size:12px;padding:0 20px 35px}
+.error{background:#fff0ef;border-color:#efc0ba}
+@media(max-width:600px){main{padding:18px 12px 40px}.hero{padding:17px}.hero h2{font-size:24px}}
+
+.rich-output{line-height:1.6}.rich-output p{margin:.45em 0}.rich-output ul,.rich-output ol{padding-left:24px}
+.day-entry{margin:14px 0;padding:13px 15px;border:1px solid #dce8e3;border-radius:13px;background:#fbfdfc}
+.day-date{font-size:12px;font-weight:850;color:var(--a);letter-spacing:.04em;margin-bottom:8px}
+.content-label{font-size:13px;font-weight:850;margin-bottom:6px}
+
+.print-tools{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:18px 0}.print-tools select{padding:10px 12px;border:1px solid var(--b);border-radius:10px;background:#fff;color:var(--text);font-weight:700}.print-btn{background:var(--a);color:#fff;border-color:var(--a);cursor:pointer}.print-btn:hover{border-color:var(--a)}
+#printArea{display:none}
+@media print{
+  @page{size:A4;margin:14mm}
+  body{background:#fff!important}
+  body>*:not(#printArea){display:none!important}
+  #printArea{display:block!important;color:#203037;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+  #printArea h1{font-size:24px;margin:0 0 6px}
+  #printArea h2{font-size:20px;margin:18px 0 8px}
+  #printArea h3{font-size:16px;margin:12px 0 7px}
+  #printArea .print-cover{border-bottom:2px solid #397466;padding-bottom:14px;margin-bottom:20px}
+  #printArea .print-meta{color:#6b7b7d;font-size:12px}
+  #printArea .print-section{break-inside:avoid;margin:14px 0}
+  #printArea .print-box{border:1px solid #d8e3df;border-radius:10px;padding:10px;margin:8px 0}
+  #printArea .rich-output img{display:block;max-width:100%!important;width:auto!important;height:auto!important;max-height:250mm;object-fit:contain;break-inside:avoid;page-break-inside:avoid}
+  #printArea .print-date{font-size:11px;font-weight:700;color:#397466;margin-bottom:5px}
+  #printArea .print-pdf{border:1px dashed #9dbdb5;padding:8px;margin-top:7px;font-size:11px}
+  #printArea a{color:inherit;text-decoration:none}
+}
+
+/* Impression du cahier élève */
+@media print {
+  @page { size: A4; margin: 15mm; }
+  body {
+    background: #fff !important;
+    color: #203037 !important;
+    min-height: auto;
+  }
+  header {
+    position: static !important;
+    background: #fff !important;
+    border-bottom: 1px solid #d8e3df !important;
+    box-shadow: none !important;
+  }
+  main { max-width: none !important; padding: 0 !important; }
+  footer { padding: 15px 0 0 !important; }
+  .no-print, .print-actions, .pdf-card { display: none !important; }
+  .hero, .session, .empty {
+    box-shadow: none !important;
+    background: #fff !important;
+    break-inside: avoid;
+  }
+  .session { page-break-inside: avoid; }
+  .chapter-print { break-before: auto; }
+}
+
+</style>
+
+
+
+
+<style id="export-logo-style">
+/* Règles communes à l'aperçu et à l'impression. Le logo est une image, pas un fond. */
+#printOverlay .svt-export-brand,#printArea .svt-export-brand{
+ display:flex!important;align-items:center!important;gap:10px!important;
+ width:100%;margin:0 0 8px!important;break-inside:avoid;page-break-inside:avoid;
+ font-family:Arial,sans-serif;color:#263a2b;
+}
+#printOverlay .svt-export-brand>img,#printArea .svt-export-brand>img{
+ display:block!important;visibility:visible!important;opacity:1!important;
+ width:13mm!important;height:13mm!important;min-width:13mm!important;max-width:13mm!important;
+ flex:0 0 13mm!important;object-fit:contain!important;border:0!important;
+}
+#printOverlay .svt-export-brand>h1,#printArea .svt-export-brand>h1{
+ margin:0!important;min-width:0;flex:1;overflow-wrap:anywhere;
+}
+#printOverlay .svt-a4-grid .svt-export-brand{gap:7px!important;margin-bottom:4px!important}
+#printOverlay .svt-a4-grid .svt-export-brand>img{
+ width:9mm!important;height:9mm!important;min-width:9mm!important;max-width:9mm!important;flex-basis:9mm!important;
+}
+</style>
+
+
+
+
+
+
+
+<style id="field-final">
+@media screen {
+:root{--bg:#f5f2e5;--text:#344e39;--muted:#6d7e61;--a:#426849;--b:#d9dfc8}
+*{box-sizing:border-box}body{background:radial-gradient(ellipse at 0 0,#c0cd9b40,transparent 40%),repeating-linear-gradient(0deg,#96825305 0 1px,transparent 1px 4px),#f5f2e5;color:#344e39;font-family:Arial,sans-serif}
+body::before,body::after{content:'';position:fixed;z-index:0;pointer-events:none;width:230px;height:300px;background:url('./monstera-gauche.png') center/contain no-repeat;opacity:.48}body::before{left:-115px;top:80px;transform:rotate(-30deg)}body::after{right:-100px;bottom:-45px;transform:rotate(25deg)}
+header{position:relative;background:#fffdf2db;border-bottom:1px solid #d8dfc7;box-shadow:none}.head{max-width:1140px;margin:auto;padding:15px 30px}.brand h1{font:700 24px Georgia,serif;color:#34513a}.brand p{font-size:12px;color:#718063}.brand .logo{width:56px;height:56px;background:#fffdf4;border-radius:50%;border:1px solid #cbd4b7;overflow:hidden}.brand .logo img{width:100%;height:100%;object-fit:contain}
+main#content{position:relative;max-width:1140px;width:100%;margin:auto;padding:0 30px 40px;z-index:1}
+.field-welcome{position:relative;isolation:isolate;min-height:310px;display:flex;align-items:center;padding:32px 20px;margin:0 -8px;background:#f8f5e7;overflow:hidden}.field-welcome::before{content:'';position:absolute;inset:0 0 0 43%;background:url('./bandeau-accueil.jpg') center/cover no-repeat;z-index:-2}.field-welcome::after{content:'';position:absolute;inset:0;z-index:-1;background:linear-gradient(90deg,#f8f5e7 0%,#f8f5e7 40%,#f8f5e7d9 49%,transparent 72%),linear-gradient(0deg,#f5f2e5,transparent 24%)}.field-copy{width:60%;padding-bottom:20px}.field-copy h2{font:700 clamp(28px,3.2vw,40px)/1.12 Georgia,serif;margin:13px 0;color:#304e36}.field-copy p{font:15px/1.6 Georgia,serif;max-width:430px;color:#5b6d50}.eyebrow{font:700 9px/1.5 Arial,sans-serif;letter-spacing:1.8px;color:#70805a}
+.field-class{display:flex;align-items:center;gap:16px;position:relative;margin:-25px 0 20px;padding:19px 24px;min-height:92px;border:1px solid #dce2c9;border-radius:9px;background:#fffdf3ed;box-shadow:0 4px 13px #4f623013}.class-icon{display:grid;place-items:center;background:#547958;color:#fffde9;font:34px Georgia,serif;border-radius:50%;width:45px;height:45px}.field-class h2{font:700 26px Georgia,serif;margin:3px 0}.field-class p{font:italic 15px/1.5 Georgia,serif;margin:0 0 0 auto;max-width:390px;padding-left:20px;border-left:1px solid #dce2ce;color:#77895d}
+main>.print-actions{display:flex;flex-wrap:wrap;gap:8px!important;align-items:center;padding:0!important;margin:0 0 20px!important;background:transparent!important;border:0!important;font-size:12px}.btn{font:600 12px/1.5 Arial,sans-serif;color:#526d48;border:1px solid #d5dfc4;background:#fffdf3;border-radius:5px;min-height:35px;padding:8px 12px;cursor:pointer}main>.print-actions .btn{margin:0}main>.print-actions select{flex:1 1 210px;min-width:0!important}.section-title{display:flex;align-items:center;gap:15px;font:700 26px Georgia,serif;color:#3a583d;margin:24px 0 16px}.section-title::after{content:'';height:1px;background:#d1dabd;flex:1}
+.chapter-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px}.chapter-grid .session.chapter-card{position:relative;display:flex;flex-direction:column;min-width:0;margin:0;padding:0;overflow:hidden;background:linear-gradient(130deg,#fffef7,#f7f7e9);border:1px solid #d6dfc2;border-radius:9px;box-shadow:0 3px 9px #4b5e3014;aspect-ratio:1/1.04}.chapter-card-illustration{position:relative;min-height:0;flex:1 1 46%;height:46%;padding:17px;background:radial-gradient(ellipse at 75% 50%,#e5ecd08c,transparent 65%)}.chapter-card-number{position:relative;z-index:1;display:grid;place-items:center;width:39px;height:39px;border-radius:50%;background:#52765a;color:#fffdef;font:700 23px Georgia,serif}.chapter-card:nth-child(3n+2) .chapter-card-number{background:#839244}.chapter-card:nth-child(3n) .chapter-card-number{background:#ba934c}.chapter-card-leaf{position:absolute;inset:3px 8px 0 64px;mix-blend-mode:multiply}.chapter-card-image{width:100%;height:100%;object-fit:contain;mix-blend-mode:multiply;filter:saturate(.8)}.chapter-card-content{display:flex;flex-direction:column;flex:1 1 54%;padding:9px 18px 0}.chapter-card-content .small{font:700 8px Arial,sans-serif;letter-spacing:1.4px;color:#81916b}.chapter-grid .chapter-card h3{font:700 clamp(18px,2vw,23px)/1.15 Georgia,serif!important;color:#3d593c!important;margin:7px 0 8px}.chapter-card-content .muted,.chapter-card-content .muted *{font:400 12px/1.5 Arial,sans-serif!important;color:#748464!important;background:transparent!important}.chapter-card-content p{margin:0}.chapter-card-content .muted{margin-bottom:12px}.chapter-card-link{display:flex;align-items:center;justify-content:space-between;margin:auto -18px 0;padding:10px 18px;border-top:1px solid #e0e6cf;background:#edf1df;color:#536f45;text-decoration:none;font:600 11px Arial,sans-serif;min-height:38px}.chapter-card-link:hover{background:#e2eacf}.chapter-card-link:focus-visible{outline:3px solid #7c965b;outline-offset:-4px}.chapter-grid .empty{grid-column:1/-1}
+.hero,.session,.empty{background:#fffdf3;border:1px solid #dce2cb;border-radius:9px;box-shadow:0 3px 12px #465a2910}.hero h2,.session h3{font-family:Georgia,serif;color:#3b5b3d}.problem{background:#eef2df;border-left:3px solid #879d69}.day-entry{background:#fafbf1;border-color:#dee5cb}.day-date,.content-label{color:#6b8353}.pdf-card{background:#edf2dd;border:1px dashed #bccd9b}.rich-output{line-height:1.7;overflow-wrap:anywhere}.rich-output img{max-width:100%;height:auto}body>footer{position:relative;max-width:1080px;margin:auto;padding:25px 18px 35px;border-top:1px solid #d9e1c7;font:12px Georgia,serif;color:#7b896a;background:linear-gradient(0deg,#d8e2c18c,transparent)}
+@media(max-width:820px){.chapter-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.field-copy{width:67%}.field-copy h2{font-size:32px}}
+@media(max-width:540px){.head{padding:12px 16px}.brand h1{font-size:19px}main#content{padding:0 16px 25px}.field-welcome{min-height:285px;padding:24px 12px}.field-copy{width:84%}.field-copy h2{font-size:29px}.field-copy .eyebrow{font-size:8px}.field-copy p{font-size:13px}.field-welcome::after{background:linear-gradient(90deg,#f8f5e7f2,#f8f5e7cc 55%,#f8f5e755)}.field-class{flex-wrap:wrap;padding:15px;gap:10px}.field-class p{width:100%;max-width:none;padding:10px 0 0;border-left:0;border-top:1px solid #e0e6d1;font-size:14px}.chapter-grid{grid-template-columns:1fr;max-width:390px;margin:auto}.chapter-grid .session.chapter-card{aspect-ratio:1/1}.chapter-grid .chapter-card h3{font-size:25px!important}.chapter-card-content .muted,.chapter-card-content .muted *{font-size:13px!important}body::before,body::after{opacity:.2}.section-title{font-size:24px}}
+}
+</style>
+
+<style id="chapter-field-layout">
+@media screen {
+:root{--page-gutter:clamp(16px,4vw,76px)}
+header .head{width:100%;max-width:none;padding:16px var(--page-gutter)}
+main#content{width:100%;max-width:none;margin:0;padding:0 var(--page-gutter) 44px}
+body::before,body::after{width:clamp(160px,21vw,340px);height:85vh;opacity:.56;transform:none;background-size:contain;background-repeat:no-repeat}
+body::before{left:0;top:95px;background-image:url('./monstera-gauche.png');background-position:left center}
+body::after{right:0;bottom:0;background-image:url('./monstera-droite.png');background-position:right bottom}
+body>header{z-index:2}
+.field-welcome{margin:0 calc(-1 * var(--page-gutter));padding:38px var(--page-gutter) 55px;min-height:clamp(310px,29vw,470px)}
+.field-welcome::before{inset:0;background:url('./bandeau-accueil.jpg') center/cover no-repeat}
+.field-welcome::after{background:linear-gradient(0deg,#f5f2e5,transparent 10%)}
+.field-copy{width:52%;max-width:740px}.field-copy h2{font-size:clamp(29px,3vw,50px)}.field-class{margin-top:-30px;background:#fffdf4f5}
+.chapter-grid{grid-template-columns:repeat(auto-fit,minmax(min(100%,290px),1fr));max-width:none;gap:22px}.chapter-grid .session.chapter-card{aspect-ratio:auto;min-height:365px}.chapter-card-illustration{flex:0 0 auto;height:clamp(165px,15vw,240px)}.chapter-card-content{flex:1}.chapter-card-link{margin-top:auto}body>footer{max-width:none;margin:0 var(--page-gutter)}
+.chapter-page{--forest:#3d5e43;--sage:#94a681;--line:#d6dfca;position:relative;padding:0 0 20px}
+.chapter-toolbar{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:20px 0}
+.chapter-toolbar .btn{margin:0}
+.chapter-front{position:relative;display:grid;grid-template-columns:minmax(0,1fr) 210px;align-items:center;gap:30px;padding:32px 34px;background:#fffdf3f5;border:1px solid var(--line);border-bottom:0;border-radius:10px 10px 0 0;box-shadow:none;backdrop-filter:none;z-index:auto}
+.chapter-front h2{font:700 clamp(30px,3vw,45px)/1.15 Georgia,serif;color:var(--forest);margin:12px 0 15px}.chapter-front h2 p{margin:0}.chapter-motto{font:italic 16px/1.5 Georgia,serif;color:#748566;margin:0}.chapter-specimen{width:210px;height:165px;object-fit:contain;mix-blend-mode:multiply}
+.chapter-problem{padding:23px 34px;background:#edf2e3f7;border:1px solid #d1ddbf;border-left:5px solid #93a77b;border-radius:0 0 9px 9px;margin:0 0 24px}
+.chapter-problem h3{font:700 19px Georgia,serif;color:#526d43;margin:0 0 11px}.chapter-problem .rich-output{font-size:16px}
+.chapter-germoir{padding:24px 30px;margin:0 0 30px;background:#fffdf4f2;border:1px solid #e0e4d3;border-radius:7px}
+.chapter-germoir h3{display:flex;gap:13px;align-items:center;font:700 23px Georgia,serif;color:var(--forest);margin:0 0 18px}.chapter-germoir h3::after{content:'';height:1px;background:#d4dec4;flex:1}
+.chapter-section-heading{font:700 27px Georgia,serif;color:var(--forest);margin:30px 0 19px;display:flex;align-items:center;gap:18px}.chapter-section-heading::after{content:'';flex:1;height:1px;background:#ced9bf}
+.chapter-lesson{border:1px solid var(--line);border-radius:9px;background:#fffef7f7;padding:27px 30px;margin:0 0 25px;box-shadow:0 4px 15px #40542b0b;overflow:hidden}
+.lesson-heading{display:flex;gap:17px;align-items:center;border-bottom:1px solid #dfe5d3;padding-bottom:20px;margin-bottom:20px}.lesson-number{display:grid;place-items:center;width:46px;height:46px;flex-shrink:0;border-radius:50%;background:#52745a;color:#fffdf1;font:700 23px Georgia,serif}.lesson-heading h3{font:700 clamp(23px,2vw,30px)/1.25 Georgia,serif;margin:5px 0 0;color:var(--forest)}.lesson-heading h3 p{margin:0}
+.lesson-problem{padding:16px 20px;background:#f0f4e7;border-left:3px solid #a5b58d;margin-bottom:24px}.lesson-problem h4{font:700 15px Georgia,serif;color:#6e805c;margin:0 0 8px}
+.lesson-block{--accent:#6b8e7d;margin:23px 0 0;padding:0 0 0 20px;border-left:3px solid var(--accent)}.lesson-block>h4{font:700 21px Georgia,serif;color:var(--accent);margin:0 0 14px}.lesson-entry{margin:0 0 20px}.lesson-entry:last-child{margin-bottom:0}.lesson-entry .day-date{color:#7e8c70;font-size:11px;margin:0 0 8px}.block-correction{--accent:#82976c;padding-top:8px;padding-bottom:8px}.block-summary{--accent:#6e8a55;background:#edf2e3;border:1px solid #d5dfc6;border-left:4px solid #8ea774;border-radius:5px;padding:19px 22px;margin-top:27px}.block-summary>h4{color:#4e6d40}
+.chapter-page .pdf-card{background:#f8faef;border:1px dashed #c5d3b1;border-radius:5px;padding:12px;margin-top:14px}.chapter-page .pdf-title{color:#71875d;font-size:11px}.chapter-page .btn{border-color:#d1ddc2;background:#fffef6;color:#526d45}.chapter-page .btn:hover{background:#eaf0dd}
+.revision-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));gap:18px;align-items:start}.revision-card{position:relative;padding:23px;border:1px solid #d5dfc5;border-radius:8px;background:#fffdf3f5;overflow:hidden}.revision-mark{font:27px Georgia,serif;color:#8aa174}.revision-card h3{font:700 23px Georgia,serif;color:#506d43;margin:10px 0 16px}.revision-card .rich-output{margin-top:16px}.revision-card .rich-output img{max-width:100%;height:auto}.chapter-revision{margin-bottom:10px}
+@media(min-width:1600px){.chapter-page .lesson-entry>.rich-output,.chapter-germoir>.rich-output,.chapter-problem>.rich-output{max-width:1200px}}
+@media(max-width:700px){.field-copy{width:75%}.field-copy h2{font-size:31px}.chapter-front{grid-template-columns:minmax(0,1fr) 100px;gap:14px;padding:23px}.chapter-specimen{width:100px;height:110px}.chapter-problem,.chapter-germoir,.chapter-lesson{padding:20px}.chapter-front h2{font-size:30px}.chapter-motto{font-size:14px}.lesson-heading{gap:12px}.lesson-heading h3{font-size:23px}.chapter-section-heading{font-size:24px}}
+@media(max-width:450px){.field-copy{width:94%}.field-welcome::after{background:linear-gradient(90deg,#f8f5e7d9,#f8f5e788 65%,transparent)}.chapter-front{grid-template-columns:1fr;gap:4px}.chapter-specimen{position:absolute;right:8px;top:8px;opacity:.13;pointer-events:none}.chapter-front>div{position:relative;z-index:1}.lesson-number{width:35px;height:35px;font-size:18px}.lesson-block{padding-left:13px}.block-summary{padding:16px}.revision-grid{grid-template-columns:1fr}}
+}
+@media print{.chapter-specimen{display:none!important}}
+</style>
+
+
+<style id="chapter-navigation-responsive">
+@media screen {
+.chapter-toc{padding:17px 20px;margin:0 0 25px;border:1px solid #d6e0c8;border-radius:7px;background:#f8faeff5}
+.toc-label{display:block;font:700 11px/1.5 Arial,sans-serif;letter-spacing:1.3px;text-transform:uppercase;color:#677e52;margin-bottom:11px}
+.toc-links{display:flex;flex-wrap:wrap;gap:8px}
+.toc-links a{display:block;max-width:100%;padding:8px 12px;border:1px solid #d5dfc5;border-radius:5px;background:#fffdf5;color:#4e6b43;text-decoration:none;font:600 12px/1.5 Arial,sans-serif;overflow-wrap:anywhere}
+.toc-links a:hover{background:#e9efdb;border-color:#a8bd8b}
+.chapter-pagination{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);gap:12px;align-items:center;margin:32px 0 14px;padding-top:22px;border-top:1px solid #d1ddc1}
+.chapter-pagination>div:last-child{text-align:right}.chapter-pagination .btn{white-space:normal;margin:0;max-width:100%}
+.chapter-back-top{display:block;width:fit-content;margin:20px auto 0;color:#617c4f;font:600 12px/1.5 Arial,sans-serif;text-underline-offset:3px}
+.chapter-page [id]{scroll-margin-top:20px}
+.chapter-page a:focus-visible,.chapter-page button:focus-visible{outline:3px solid #6f8e52;outline-offset:3px}
+.chapter-page section:focus,.chapter-page article:focus,.chapter-front:focus,.chapter-page:focus{outline:none}
+.chapter-page section:focus-visible,.chapter-page article:focus-visible{outline:2px solid #8da873;outline-offset:5px}
+.chapter-page .rich-output{min-width:0;max-width:100%;overflow-wrap:anywhere}
+.chapter-page .rich-output img,.chapter-page .rich-output video{max-width:100%;height:auto}
+.chapter-page .rich-output iframe{max-width:100%}
+.chapter-page .rich-output table{display:block;max-width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch}
+.chapter-page .rich-output pre{max-width:100%;overflow-x:auto;white-space:pre-wrap}
+.chapter-page .pdf-card{min-width:0;overflow-wrap:anywhere}
+.chapter-page .btn{max-width:100%;white-space:normal;overflow-wrap:anywhere}
+@media(max-width:600px){
+.chapter-toc{padding:14px}.toc-links{gap:7px}.toc-links a{padding:9px 11px;min-height:38px}
+.chapter-pagination{grid-template-columns:1fr 1fr;gap:10px}.chapter-pagination>button{grid-column:1/-1;grid-row:2;justify-self:center}.chapter-pagination>div:first-child{grid-column:1;grid-row:1}.chapter-pagination>div:last-child{grid-column:2;grid-row:1}.chapter-pagination .btn{font-size:11px;padding:9px 10px}
+.chapter-toolbar .btn{min-height:40px}.lesson-heading>div{min-width:0}.lesson-heading h3,.chapter-front h2{overflow-wrap:anywhere}
+.revision-grid{grid-template-columns:1fr}.chapter-lesson{min-width:0}.lesson-block{min-width:0}.chapter-page .rich-output iframe{width:100%}
+}
+@media(prefers-reduced-motion:reduce){.chapter-page{scroll-behavior:auto}}
+}
+@media print {
+.chapter-toc,.chapter-pagination,.chapter-back-top,.chapter-toolbar{display:none!important}
+#printArea .print-section,#printArea .print-box{break-inside:auto;page-break-inside:auto}
+#printArea h1,#printArea h2,#printArea h3,#printArea h4,#printArea .print-date{break-after:avoid-page;page-break-after:avoid}
+#printArea p{orphans:3;widows:3}
+#printArea img{max-width:100%!important;height:auto!important;break-inside:avoid}
+#printArea table{display:table;max-width:100%;width:100%;border-collapse:collapse}
+#printArea th,#printArea td{overflow-wrap:anywhere}
+#printArea tr{break-inside:avoid;page-break-inside:avoid}
+#printArea thead{display:table-header-group}
+#printArea pre{white-space:pre-wrap;overflow-wrap:anywhere}
+}
+</style>
+<style>
+@media screen {
+  .chapter-page .document-card {
+    display: flex;
+    align-items: center;
+    gap: 13px;
+    padding: 14px 16px;
+    border: 1px solid #d6dfca;
+    border-radius: 7px;
+    background: #f8faef;
+  }
+
+  .document-icon {
+    display: grid;
+    place-items: center;
+    flex: 0 0 39px;
+    height: 46px;
+    border: 1px solid #bdcdaa;
+    border-radius: 4px;
+    background: #edf2e2;
+    color: #658052;
+    font: 700 10px Arial, sans-serif;
+    letter-spacing: 1px;
+  }
+
+  .document-info {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .chapter-page .document-card .pdf-title {
+    color: #4f6d42;
+    font: 600 13px/1.4 Arial, sans-serif;
+    overflow-wrap: anywhere;
+  }
+
+  .document-note {
+    margin-top: 4px;
+    color: #748169;
+    font: 11px/1.4 Arial, sans-serif;
+  }
+
+  .chapter-page .document-open {
+    flex-shrink: 0;
+    margin: 0;
+    white-space: nowrap;
+  }
+
+  @media (max-width: 480px) {
+    .chapter-page .document-card {
+      flex-wrap: wrap;
+    }
+
+    .chapter-page .document-open {
+      margin-left: 52px;
+    }
+  }
+}
+</style>
+<style id="confort-utilisation">
+@media screen {
+  /* Repérage au clavier, sur l’accueil et dans les chapitres. */
+  #content a:focus-visible,
+  #content button:focus-visible,
+  #content select:focus-visible {
+    outline: 3px solid #426849;
+    outline-offset: 3px;
+  }
+
+  /* Le lien reste visible même au bord d’une carte. */
+  #content .chapter-card-link:focus-visible {
+    outline-offset: -4px;
+    background: #e7efda;
+  }
+
+  /* Titres et contenus longs : éviter les débordements. */
+  #content .chapter-card,
+  #content .chapter-front,
+  #content .lesson-heading,
+  #content .revision-card {
+    min-width: 0;
+  }
+
+  #content .chapter-card h3,
+  #content .chapter-front h2,
+  #content .lesson-heading h3,
+  #content .revision-card h3 {
+    overflow-wrap: anywhere;
+  }
+
+  /* Préserver la lisibilité des documents intégrés. */
+  #content .rich-output img,
+  #content .rich-output video {
+    max-width: 100%;
+    height: auto;
+  }
+
+  /* Commandes plus faciles à toucher sur écran tactile. */
+  @media (pointer: coarse) {
+    #content .btn,
+    #content .toc-links a,
+    #content .chapter-card-link {
+      min-height: 44px;
+    }
+
+    #content .chapter-back-top {
+      display: flex;
+      align-items: center;
+      min-height: 44px;
+      padding: 8px 12px;
+    }
+  }
+
+  /* Respecter les préférences de réduction des animations. */
+  @media (prefers-reduced-motion: reduce) {
+    #content .chapter-card,
+    #content .btn {
+      transition: none !important;
+      animation: none !important;
+    }
+
+    #content .chapter-card:hover {
+      transform: none !important;
+    }
+  }
+}
+</style>
+
+<style id="notebook-pdf-layout">
+@media print {
+ @page{size:A4;margin:15mm 16mm 16mm}
+ #printArea .print-notebook{color:#2d3e31;font:10pt/1.5 Arial,sans-serif}
+ #printArea .print-cover{border:0;border-bottom:1.5pt solid #80966c;padding:0 0 12pt;margin:0 0 15pt;break-inside:avoid}
+ #printArea .print-meta{font:700 7.5pt/1.4 Arial,sans-serif;letter-spacing:1.2pt;color:#687e55;margin-bottom:7pt}
+ #printArea .print-cover h1{font:700 22pt/1.15 Georgia,serif;margin:0;color:#36533c}
+ #printArea .print-motto{font:italic 10pt/1.5 Georgia,serif;color:#6a8058;margin:7pt 0 0}
+ #printArea .print-main-question{border-left:3pt solid #91a67c;background:#f1f5e9;padding:9pt 12pt;margin:0 0 16pt;break-inside:avoid}
+ #printArea h2{font:700 15pt/1.2 Georgia,serif;color:#405f42;margin:0 0 8pt;break-after:avoid-page;page-break-after:avoid}
+ #printArea h3{font:700 11.5pt/1.3 Georgia,serif;color:#567647;margin:0 0 6pt;break-after:avoid-page;page-break-after:avoid}
+ #printArea .print-main-question h2{font-size:11.5pt}
+ #printArea .print-germoir{border-top:.5pt solid #cbd7bd;border-bottom:.5pt solid #cbd7bd;padding:10pt 0;margin:0 0 17pt}
+ #printArea .print-germoir h2{font-size:14pt}
+ #printArea .print-lesson{margin:18pt 0 0;break-inside:auto}
+ #printArea .print-lesson-opening{break-inside:avoid;break-after:avoid-page}
+ #printArea .print-lesson-heading{display:flex;align-items:center;gap:10pt;border-bottom:.8pt solid #b6c7a7;padding:0 0 7pt;margin-bottom:9pt}
+ #printArea .print-lesson-heading h2{margin:0;flex:1}
+ #printArea .print-lesson-heading h2 p{margin:0}
+ #printArea .print-lesson-number{display:block;flex:0 0 25pt;width:25pt;height:25pt;line-height:25pt;text-align:center;border:1pt solid #809a6a;border-radius:50%;font-size:11pt;color:#4a6b3f}
+ #printArea .print-lesson-question{padding:7pt 10pt;border-left:1.5pt solid #c4d2b4;margin-bottom:9pt;background:#f8faf3}
+ #printArea .print-lesson-question>strong{display:block;color:#738463;font:700 8pt Arial,sans-serif;margin-bottom:5pt}
+ #printArea .print-learning{margin:10pt 0 12pt;padding-left:10pt;border-left:1pt solid #b4c5ab;break-inside:auto}
+ #printArea .print-correction{border-left-color:#98ae85}
+ #printArea .print-summary{border:1pt solid #c6d5b6;border-left:3pt solid #8ba473;padding:9pt 11pt;background:#f1f5e8}
+ #printArea .print-entry{margin:0 0 10pt;break-inside:avoid;page-break-inside:avoid}
+ #printArea .print-entry:last-child{margin-bottom:0}
+ #printArea .print-date{font:700 7.5pt Arial,sans-serif;color:#77866b;margin-bottom:5pt;break-after:avoid-page}
+ #printArea .rich-output{line-height:1.5;overflow-wrap:anywhere}
+ #printArea .rich-output p{margin:4pt 0;orphans:3;widows:3}
+ #printArea .rich-output ul,#printArea .rich-output ol{margin:5pt 0;padding-left:16pt}
+ #printArea .print-pdf{border:0;border-top:.5pt solid #d9e0ce;padding:5pt 0 0;margin:7pt 0 0;font:8pt/1.5 Arial,sans-serif;color:#647b51;break-inside:avoid}
+ #printArea .print-pdf>span{font-size:6.5pt;letter-spacing:.6pt}
+ #printArea .print-pdf a{color:#496a3c;text-decoration:underline;text-underline-offset:2pt}
+ #printArea .print-revision{margin-top:18pt;border-top:1pt solid #a9bf96;padding-top:12pt;break-inside:auto}
+ #printArea .print-revision-item{margin:9pt 0;padding:8pt 10pt;border:1pt solid #d4dec9;border-radius:4pt;break-inside:avoid}
+ #printArea img{max-width:100%!important;height:auto!important;break-inside:avoid}
+ #printArea table{max-width:100%;width:100%;border-collapse:collapse;font-size:9pt}
+ #printArea th,#printArea td{overflow-wrap:anywhere}
+ #printArea thead{display:table-header-group}#printArea tr{break-inside:avoid}
+ #printArea .print-notebook{print-color-adjust:exact;-webkit-print-color-adjust:exact}
+ #printArea .chapter-print+.chapter-print{break-before:page;page-break-before:always}
+}
+</style>
+
+<style id="student-slogan-style">
+@media screen {
+ .field-welcome .field-copy p.student-slogan{
+  font-family:Georgia,"Times New Roman",serif;
+  font-style:italic;font-weight:400;font-size:clamp(16px,1.25vw,19px);
+  line-height:1.65;color:#48613e;margin:18px 0 0;
+  text-transform:none;letter-spacing:normal;max-width:650px;
+ }
+ @media(max-width:540px){.field-welcome .field-copy p.student-slogan{font-size:16px;margin-top:15px}}
+}
+</style>
+
+<style id="svt-nature-polish-2026">
+/* Finition visuelle : palette forêt, sauge et ivoire, sans modifier les fonctions du cahier. */
+@media screen {
+  :root { --forest:#35563b; --sage:#84986a; --ivory:#fbf8eb; --sage-pale:#edf1e2; --sage-line:#d4ddc4; }
+  body { background-color:#f5f2e5; color:#344e39; }
+  header { background:rgba(251,248,235,.96); border-bottom-color:#d4ddc4; }
+  .brand .logo { flex:0 0 56px; box-shadow:0 2px 7px #344e3910; }
+  .brand h1 { letter-spacing:-.35px; }
+  .field-welcome { isolation:isolate; }
+  .field-welcome::before { z-index:-2; }
+  .field-welcome::after { z-index:-1; }
+  .field-copy { position:relative; z-index:1; width:58%; max-width:740px; }
+  .field-copy h2 { color:#304e36; text-wrap:balance; }
+  .field-copy p { color:#53694b; }
+  .field-copy p.student-slogan { display:block; position:relative; margin:18px 0 0; max-width:650px; padding-left:15px; border-left:3px solid #9cad7f; color:#48613e; font:italic 17px/1.65 Georgia,"Times New Roman",serif; letter-spacing:0; text-transform:none; }
+  .field-class { border-color:#d5ddc4; background:rgba(255,253,243,.97); box-shadow:0 5px 18px #344e390c; }
+  .field-class .class-icon { background:#486b4c; }
+  .chapter-grid .session.chapter-card { border-color:#d6dfc7; box-shadow:0 5px 15px #344e390c; transition:transform .18s ease,box-shadow .18s ease,border-color .18s ease; }
+  .chapter-grid .session.chapter-card:hover { transform:translateY(-3px); border-color:#aebf98; box-shadow:0 10px 22px #344e3915; }
+  .chapter-card-link { background:#edf1e2; color:#456344; border-top-color:#dbe3ce; }
+  .chapter-card-link:hover { background:#e3eacf; }
+  .chapter-germoir { background:linear-gradient(135deg,#f7f8ed,#eef2e4); border:1px solid #d5dfc6; border-left:5px solid #8ca276; border-radius:8px; box-shadow:0 4px 14px #344e3908; }
+  .chapter-germoir h3 { color:#3c5b3e; }
+  .chapter-germoir h3::before { content:"❧"; display:inline-grid; place-items:center; flex:0 0 32px; width:32px; height:32px; border-radius:50%; background:#e1e9d4; color:#5e7b4e; font:23px Georgia,serif; }
+  .chapter-germoir h3::after { background:#d3ddc4; }
+  .revision-card { background:#fffdf4; border-color:#d7dfc9; border-radius:8px; box-shadow:0 4px 14px #344e3908; }
+  .revision-card:nth-child(2) { background:#f3f5e9; }
+  .revision-card:nth-child(3) { background:#f8f2e5; }
+  .revision-mark { color:#718b5d; }
+  .revision-card h3 { color:#456344; }
+  .problem,.lesson-problem { background:#eef2e4; }
+  .btn { transition:background-color .15s ease,border-color .15s ease; }
+  .btn:hover { background:#edf1e2; border-color:#a9bb91; }
+  body>footer { color:#718064; border-top-color:#d7dfc8; }
+}
+@media(max-width:700px) {
+  .field-copy { width:78%; }
+  .field-copy p.student-slogan { font-size:15px; }
+}
+@media(max-width:540px) {
+  .field-copy { width:94%; }
+  .field-copy p.student-slogan { max-width:100%; font-size:15px; line-height:1.5; margin-top:14px; }
+  .field-welcome { min-height:300px; }
+  .chapter-germoir { padding:19px 17px; }
+  .chapter-germoir h3 { font-size:21px; gap:9px; }
+}
+</style>
+
+
+<style id="functional-notebook-dashboard">
+:root{--forest:#244d3d;--forest2:#315d49;--sage:#dfe8d4;--sage-dark:#8fa583;--ivory:#f8f4e7;--rose:#f7e9e4;--plum:#87475b;--ink:#263d32;--line:#d9dfcd}
+body{background:#f7f3e8!important;color:var(--ink)!important;font-family:Georgia,"Times New Roman",serif!important}
+body>header{display:none!important}main#content{max-width:none!important;padding:0!important;margin:0!important}
+.notebook-layout{display:grid;grid-template-columns:218px minmax(0,1fr);min-height:100vh;background:var(--ivory)}
+.notebook-sidebar{position:sticky;top:0;align-self:start;height:100vh;overflow:auto;padding:20px 12px;background:linear-gradient(180deg,#edf0e4,#e6eadb);border-right:1px solid #d4ddca;font:13px Arial,sans-serif}
+.side-home,.side-link,.side-chapter{width:100%;border:0;background:transparent;color:#304d3d;display:flex;align-items:center;gap:11px;text-align:left;padding:11px 10px;border-radius:12px;cursor:pointer;font:inherit;line-height:1.3}
+.side-home{font-weight:800}.side-home span{font-size:20px}.side-label{font-weight:800;margin:10px 8px 8px;color:#455a48}.side-chapter span:first-child{flex:0 0 23px;width:23px;height:23px;border-radius:50%;display:grid;place-items:center;background:#d1ddc7;font-weight:800}.side-chapter span:last-child{overflow-wrap:anywhere}.side-chapter.active,.side-home:hover,.side-link:hover{background:#315d49;color:#fffdf2}.side-chapter.active span:first-child{background:#fffdf2;color:#315d49}.side-divider{height:1px;background:#c8d3bf;margin:16px 8px}.side-link{font-weight:700}.side-link span{flex:1}
+.notebook-main{min-width:0}.notebook-banner{height:180px;position:relative;overflow:hidden;background:#e5e9d5;display:flex;align-items:center;justify-content:center;border-bottom:4px solid #dce4cf}.notebook-banner>img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}.banner-fallback{position:relative;text-align:center;display:flex;flex-direction:column;align-items:center;color:#244d3d;text-shadow:0 1px 0 #fff8;pointer-events:none}.banner-fallback span{font-style:italic;font-size:clamp(25px,3vw,42px);font-weight:bold}.banner-fallback strong{font-size:clamp(34px,4vw,53px);line-height:1}.banner-fallback small{margin-top:8px;font-style:italic}.grade-pill{position:absolute;right:22px;top:18px;background:#244d3d;color:#fffdf2;border-radius:50%;width:55px;height:55px;display:grid;place-items:center;font-size:20px;font-weight:bold}.notebook-content{max-width:1450px;margin:auto;padding:15px 18px 35px}
+.chapter-title-card{display:flex;align-items:center;gap:18px;position:relative;overflow:hidden;min-height:115px;padding:18px 25px;border:1px solid #d6ddc9;border-radius:16px;background:linear-gradient(100deg,#f9f6e8,#e8edda);margin-bottom:14px}.chapter-title-number{width:48px;height:48px;border-radius:50%;background:#315d49;color:#fffdf2;display:grid;place-items:center;font-size:25px;flex:0 0 auto}.chapter-title-card h1{font-size:clamp(25px,3vw,38px);margin:4px 0;color:#244d3d;line-height:1.1}.chapter-title-card>img{width:160px;height:100px;object-fit:contain;margin-left:auto;mix-blend-mode:multiply;z-index:1}.dashboard-two{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin:14px 0}.dashboard-card{min-width:0;border:1px solid #e4d9cb;border-radius:15px;background:#fffaf0;padding:17px 18px;overflow:hidden}.germoir-card{background:linear-gradient(130deg,#f8e9e3,#fff7ec)}.questions-card{background:linear-gradient(130deg,#f8f5e8,#f0f1e3)}.dashboard-card h2,.evaluation-strip h2{display:flex;align-items:center;gap:10px;font-size:clamp(19px,2vw,25px);color:#244d3d;margin:0 0 8px}.round-icon{flex:0 0 42px;width:42px;height:42px;border-radius:50%;display:grid;place-items:center;font-size:22px}.round-icon.plum{background:#87475b;color:white}.round-icon.green{background:#315d49;color:white}.dashboard-card .muted,.lessons-section .muted{font:13px/1.5 Arial,sans-serif;color:#66715d}.dashboard-card .rich-output{font-size:14px}.problem-banner{display:flex;gap:15px;align-items:center;padding:18px 22px;border-radius:15px;border:1px solid #d2ddc5;background:linear-gradient(100deg,#edf1df,#fffaf0);margin:15px 0}.problem-icon{flex:0 0 42px;width:42px;height:42px;border-radius:50%;display:grid;place-items:center;background:#315d49;color:#fff;font-size:28px}.problem-banner h2{font-size:24px;color:#244d3d;margin:0 0 6px}.problem-banner .rich-output{font-style:italic}.lessons-section{margin:21px 0}.section-heading-row{display:flex;justify-content:space-between;align-items:center;gap:15px;margin-bottom:12px}.section-heading-row h2{font-size:clamp(22px,2.5vw,30px);margin:0;color:#244d3d}.section-heading-row p{margin:4px 0 0}.overview-pill{white-space:nowrap;border-radius:30px;background:#e7ebdb;padding:10px 13px;font:12px Arial,sans-serif;color:#425b45}.lesson-tiles{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:11px}.lesson-tile{min-width:0;padding:11px;border-radius:14px;border:1px solid #e5ddcd;background:#fffaf0;display:flex;flex-direction:column;box-shadow:0 3px 10px #394a3010}.lesson-tile-top{display:flex;align-items:center;gap:9px}.lesson-number{width:30px;height:30px;border-radius:50%;background:#244d3d;color:white;display:grid;place-items:center;font-size:16px;flex:0 0 auto}.lesson-image{height:100px;border-radius:9px;margin:8px 0;background:linear-gradient(140deg,#d8e5cc,#a7c2a1);display:grid;place-items:center;font-size:47px;overflow:hidden}.lesson-image-1{background:linear-gradient(140deg,#e7e4ca,#9cb5a0)}.lesson-image-2{background:linear-gradient(140deg,#f2e1c8,#b8c89b)}.lesson-image-3{background:linear-gradient(140deg,#d7e1c6,#9eb69b)}.lesson-image img{width:100%;height:100%;object-fit:cover;border-radius:9px}.lesson-tile h3{font-size:15px;line-height:1.3;min-height:38px;margin:9px 0 0;color:#354d39}.soft-button{border:1px solid #d4ddc8;border-radius:10px;padding:10px 12px;background:#e7eddd;color:#38583f;font:700 12px Arial,sans-serif;cursor:pointer;display:inline-flex;justify-content:center;align-items:center;gap:8px;text-decoration:none}.soft-button:hover{background:#dce7d0}.lesson-tile .soft-button{margin-top:auto;width:100%}.lesson-tile .soft-button span{font-size:18px}.revision-card-dashboard{background:linear-gradient(135deg,#f7e9e4,#fff6ed)}.revision-panels .dashboard-card{min-height:150px}.revision-panels .rich-output img{max-width:100%;height:auto}.evaluation-strip{display:flex;align-items:center;gap:13px;padding:17px 19px;border-radius:15px;background:#edf0df;border:1px solid #d4ddc7}.evaluation-strip h2{margin:0}.evaluation-strip p{margin:4px 0}.evaluation-actions{margin-left:auto}.evaluation-actions .btn{margin:0}.chapter-bottom-actions{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-top:20px}.lesson-detail-top{margin-bottom:18px}.lesson-detail-top h1{font-size:clamp(26px,3vw,38px);color:#244d3d}.back-button{border:0;background:transparent;color:#42664a;font:700 13px Arial,sans-serif;cursor:pointer;padding:8px 0}.resource-row{display:flex;gap:15px;align-items:center;padding:17px;border:1px solid #dfe2d1;border-radius:14px;background:#fffaf0;margin:12px 0}.resource-row h3{margin:5px 0 10px}.resource-icon{width:48px;height:48px;border-radius:50%;background:#e6ebda;display:grid;place-items:center;font-size:24px;color:#315d49}.welcome-card{padding:28px;border-radius:16px;background:linear-gradient(120deg,#edf1df,#fff9eb);border:1px solid #dce1d1}.welcome-card h2{font-size:32px;color:#244d3d;margin:7px 0}.student-slogan{font-style:italic;color:#536c50}
+.notebook-content .chapter-lesson,.notebook-content .lesson-block{background:#fffaf0;border-color:#dfe2d1}.notebook-content .lesson-heading h3{color:#244d3d}.notebook-content .btn{background:#e7eddd;color:#38583f;border-color:#d4ddc8}.notebook-content .pdf-card{background:#f2f4e8;border-color:#d8dfca}.notebook-content .pdf-title{color:#426344}
+@media(max-width:950px){.notebook-layout{grid-template-columns:175px minmax(0,1fr)}.notebook-sidebar{padding:14px 8px}.lesson-tiles{grid-template-columns:repeat(2,minmax(0,1fr))}.notebook-banner{height:145px}}
+@media(max-width:650px){.notebook-layout{display:block}.notebook-sidebar{position:relative;height:auto;display:flex;gap:5px;overflow-x:auto;padding:8px;background:#e8eddf;border-right:0;border-bottom:1px solid #d4ddca}.side-label,.side-divider{display:none}.side-home,.side-link,.side-chapter{width:auto;min-width:max-content;padding:9px 10px}.side-chapter span:first-child{width:20px;height:20px;flex-basis:20px}.side-link span{white-space:nowrap}.notebook-banner{height:125px}.grade-pill{width:42px;height:42px;right:10px;top:10px}.notebook-content{padding:12px}.chapter-title-card{padding:14px;gap:11px}.chapter-title-card>img{width:75px;height:75px}.chapter-title-number{width:38px;height:38px;font-size:20px}.dashboard-two{grid-template-columns:1fr}.lesson-tiles{grid-template-columns:repeat(2,minmax(0,1fr))}.lesson-image{height:85px}.evaluation-strip{align-items:flex-start;flex-wrap:wrap}.evaluation-actions{margin-left:0;width:100%}.section-heading-row{align-items:flex-start;flex-wrap:wrap}}
+@media(max-width:370px){.lesson-tiles{grid-template-columns:1fr}.lesson-image{height:110px}.banner-fallback small{font-size:10px}}
+</style>
+
+<style id="user-design-refinements-2026-10">
+/* Ajustements demandés : palette nature, sans illustrations trompeuses ni encart superflu */
+:root{--rose:#e6eddc;--plum:#315d49}
+.germoir-card{background:linear-gradient(135deg,#edf2e4,#fffaf0)!important;border-color:#d5dfc9!important;margin:14px 0!important}
+.revision-card-dashboard{background:linear-gradient(135deg,#edf2e4,#fffaf0)!important;border-color:#d5dfc9!important}
+.round-icon.plum{background:#315d49!important;color:#fffdf2!important}
+.dashboard-card{border-color:#d5dfc9!important}
+.lesson-tile{background:#fffdf5!important;border-color:#d9e1cf!important}
+.lesson-neutral{height:54px;margin:8px 0;display:grid;place-items:center;border-radius:9px;background:linear-gradient(135deg,#edf2e4,#dce7d3);color:#66805d;font-size:24px;border:1px solid #e0e7d7}
+.lesson-tile h3{min-height:0!important;flex:1}
+@media(max-width:650px){.lesson-neutral{height:44px}}
+</style>
+<style id="custom-section-logos">
+/* Logos fournis pour le Germoir et la fiche de mémorisation */
+.dashboard-logo{width:46px;height:46px;flex:0 0 46px;object-fit:contain;border-radius:50%;background:#fffdf5;border:1px solid #d8dfc7;padding:2px}
+.dashboard-card h2 .dashboard-logo{margin-right:1px}
+@media(max-width:650px){.dashboard-logo{width:40px;height:40px;flex-basis:40px}}
+</style>
+
+<style id="maquette-typography-2026">
+/* Titres plus graphiques : calligraphie expressive + serif éditoriale, proches de la maquette */
+@import url('https://fonts.googleapis.com/css2?family=Kaushan+Script&family=Cormorant+Garamond:wght@600;700&display=swap');
+:root{--title-script:"Kaushan Script","Segoe Script","Apple Chancery","Brush Script MT",cursive;--title-serif:"Cormorant Garamond",Georgia,"Times New Roman",serif;}
+.brand h1{font-family:var(--title-script)!important;font-style:normal!important;font-weight:400!important;letter-spacing:0!important}
+.field-copy h2,.section-title,.dashboard-card h2,.problem-banner h2,.section-heading-row h2,.evaluation-strip h2,.revision-card h3,.chapter-germoir h3,.lesson-heading h3,.lesson-detail-top h1{font-family:var(--title-script)!important;font-style:normal!important;font-weight:400!important;letter-spacing:0!important}
+.chapter-title-card h1,.chapter-front h2{font-family:var(--title-serif)!important;font-weight:700!important;font-style:normal!important;letter-spacing:-.45px!important}
+.dashboard-card h2,.evaluation-strip h2{font-size:clamp(22px,2.25vw,29px)!important;line-height:1.18}
+.section-heading-row h2,.section-title{font-size:clamp(25px,2.7vw,34px)!important;line-height:1.18}
+.chapter-title-card h1,.chapter-front h2{font-size:clamp(31px,3.35vw,44px)!important;line-height:1.08}
+.problem-banner h2{font-size:clamp(24px,2.45vw,30px)!important}
+.lesson-heading h3,.revision-card h3{font-size:clamp(23px,2.2vw,29px)!important;line-height:1.22}
+.lesson-tile h3{font-family:var(--title-serif)!important;font-weight:700!important;font-style:normal!important}
+/* Keep functional controls and explanatory text in a clean, readable font */
+.dashboard-card .muted,.lessons-section .muted,.soft-button,.overview-pill,.lesson-tile .soft-button{font-family:Arial,sans-serif}
+@media(max-width:650px){.chapter-title-card h1,.chapter-front h2{font-size:30px!important}.dashboard-card h2,.evaluation-strip h2{font-size:23px!important}.section-heading-row h2,.section-title{font-size:25px!important}}
+</style>
+
+<style id="svt-logo-display-fix">
+.dashboard-logo{display:inline-block!important;width:52px!important;height:52px!important;object-fit:contain!important;vertical-align:middle!important;flex:0 0 52px!important;background:transparent!important;border:0!important;border-radius:0!important;box-shadow:none!important}
+.dashboard-card h2{display:flex;align-items:center;gap:10px}
+.problem-icon{display:flex;align-items:center;justify-content:center;flex:0 0 58px;width:58px;height:58px;background:transparent!important}
+.problem-logo{width:58px!important;height:58px!important;object-fit:contain!important}
+.evaluation-logo{width:58px!important;height:58px!important;flex:0 0 58px!important}
+.revision-card-dashboard{background:linear-gradient(135deg,#f2f5ec,#fbfaf4)!important;border-color:#d8e1d0!important}
+.evaluation-strip .evaluation-logo{object-fit:contain}
+@media(max-width:600px){.dashboard-logo{width:44px!important;height:44px!important;flex-basis:44px!important}.problem-logo,.evaluation-logo{width:48px!important;height:48px!important}.problem-icon{flex-basis:48px;width:48px;height:48px}}
+</style>
+
+<style id="fond-scientifique-seances">
+/* Fond botanique discret sur toute la carte, sans neutraliser les textes ni les couleurs. */
+.lesson-tile{position:relative;isolation:isolate;overflow:hidden;background-color:#fffdf5!important;border:1px solid #d9e1cf!important;box-shadow:0 5px 16px rgba(36,77,61,.07);transition:transform .18s ease,box-shadow .18s ease;background-image:linear-gradient(rgba(255,253,245,.88),rgba(255,253,245,.88)),url("fond-seance-svt.png")!important;background-size:cover!important;background-position:center!important;background-repeat:no-repeat!important}
+.lesson-tile>*{position:relative;z-index:1}
+.lesson-tile:hover{transform:translateY(-2px);box-shadow:0 9px 22px rgba(36,77,61,.11)}
+.lesson-neutral{height:54px;margin:8px 0;display:grid;place-items:center;border-radius:9px;background:rgba(237,242,228,.38)!important;color:#66805d;font-size:24px!important;border:1px solid rgba(224,231,215,.65)!important;overflow:hidden}
+.lesson-neutral::before{content:none!important}
+.lesson-tile h3{color:#354d39;line-height:1.35}
+.lesson-tile .soft-button{background:rgba(231,237,221,.94);border-color:#d4ddc8;color:#38583f}
+@media(max-width:650px){.lesson-neutral{height:44px}}
+</style>
+
+<style id="editorial-polish-2026-10">
+/* Harmonisation visuelle : carnet scientifique élégant, palette nature conservée. */
+:root{--forest:#244d3d;--sage:#dfe8d5;--ivory:#fffaf0;--line:#d9e1cf}
+.notebook-content{color:#46564b}
+.section-heading-row{gap:12px;margin-bottom:12px}
+.section-heading-row h2,.chapter-title-card h1,.chapter-title-card h2{letter-spacing:.01em}
+.dashboard-card,.germoir-card,.revision-card-dashboard{border-radius:18px;box-shadow:0 5px 18px rgba(36,77,61,.055)}
+.dashboard-card{background:rgba(255,253,245,.93)}
+.germoir-card,.revision-card-dashboard{background:linear-gradient(135deg,rgba(237,242,228,.94),rgba(255,250,240,.96))!important}
+.chapter-title-card{border-radius:20px}
+.pdf-card{border-radius:11px;background:rgba(242,244,232,.86);border-color:#d8dfca}
+.pdf-title{color:#426344}
+.notebook-content .btn,.notebook-content .soft-button{border-radius:10px;transition:background .18s ease,border-color .18s ease}
+@media(prefers-reduced-motion:reduce){.lesson-tile,.notebook-content .btn,.notebook-content .soft-button{transition:none}.lesson-tile:hover{transform:none}}
+</style>
+
+<style id="compact-resources-and-clean-sessions">
+/* Cartes de séances : aucun symbole décoratif inutile, fond botanique discret conservé. */
+.lesson-tile{gap:8px;}
+.lesson-tile h3{min-height:0;margin:7px 0 12px;}
+.lesson-tile .soft-button{margin-top:auto;}
+/* Documents : un lien compact remplace les grands blocs PDF. */
+.resource-link{display:inline-flex;align-items:center;gap:9px;max-width:100%;margin-top:10px;padding:9px 12px;border:1px solid #d4ddc8;border-radius:10px;background:#edf1e3;color:#315d49;text-decoration:none;font:600 13px/1.35 Arial,sans-serif;overflow-wrap:anywhere;}
+.resource-link:hover{background:#e1e9d7;border-color:#bdcdae;}
+.resource-link-icon{display:inline-grid;place-items:center;flex:0 0 25px;width:25px;height:25px;border-radius:7px;background:#dce7d0;color:#315d49;font-size:15px;}
+.evaluation-strip{align-items:center;}
+.evaluation-actions{margin-left:auto;}
+.evaluation-actions .resource-link{margin-top:0;}
+.revision-panels .dashboard-card{min-height:0;}
+.revision-panels .dashboard-card .muted{margin-bottom:10px;}
+@media(max-width:650px){.evaluation-strip{gap:10px}.evaluation-actions{width:auto;margin-left:0}.evaluation-actions .resource-link{margin-top:5px}.resource-link{font-size:12px;padding:8px 10px}}
+</style>
+
+</head>
+<body>
+<header><div class="head">
+  <div class="brand"><div class="logo"><img src="logo-svt.PNG" alt="Logo SVT"></div><div><h1>Cahier numérique de SVT</h1><p>John Legent · Professeur de SVT</p><p id="label">Chargement…</p></div></div>
+</div></header>
+<main id="content"></main>
+<footer>Cahier numérique de SVT · John Legent · accès réservé à la classe.</footer>
+<div id="printArea"></div>
+
+<script src="config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+const sb=supabase.createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY,{auth:{persistSession:true,autoRefreshToken:true}});
+const params=new URLSearchParams(location.search);
+const code=(params.get("code")||"").trim().toLowerCase();
+
+/*
+  Codes utilisés dans les QR codes.
+  Ils sont volontairement opaques : les élèves ne voient pas le nom
+  de la classe dans l'adresse.
+*/
+const CLASS_CODES={
+  "test-lab-9x2k": "TEST",
+  "svt6e1-7kq4":"6e1",
+  "svt6e2-m8p2":"6e2",
+  "svt6e3-r5x9":"6e3",
+  "svt6e4-n3v7":"6e4",
+  "svt6e5-t6h2":"6e5",
+  "svt5e1-q9w4":"5e1",
+  "svt5e3-k2m8":"5e3",
+  "svt5e5-p7r3":"5e5",
+  "svt3e2-x4n6":"3e2",
+  "svt3e3-b8q5":"3e3"
+};
+
+const classe=CLASS_CODES[code]||"";
+const content=document.getElementById("content");
+const label=document.getElementById("label");
+
+const esc=x=>String(x??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#039;"}[m]));
+const text=x=>x==null?"":String(x);
+function sanitizeRichHtml(value){
+  const html=text(value);
+  if(!html)return "";
+  const doc=new DOMParser().parseFromString(`<div>${html}</div>`,"text/html");
+  const root=doc.body.firstElementChild;
+  if(!root)return "";
+  const allowedTags=new Set(["B","I","U","BR","P","DIV","SPAN","FONT","STRONG","EM","MARK","SMALL","SUB","SUP","UL","OL","LI","H1","H2","H3","H4","H5","H6","TABLE","THEAD","TBODY","TR","TH","TD","A"]);
+  const allowedStyle=new Set(["color","background-color","font-family","font-size","font-weight","font-style","text-decoration","text-align"]);
+  [...root.querySelectorAll("*")].forEach(el=>{
+    if(!allowedTags.has(el.tagName)){
+      el.replaceWith(...[...el.childNodes]);
+      return;
+    }
+    if(el.tagName==="FONT"){
+      const color=(el.getAttribute("color")||"").trim();
+      const safeColor=/^(#[0-9a-f]{3,8}|[a-z]{1,24}|rgba?\(\s*[0-9.% ,]+\)|hsla?\(\s*[0-9.% ,deg]+\))$/i;
+      if(color && safeColor.test(color)){
+        const existing=el.getAttribute("style")||"";
+        el.setAttribute("style",`${existing}${existing.trim()&&!existing.trim().endsWith(";")?";":""}color:${color}`);
+      }
+    }
+    [...el.attributes].forEach(attr=>{
+      const name=attr.name.toLowerCase();
+      if(name==="style"){
+        const clean=attr.value.split(";").map(part=>part.trim()).filter(Boolean).filter(part=>{
+          const i=part.indexOf(":"); if(i<1)return false;
+          const prop=part.slice(0,i).trim().toLowerCase(),val=part.slice(i+1).trim().toLowerCase();
+          return allowedStyle.has(prop) && !(/[<>]|url\s*\(|javascript:|expression\s*\(/i.test(val));
+        }).join("; ");
+        if(clean)el.setAttribute("style",clean);else el.removeAttribute("style");
+        return;
+      }
+      if(name==="href"&&el.tagName==="A"){
+        try{
+          const u=new URL(attr.value,location.href);
+          if(!/^https?:$/i.test(u.protocol)&&u.origin!==location.origin)throw new Error("unsafe");
+          el.setAttribute("href",u.href);
+          el.setAttribute("target","_blank");
+          el.setAttribute("rel","noopener noreferrer");
+        }catch(e){el.removeAttribute("href");}
+        return;
+      }
+      el.removeAttribute(attr.name);
+    });
+  });
+  return root.innerHTML;
+}
+
+function empty(){return {chapitres:[]}}
+
+function normalizeEntry(e){
+  const x=e&&typeof e==="object"?e:{};
+  return {date:text(x.date||x.jour||x.datee),texte:sanitizeRichHtml(x.texte||x.text||x.contenu||x.html),pdf:text(x.pdf||x.pdfUrl||x.document)};
+}
+function legacyEntries(text,pdf){
+  const t=text||"",p=pdf||"";
+  return t||p?[{date:"",texte:t,pdf:p}]:[];
+}
+function normalizeSession(s){
+  const x=s&&typeof s==="object"?s:{};
+  const act=Array.isArray(x.activites)?x.activites.map(normalizeEntry).filter(e=>e.texte||e.pdf||e.date):legacyEntries(x.activite||x.activity,x.pdfActivite||x.pdf_activite||x.activityPdf||x.pdf||x.document);
+  const cor=Array.isArray(x.corrections)?x.corrections.map(normalizeEntry).filter(e=>e.texte||e.pdf||e.date):legacyEntries(x.correction,x.pdfCorrection||x.pdf_correction||x.correctionPdf);
+  const bil=Array.isArray(x.bilans)?x.bilans.map(normalizeEntry).filter(e=>e.texte||e.pdf||e.date):legacyEntries(x.bilan,"");
+  return {titre:sanitizeRichHtml(x.titre||x.title||"Séance"),problematique:sanitizeRichHtml(x.problematique||x.probleme||x.problem),activites:act,corrections:cor,bilans:bil,activite:sanitizeRichHtml(x.activite||x.activity),correction:sanitizeRichHtml(x.correction),bilan:sanitizeRichHtml(x.bilan),pdfActivite:text(x.pdfActivite||x.pdf_activite||x.activityPdf||x.pdf||x.document),pdfCorrection:text(x.pdfCorrection||x.pdf_correction||x.correctionPdf)};
+}
+function normalizeChapter(ch){
+  const x=ch&&typeof ch==="object"?ch:{};
+  const raw=Array.isArray(x.seances)?x.seances:(Array.isArray(x.sessions)?x.sessions:[]);
+  return {archive:x.archive===true,titre:sanitizeRichHtml(x.titre||x.title||"Chapitre"),problematique:sanitizeRichHtml(x.problematique||x.probleme||x.problem),germoir:sanitizeRichHtml(x.germoir),germoirPdf:text(x.germoirPdf||x.germoir_pdf),seances:raw.map(normalizeSession),schema:sanitizeRichHtml(x.schema||x.schemaBilan||x.schema_bilan),schemaPdf:text(x.schemaPdf||x.schema_pdf),memo:sanitizeRichHtml(x.memo||x.memorisation||x.ficheMemo),memoPdf:text(x.memoPdf||x.memo_pdf),evaluationPdf:text(x.evaluationPdf||x.evaluation_pdf||x.evalPdf||x.pdfEvaluation)};
+}
+
+async function loadClass(){
+  const {data,error}=await sb.from("Cahier").select("classe,contenu").eq("classe",classe).maybeSingle();
+  if(error)throw new Error(error.message);
+  if(!data)return empty();
+  let x=data.contenu;
+  if(!x)x=empty();
+  if(Array.isArray(x))x={chapitres:x};
+  if(!Array.isArray(x.chapitres))x.chapitres=[];
+  x.chapitres=x.chapitres.map(normalizeChapter);
+  return x;
+}
+
+function pdfButton(url, label) {
+  if (!url) return "";
+  const title = label || "Ouvrir le document";
+  return `<a class="resource-link" href="${esc(url)}" target="_blank" rel="noopener noreferrer"><span class="resource-link-icon" aria-hidden="true">↗</span><span>${esc(title)}</span></a>`;
+}
+
+function start(){
+  if(!classe){
+    label.textContent="Accès par QR code";
+    content.innerHTML=`<section class="hero error">
+      <span class="eyebrow">Cahier numérique</span>
+      <h2>🔒 Accès non disponible</h2>
+      <p class="muted">Utilise le QR code ou le lien transmis par ton professeur pour accéder au cahier de ta classe.</p>
+    </section>`;
+    return;
+  }
+  label.textContent=`Classe ${classe}`;
+  home();
+}
+
+function getChapterImage(titre) {
+  const t = (titre || "").toLowerCase();
+
+  const images = [
+    [/matériau|materiau|conductivit/, "materiaux.png"],
+    [/masse|volume|mesur/, "masse_volume.png"],
+    [/énergie|energie|signal/, "energie_signal.png"],
+    [/mélange|melange|dissolution|transformation/, "melanges_transformations.png"],
+    [/pathogène|pathogene|bactérie|bacterie|virus/, "agents_pathogenes.png"],
+    [/immunit|vaccin|antibiot/, "immunite.png"],
+    [/digestion|nutriment/, "digestion.png"],
+    [/respiration|circulation/, "respi-circu.png"],
+    [/effort physique/, "effort_physique.png"],
+    [/génétique|genetique|adn|chromosome|allèle|allele/, "diversité-genetique.png"],
+    [/stabilité|stabilite|expression génétique|expression genetique|mitose/, "stabilite_expression_genetique.png"],
+    [/évolution|evolution/, "evolution.png"],
+    [/biodiversité|biodiversite|classification/, "ecosystemes.png"],
+    [/écosystème|ecosysteme/, "ecosystemes.png"],
+    [/cycle de la matière|cycle de la matiere/, "cycle_de_la_matiere.png"],
+    [/reproduction.*plante|pollinisation/, "reproduction_des_plantes.png"],
+    [/sexualité|sexualite|contraception|ist/, "sexualite-humaine.png"],
+    [/reproduction humaine|puberté|puberte|embryon|fécondation|fecondation/, "reproduction_humaine.png"],
+    [/reproduction des êtres vivants|reproduction des etres vivants|reproduction animale/, "reproduction-etres-vivants.png"],
+    [/climat|réchauffement|rechauffement/, "climat.png"],
+    [/météo|meteo|phénomène météorologique|phenomene meteorologique/, "phenomenes_meteo.png"],
+    [/terre|tectonique|plaques|volcan|séisme|seisme|dynamique interne/, "dynamique-interne.png"],
+    [/ressource|énergie renouvelable|energie renouvelable/, "ressources.png"],
+    [/planète|planete|habitabilité|habitabilite/, "vie_sur_une_planete.png"],
+    [/mouvement|vitesse|déplacement|deplacement/, "mouvement-vitesse.png"],
+    [/alimentation|nutrition/, "alimentation_humaine.png"],
+    [/vivant|cellule|espèce|espece/, "le_vivant.png"]
+  ];
+
+  const resultat = images.find(([motif]) => motif.test(t));
+
+  return "illustrations-scientifiques/" +
+    (resultat ? resultat[1] : "le_vivant.png");
+}
+function texteSansHTML(valeur) {
+  const element = document.createElement("div");
+  element.innerHTML = valeur || "";
+
+  return (element.textContent || "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+function renderShell(activeIndex, inner, chapters){
+  const nav=(chapters||[]).map(({ch,i,n})=>`<button class="side-chapter ${i===activeIndex?'active':''}" onclick="chapter(${i})"><span>${n+1}</span><span>${esc(texteSansHTML(ch.titre))}</span></button>`).join('');
+  content.innerHTML=`<div class="notebook-layout">
+    <aside class="notebook-sidebar">
+      <button class="side-home" onclick="home()"><span>⌂</span> Accueil</button>
+      <div class="side-label">Navigation des chapitres</div>${nav}
+    </aside>
+    <div class="notebook-main"><div class="notebook-banner"><img src="./bandeau-accueil.jpg" alt=""><div class="banner-fallback"><span>Cahier numérique</span><strong>de SVT</strong><small>Chaque observation est le début d’une découverte.</small></div><span class="grade-pill">${esc(classe||'SVT')}</span></div><div class="notebook-content">${inner}</div></div>
+  </div>`;
+}
+async function home(){
+  try{
+    const x=await loadClass();
+    const active=x.chapitres.map((ch,i)=>({ch,i,n:0})).filter(item=>item.ch.archive!==true).map((item,n)=>({...item,n}));
+    if(active.length){await chapter(active[0].i);return;}
+    renderShell(-1,`<section class="welcome-card"><p class="eyebrow">BIENVENUE</p><h2>Votre cahier numérique de SVT</h2><p>Des activités, des documents et des outils pour découvrir le monde du vivant et notre environnement.</p><p class="student-slogan">La curiosité pour boussole, la nature pour inspiration, la connaissance pour horizon.</p></section><section class="empty"><h3>Aucun chapitre publié pour le moment.</h3><p class="muted">Les contenus apparaîtront ici lorsqu’ils seront publiés par votre professeur.</p></section>`,active);
+  }catch(e){errorPage(e.message)}
+}
+function showCollection(kind){
+  loadClass().then(x=>{
+    const active=x.chapitres.map((ch,i)=>({ch,i,n:0})).filter(item=>item.ch.archive!==true).map((item,n)=>({...item,n}));
+    let title=kind==='bilans'?'Mes bilans':kind==='memo'?'Mémorisation active':kind==='evaluations'?'Mes évaluations':'Ressources';
+    const cards=active.map(({ch,i,n})=>{
+      let has=kind==='bilans'?(ch.schema||ch.schemaPdf):kind==='memo'?(ch.memo||ch.memoPdf):kind==='evaluations'?ch.evaluationPdf:(ch.seances||[]).length;
+      if(!has)return '';
+      return `<article class="resource-row"><div class="resource-icon">${kind==='bilans'?'❖':kind==='memo'?'▤':kind==='evaluations'?'✓':'▰'}</div><div><span class="eyebrow">CHAPITRE ${n+1}</span><h3>${ch.titre}</h3><button class="soft-button" onclick="chapter(${i})">Ouvrir le chapitre →</button></div></article>`;
+    }).join('');
+    renderShell(-1,`<div class="section-heading-row"><button class="back-button" onclick="home()">← Retour</button><h2>${title}</h2></div>${cards||'<p class="muted">Aucun contenu publié dans cette rubrique pour le moment.</p>'}`,active);
+  }).catch(e=>errorPage(e.message));
+}
+
+function fmtDate(d){
+  if(!d)return "";
+  const m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(d);
+  return m?`${m[3]}/${m[2]}/${m[1]}`:esc(d);
+}
+function renderEntries(entries,label){
+  if(!entries?.length)return "";
+  const kind=label.includes("Correction")?"correction":label.includes("Bilan")?"summary":"activity";
+  const title=kind==="activity"?"Activité":kind==="correction"?"Correction":"Bilan · À retenir";
+  return `<section class="lesson-block block-${kind}"><h4>${title}</h4>${entries.map(e=>`<div class="lesson-entry">${e.date?`<div class="day-date">${fmtDate(e.date)}</div>`:""}<div class="rich-output">${e.texte||""}</div>${pdfButton(e.pdf,title)}</div>`).join("")}</section>`;
+}
+
+function plainChapterText(value){
+  const node=document.createElement('div');
+  node.innerHTML=value||'';
+  return (node.textContent||'').replace(/\s+/g,' ').trim();
+}
+function goToChapterSection(event,id){
+  const target=document.getElementById(id);
+  if(!target)return;
+  event.preventDefault();
+  if(!target.hasAttribute('tabindex'))target.setAttribute('tabindex','-1');
+  target.focus({preventScroll:true});
+  const reduced=window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  target.scrollIntoView({behavior:reduced?'instant':'smooth',block:'start'});
+}
+
+async function chapter(i){
+  try{
+    const x=await loadClass();
+    const ch=x.chapitres[i];
+    if(!ch||ch.archive===true){await home();return;}
+    const active=x.chapitres.map((item,index)=>({ch:item,i:index,n:0})).filter(item=>item.ch.archive!==true).map((item,n)=>({...item,n}));
+    const n=active.findIndex(item=>item.i===i)+1;
+    const sessions=(ch.seances||[]).map((lesson,j)=>`<article class="lesson-tile"><div class="lesson-tile-top"><span class="lesson-number">${j+1}</span><span class="eyebrow">SÉANCE ${j+1}</span></div><h3>${lesson.titre||'Séance '+(j+1)}</h3><button class="soft-button" onclick="openLesson(${i},${j})">Voir la séance <span>›</span></button></article>`).join('');
+    const inner=`<section class="chapter-title-card"><div class="chapter-title-number">${n}</div><div><span class="eyebrow">CHAPITRE ${n}</span><h1>${ch.titre||'Chapitre'}</h1></div><img src="${getChapterImage(ch.titre)}" alt="" onerror="this.style.display='none'"></section>
+      <section class="dashboard-card germoir-card"><h2><img class="dashboard-logo" src="./logo-germoir.png" alt="Logo Germoir à idées"> Germoir à idées</h2><p class="muted">Ce que je sais déjà, mes questions, ce que j’aimerais découvrir…</p><div class="rich-output">${ch.germoir||'<p>Qu’est-ce que je sais déjà sur ce sujet ? Quelles questions est-ce que je me pose ?</p>'}</div>${pdfButton(ch.germoirPdf,'Ouvrir le germoir à idées')}</section>
+      ${ch.problematique?`<section class="problem-banner"><div class="problem-icon"><img class="section-logo problem-logo" src="./logo-problematique.png" alt="Logo Problématique"></div><div><h2>Problématique</h2><div class="rich-output">${ch.problematique}</div></div></section>`:''}
+      <section class="lessons-section"><div class="section-heading-row"><div><h2>Les séances du chapitre</h2><p class="muted">Découvre les activités, les documents et les exercices.</p></div><span class="overview-pill">▦ Vue d’ensemble</span></div><div class="lesson-tiles">${sessions||'<p class="muted">Aucune séance publiée pour ce chapitre.</p>'}</div></section>
+      <div class="dashboard-two revision-panels"><section class="dashboard-card revision-card-dashboard"><h2><img class="dashboard-logo" src="./logo-schema-bilan.png" alt="Logo Schéma-bilan"> Schéma-bilan</h2><p class="muted">Un schéma pour comprendre et retenir l’essentiel du chapitre.</p>${ch.schema?`<div class="rich-output">${ch.schema}</div>`:''}${pdfButton(ch.schemaPdf,'Voir le schéma-bilan')}${!ch.schema&&!ch.schemaPdf?'<p class="muted">Document à venir.</p>':''}</section><section class="dashboard-card revision-card-dashboard"><h2><img class="dashboard-logo" src="./logo-memorisation.png" alt="Logo Fiche de mémorisation"> Fiche de mémorisation</h2><p class="muted">Une fiche synthétique et des cartes pour réviser.</p>${ch.memo?`<div class="rich-output">${ch.memo}</div>`:''}${pdfButton(ch.memoPdf,'Voir la fiche de mémorisation')}${!ch.memo&&!ch.memoPdf?'<p class="muted">Document à venir.</p>':''}</section></div>
+      <section class="evaluation-strip"><img class="dashboard-logo evaluation-logo" src="./logo-evaluation.png" alt="Logo Évaluation"><div><h2>Évaluation</h2><p class="muted">Entraîne-toi pour vérifier tes connaissances.</p></div><div class="evaluation-actions">${ch.evaluationPdf?pdfButton(ch.evaluationPdf,'Évaluation du chapitre'):'<span class="muted">Évaluation à venir</span>'}</div></section>
+      <div class="chapter-bottom-actions"><button class="soft-button" onclick="home()">← Accueil</button><button class="soft-button" onclick="printChapter(${i})">Imprimer / PDF du chapitre</button></div>`;
+    renderShell(i,inner,active);
+    window.scrollTo({top:0,behavior:'instant'});
+  }catch(e){errorPage(e.message)}
+}
+async function openLesson(i,j){
+  try{
+    const x=await loadClass(); const ch=x.chapitres[i]; const lesson=ch?.seances?.[j];
+    if(!ch||!lesson){await chapter(i);return;}
+    const active=x.chapitres.map((item,index)=>({ch:item,i:index,n:0})).filter(item=>item.ch.archive!==true).map((item,n)=>({...item,n}));
+    const body=`<div class="lesson-detail-top"><button class="back-button" onclick="chapter(${i})">← Retour au chapitre</button><span class="eyebrow">CHAPITRE ${active.findIndex(item=>item.i===i)+1} · SÉANCE ${j+1}</span><h1>${lesson.titre||'Séance '+(j+1)}</h1>${lesson.problematique?`<section class="problem-banner"><div><h2>Problème de la séance</h2><div class="rich-output">${lesson.problematique}</div></div></section>`:''}</div>
+    ${renderEntries(lesson.activites,'Activité')}${renderEntries(lesson.corrections,'Correction')}${renderEntries(lesson.bilans,'Bilan')}${(!lesson.activites?.length&&!lesson.corrections?.length&&!lesson.bilans?.length&&lesson.activite)?`<section class="dashboard-card"><h2>Activité</h2><div class="rich-output">${lesson.activite}</div>${pdfButton(lesson.pdfActivite,'Ouvrir le document')}</section>`:''}
+    ${(!lesson.activites?.length&&!lesson.corrections?.length&&!lesson.bilans?.length&&!lesson.activite)?'<p class="muted">Les documents de cette séance seront bientôt disponibles.</p>':''}<div class="chapter-bottom-actions"><button class="soft-button" onclick="chapter(${i})">← Toutes les séances</button><button class="soft-button" onclick="printChapter(${i})">Imprimer le chapitre</button></div>`;
+    renderShell(i,body,active); window.scrollTo({top:0,behavior:'instant'});
+  }catch(e){errorPage(e.message)}
+}
+
+/* Logo dans les documents exportés, indépendant du décor de l'écran. */
+function addExportLogos(root){
+  if(!root)return;
+  const source=document.querySelector('.brand .logo img');
+  if(!source?.src)return;
+  let targets=[...root.querySelectorAll('.print-page,.correction-student-page,.print-cover')];
+  targets=targets.filter(el=>!targets.some(parent=>parent!==el&&parent.contains(el)));
+  if(!targets.length)targets=[root.querySelector('.print-preview-page')||root];
+  targets.forEach(target=>{
+    if(target.querySelector('.svt-export-brand'))return;
+    const title=target.querySelector('h1');
+    const brand=document.createElement('div');brand.className='svt-export-brand';
+    const image=document.createElement('img');image.src=source.src;image.alt='Logo SVT';image.width=48;image.height=48;image.loading='eager';
+    brand.appendChild(image);
+    if(title){title.parentNode.insertBefore(brand,title);brand.appendChild(title);}
+    else{const text=document.createElement('span');text.textContent='SVT · John Legent';brand.appendChild(text);target.insertBefore(brand,target.firstChild);}
+  });
+}
+async function printDocumentWithLogo(root,prepare){
+  try{
+    addExportLogos(root);
+    await Promise.all([...root.querySelectorAll('.svt-export-brand img')].map(image=>image.decode?image.decode():new Promise((resolve,reject)=>{
+      if(image.complete){image.naturalWidth?resolve():reject(new Error('Logo non chargé.'));return;}
+      image.onload=resolve;image.onerror=()=>reject(new Error('Logo non chargé.'));
+    })));
+    await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+    if(prepare&&prepare()===false)return false;
+    window.print();return true;
+  }catch(e){alert('Impression non lancée : '+e.message);return false;}
+}
+
+function chapterPrintHtml(ch,i){
+  const linked=(url,label)=>url?`<div class="print-pdf"><span>DOCUMENT PDF</span> · <a href="${esc(url)}">${esc(label)}</a></div>`:"";
+  const entries=(arr,label,kind)=>{
+    if(!arr?.length)return "";
+    return `<section class="print-learning print-${kind}">${arr.map((e,n)=>`<div class="print-entry ${n===0?"print-entry-first":""}">${n===0?`<h3>${label}</h3>`:""}${e.date?`<div class="print-date">${fmtDate(e.date)}</div>`:""}${e.texte?`<div class="rich-output">${e.texte}</div>`:""}${linked(e.pdf,"Ouvrir le document associé")}</div>`).join("")}</section>`;
+  };
+  return `<article class="print-notebook">
+    <header class="print-cover"><div class="print-meta">CAHIER NUMÉRIQUE DE SVT · ${esc(classe)}</div><h1>Chapitre ${i+1} — ${ch.titre||""}</h1><p class="print-motto">Chaque observation est le début d'une découverte.</p></header>
+    ${ch.problematique?`<section class="print-main-question"><h2>Problématique</h2><div class="rich-output">${ch.problematique}</div></section>`:""}
+    ${ch.germoir||ch.germoirPdf?`<section class="print-germoir"><h2>Germoir à idées</h2>${ch.germoir?`<div class="rich-output">${ch.germoir}</div>`:""}${linked(ch.germoirPdf,"Ouvrir le PDF du germoir à idées")}</section>`:""}
+    ${(ch.seances||[]).map((lesson,n)=>`<section class="print-lesson"><div class="print-lesson-opening"><div class="print-lesson-heading"><span class="print-lesson-number">${String(n+1).padStart(2,"0")}</span><h2>Séance ${n+1} — ${lesson.titre||""}</h2></div>${lesson.problematique?`<div class="print-lesson-question"><strong>Problème de la séance</strong><div class="rich-output">${lesson.problematique}</div></div>`:""}</div>${entries(lesson.activites,"Activité","activity")}${entries(lesson.corrections,"Correction","correction")}${entries(lesson.bilans,"Bilan · À retenir","summary")}${(!lesson.activites?.length&&!lesson.corrections?.length&&!lesson.bilans?.length&&lesson.activite)?`<div class="print-entry"><h3>Activité</h3><div>${esc(lesson.activite)}</div></div>`:""}</section>`).join("")}
+    ${ch.schema||ch.schemaPdf||ch.memo||ch.memoPdf||ch.evaluationPdf?`<section class="print-revision"><h2>Pour réviser et se préparer</h2>${ch.schema||ch.schemaPdf?`<div class="print-revision-item"><h3>Schéma-bilan</h3>${ch.schema?`<div class="rich-output">${ch.schema}</div>`:""}${linked(ch.schemaPdf,"Ouvrir le schéma-bilan")}</div>`:""}${ch.memo||ch.memoPdf?`<div class="print-revision-item"><h3>Fiche de mémorisation</h3>${ch.memo?`<div class="rich-output">${ch.memo}</div>`:""}${linked(ch.memoPdf,"Ouvrir la fiche de mémorisation")}</div>`:""}${ch.evaluationPdf?`<div class="print-revision-item"><h3>Évaluation</h3>${linked(ch.evaluationPdf,"Ouvrir l'évaluation")}</div>`:""}</section>`:""}
+    </article>`;
+}
+
+async function printChapter(i){
+  try{
+    const x=await loadClass();
+    const ch=x.chapitres[i];
+    if(!ch||ch.archive===true){alert("Ce chapitre n’est pas disponible dans le cahier élève.");return;}
+    const area=document.getElementById("printArea");
+    if(!area)throw new Error("Zone d'impression introuvable.");
+    area.innerHTML=chapterPrintHtml(ch,i);
+    const original=document.title;
+    const titreSimple = document.createElement("div");
+titreSimple.innerHTML = ch.titre || "";
+document.title = `Cahier de SVT - ${
+  titreSimple.textContent.trim() || ("Chapitre " + (i + 1))
+}`;
+    const cleanup=()=>{area.innerHTML="";document.title=original;window.removeEventListener("afterprint",cleanup);};
+    window.addEventListener("afterprint",cleanup);
+    await printDocumentWithLogo(area);
+  }catch(e){alert("Impossible de préparer l'impression : "+e.message)}
+}
+
+function printSelectedChapter(){
+  const select=document.getElementById("chapterToPrint");
+  if(!select||select.value===""){alert("Choisis d'abord le chapitre à imprimer.");return;}
+  printChapter(Number(select.value));
+}
+
+
+async function printAllChapters(){
+  try{
+    const x=await loadClass();
+    const activeChapters=x.chapitres.map((ch,i)=>({ch,i})).filter(item=>item.ch.archive!==true);
+    if(!activeChapters.length){alert("Aucun chapitre actif à imprimer.");return;}
+    const area=document.getElementById("printArea");
+    if(!area)throw new Error("Zone d'impression introuvable.");
+    area.innerHTML=activeChapters.map(({ch,i})=>`<section class="chapter-print">${chapterPrintHtml(ch,i)}</section>`).join("");
+    const original=document.title;
+    document.title=`Cahier de SVT - ${classe}`;
+    const cleanup=()=>{area.innerHTML="";document.title=original;window.removeEventListener("afterprint",cleanup);};
+    window.addEventListener("afterprint",cleanup);
+    await printDocumentWithLogo(area);
+  }catch(e){alert("Impossible de préparer l'impression : "+e.message);}
+}
+
+function errorPage(msg){
+  content.innerHTML=`<section class="hero error">
+    <h2>⚠️ Impossible de charger le cahier</h2>
+    <p class="muted">${esc(msg)}</p>
+    <button class="btn" onclick="start()">Réessayer</button>
+  </section>`;
+}
+
+start();
+</script>
+</body>
+</html>
