@@ -68,7 +68,11 @@
     }
 
     if (!document.getElementById('stage') || typeof window.addToSession !== 'function') return;
-    let busy = false;
+
+// L’ajout par lien reste géré par atelier.html.
+return;
+
+let busy = false;
     window.addToSession = async function() {
       if (busy) return;
       busy = true;
