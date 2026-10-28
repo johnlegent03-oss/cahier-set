@@ -22,32 +22,7 @@ const uid=()=> 'o'+Math.random().toString(36).slice(2),current=()=>project.pages
 function object(type,e={}){return Object.assign({id:uid(),type,label:type,x:55,y:150,w:280,h:70,angle:0,color:'#254e3c',bg:'#e6eadb',transparent:true,size:16,radius:0,font:FONTS[0],align:'left',bold:false,italic:false,locked:false,text:'',groupId:null},e)}
 function checkpoint(){past.push(JSON.stringify(project));if(past.length>50)past.shift();future=[]}
 function metadata(){project.title=$('title').value;project.documentType=$('docType').value;project.graded=$('graded').checked}
-function persist(metadata = true) {
-  try {
-    const data = JSON.stringify({ project, cloudId, cloudOwner });
-    const request = indexedDB.open('herbier-draft', 1);
-
-    request.onupgradeneeded = () => {
-      request.result.createObjectStore('draft');
-    };
-
-    request.onsuccess = () => {
-      const db = request.result;
-      const tx = db.transaction('draft', 'readwrite');
-      tx.objectStore('draft').put(data, 'current');
-      tx.oncomplete = () => {
-        localStatus.textContent = 'Brouillon local enregistré';
-        db.close();
-      };
-    };
-
-    request.onerror = () => {
-      localStatus.textContent = 'Stockage indisponible — exporte une copie JSON';
-    };
-  } catch (e) {
-    localStatus.textContent = 'Stockage indisponible — exporte une copie JSON';
-  }
-}
+function persist(){metadata();try{localStorage.setItem(KEY,JSON.stringify({project,cloudId,cloudOwner}));$('localStatus').textContent='Brouillon local enregistré'}catch(e){$('localStatus').textContent='Stockage indisponible ou plein : exporte une copie JSON'}}
 function syncMeta(){$('title').value=project.title||'Document sans titre';$('docType').value=project.documentType||'activite';$('graded').checked=!!project.graded}
 function finish(){document.querySelectorAll('[contenteditable=true]').forEach(c=>c.contentEditable=false)}
 function apply(o,el){el.style.cssText=`left:${o.x}px;top:${o.y}px;width:${o.w}px;height:${o.h}px;transform:rotate(${o.angle}deg)`;let c=el.querySelector('.content');c.style.cssText=`font-family:${o.font};font-size:${o.size}px;color:${o.color};background:${o.transparent?'transparent':o.bg};border-radius:${o.radius}px;text-align:${o.align};font-weight:${o.bold?'bold':'normal'};font-style:${o.italic?'italic':'normal'};${o.type==='box'?`border:2px solid ${o.color};`:''}${o.type==='line'?'border-bottom:1px dotted '+o.color+';':''}${o.type==='number'?'display:flex;align-items:center;justify-content:center;':''}${o.type==='skills'?'padding:14px;':''}`}
@@ -142,130 +117,11 @@ function legacyPreview(raw){let box=document.createElement('div');box.innerHTML=
 async function loadCloud(requestedId=null){try{requireUser();let id=requestedId||$('bank').value;if(!id)throw Error('Choisis un document.');let {data,error}=await sb.from('atelier_documents').select('*').eq('id',id).eq('user_id',user.id).single();if(error)throw error;$('bank').value=id;let box=document.createElement('div');box.innerHTML=data.contenu_html||'';let json=box.querySelector('script[type="application/json"][data-herbier-project]');if(!json){legacyPreview(data.contenu_html);return}let d=validate(JSON.parse(json.textContent));if(!confirm('Ouvrir « '+data.titre+' » et remplacer le document affiché ?'))return;install(d);cloudId=data.id;cloudOwner=user.id;project.title=data.titre||project.title;project.documentType=data.document_type||project.documentType;project.graded=!!data.is_graded;syncMeta();$('linkClass').value=data.classe||'';await loadClass();if(data.chapitre_index!=null){$('linkChapter').value=String(data.chapitre_index);loadSessions();if(data.seance_index!=null)$('linkSession').value=String(data.seance_index)}persist();status('Document ouvert : '+project.title)}catch(e){status('Ouverture impossible : '+e.message,true)}}
 function escapeHtml(v){return String(v||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
 function activityReadingHtml(){let out='';project.pages.forEach((p,pi)=>{let items=p.objects.filter(o=>o.type!=='logo').sort((a,b)=>a.y-b.y||a.x-b.x);let pageHtml='';items.forEach(o=>{if(['text','title','number','list','box','band'].includes(o.type)){if(o.text&&String(o.text).trim())pageHtml+='<div style="margin:0 0 10px">'+o.text+'</div>'}else if(o.type==='image'&&o.src){pageHtml+='<p><img src="'+o.src+'" alt="'+escapeHtml(o.label||'Image')+'" style="max-width:100%"></p>'}else if(o.type==='table'&&o.cells){let t='<table style="border-collapse:collapse;width:100%">';o.cells.forEach((row,ri)=>{t+='<tr>';row.forEach(cell=>{t+=(ri?'<td':'<th')+' style="border:1px solid #a4b095;padding:6px;text-align:left">'+escapeHtml(cell)+'</'+(ri?'td':'th')+'>'});t+='</tr>'});pageHtml+=t+'</table>'}else if(o.type==='skills'&&project.competencies?.length){pageHtml+='<p><strong>Compétences travaillées :</strong> '+project.competencies.map(c=>escapeHtml(c.nom)).join(' · ')+'</p>'}});if(pageHtml)out+=(project.pages.length>1?'<h3 style="margin:14px 0 6px">Page '+(pi+1)+'</h3>':'')+pageHtml});return out||'<p><em>Cette activité ne contient pas encore de contenu textuel.</em></p>'}
-function atelierEncodePayload(value){
-  const bytes=new TextEncoder().encode(String(value||''));
-  let binary='';
-  for(let i=0;i<bytes.length;i++)binary+=String.fromCharCode(bytes[i]);
-  return btoa(binary);
-}
-function atelierClassCode(classe){
-  const codes={
-    '6e1':'svt6e1-7kq4','6e2':'svt6e2-m8p2','6e3':'svt6e3-r5x9',
-    '6e4':'svt6e4-n3v7','6e5':'svt6e5-t6h2','5e1':'svt5e1-q9w4',
-    '5e3':'svt5e3-k2m8','5e5':'svt5e5-p7r3','3e2':'svt3e2-x4n6',
-    '3e3':'svt3e3-b8q5','TEST':'test-lab-9x2k'
-  };
-  return codes[String(classe||'')]||'';
-}
-async function addToSession(){
-  let etape='préparation';
-  try{
-    requireUser();
-    metadata();
-    const cx=context();
-    if(!cx.classe||cx.chapitre_index===null||cx.seance_index===null||!cx.cahier_id)
-      throw Error('Choisis une classe, un chapitre et une séance.');
-    const classCode=atelierClassCode(cx.classe);
-    if(!classCode)throw Error('Aucun lien élève configuré pour la classe '+cx.classe+'.');
-    if(!confirm('Enregistrer « '+(project.title||'Document sans titre')+' » et ajouter son lien à la séance « '+cx.seance_titre+' » ?'))return;
-
-    etape='enregistrement du document dans la banque';
-    if(!await saveCloud(false))return;
-    if(!cloudId)throw Error('Le document a été enregistré, mais son identifiant est introuvable.');
-
-    etape='préparation du lien de consultation';
-    const titre=escapeHtml(project.title||'Activité sans titre');
-    const contenuActivite='<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>'+titre+'</title></head><body><h1>'+titre+'</h1>'+activityReadingHtml()+'</body></html>';
-    // La fiche complète est stockée dans le bucket existant, jamais dans le JSON du cahier.
-    const filePath='atelier-activities/' + user.id + '/' + cloudId + '.html';
-    etape='enregistrement de la fiche dans le stockage';
-    const fileBlob=new Blob([contenuActivite],{type:'text/html;charset=utf-8'});
-    const {error:uploadError}=await sb.storage.from('documents').upload(filePath,fileBlob,{contentType:'text/html; charset=utf-8',upsert:true});
-    if(uploadError)throw Error('Le document est enregistré dans la banque, mais le dépôt de la fiche dans le stockage a échoué : '+uploadError.message+'. Aucun lien n’a été ajouté au cahier.');
-    const marker='atelier-doc='+cloudId;
-    const viewerUrl='./fiche.html?code='+encodeURIComponent(classCode)+'&path='+encodeURIComponent(filePath)+'&title='+encodeURIComponent(project.title||'Activité sans titre');
-    const texte='<!-- '+marker+' --><a class="atelier-activity-link" href="'+viewerUrl+'" target="_blank" rel="noopener noreferrer"><strong>'+titre+'</strong> — Ouvrir la fiche dans un nouvel onglet ↗</a>';
-
-    etape='lecture du cahier';
-    let result;
-    try{result=await sb.from('Cahier').select('id,contenu').eq('id',cx.cahier_id).maybeSingle();}
-    catch(e){throw Error('Le document est enregistré dans la banque, mais la lecture du cahier a échoué : '+(e?.message||String(e)));}
-    const {data:row,error:rowError}=result;
-    if(rowError)throw Error('Le document est enregistré dans la banque, mais la lecture du cahier a échoué : '+rowError.message);
-    if(!row)throw Error('Le document est enregistré dans la banque, mais le cahier de cette classe est introuvable.');
-
-    etape='préparation de la séance';
-    let contenu=row.contenu||{};
-    if(typeof contenu==='string'){
-      try{contenu=JSON.parse(contenu)}catch{throw Error('Le contenu du cahier n’est pas un JSON lisible. Aucun changement n’a été envoyé.');}
-    }
-    if(Array.isArray(contenu))contenu={chapitres:contenu};
-    if(!contenu||typeof contenu!=='object')contenu={};
-    if(!Array.isArray(contenu.chapitres))throw Error('La structure du cahier ne contient pas de liste de chapitres exploitable. Aucun changement n’a été envoyé.');
-    const ch=contenu.chapitres[cx.chapitre_index];
-    if(!ch)throw Error('Le chapitre sélectionné est introuvable dans le cahier. Aucun changement n’a été envoyé.');
-    const sessionsKey=Array.isArray(ch.seances)?'seances':(Array.isArray(ch.sessions)?'sessions':null);
-    if(!sessionsKey)throw Error('Aucune liste de séances trouvée dans ce chapitre. Aucun changement n’a été envoyé.');
-    const se=ch[sessionsKey][cx.seance_index];
-    if(!se)throw Error('La séance sélectionnée est introuvable dans le cahier. Aucun changement n’a été envoyé.');
-    if(!Array.isArray(se.activites))se.activites=[];
-    if(se.activites.some(e=>String(e?.texte||'').includes(marker))){
-      status('Cette activité est déjà dans la séance : elle n’a pas été ajoutée une seconde fois.');
-      return;
-    }
-    se.activites.push({date:new Date().toISOString().slice(0,10),texte:texte,pdf:''});
-
-    etape='enregistrement de la séance';
-    let updateResult;
-    try{updateResult=await sb.from('Cahier').update({contenu}).eq('id',row.id).select('id').maybeSingle();}
-    catch(e){throw Error('Le lien est prêt, mais l’enregistrement de la séance a échoué : '+(e?.message||String(e))+'. Vérifie la séance avant de réessayer pour éviter un doublon.');}
-    if(updateResult.error)throw Error('Le lien est prêt, mais l’enregistrement de la séance a échoué : '+updateResult.error.message+'. Vérifie la séance avant de réessayer pour éviter un doublon.');
-    if(!updateResult.data)throw Error('La mise à jour n’a confirmé aucune ligne du cahier. Vérifie la séance avant de réessayer pour éviter un doublon.');
-    status('Lien ajouté à la séance « '+cx.seance_titre+' ». La fiche s’ouvrira dans un nouvel onglet.');
-  }catch(e){status('Étape : '+etape+'. '+(e?.message||String(e)),true)}
-}
+async function addToSession(){try{requireUser();metadata();let cx=context();if(!cx.classe||cx.chapitre_index===null||cx.seance_index===null)throw Error('Choisis une classe, un chapitre et une séance.');if(!confirm('Enregistrer « '+(project.title||'Document sans titre')+' » et l’ajouter à la séance « '+cx.seance_titre+' » ?'))return;if(!await saveCloud(false))return;let {data:row,error:rowError}=await sb.from('Cahier').select('id,contenu').eq('id',cx.cahier_id).maybeSingle();if(rowError)throw rowError;if(!row)throw Error('Cahier introuvable pour cette classe.');let contenu=row.contenu||{};if(!Array.isArray(contenu.chapitres))contenu.chapitres=[];let ch=contenu.chapitres[cx.chapitre_index];if(!ch)throw Error('Chapitre introuvable dans le cahier.');if(!Array.isArray(ch.seances))ch.seances=[];let se=ch.seances[cx.seance_index];if(!se)throw Error('Séance introuvable dans le cahier.');if(!Array.isArray(se.activites))se.activites=[];let link='atelier.html?doc='+cloudId;if(se.activites.some(e=>String(e?.texte||'').includes('doc='+cloudId))){status('Cette activité est déjà dans la séance.');return}let texte='<p><strong>'+escapeHtml(project.title||'Activité sans titre')+'</strong> — <a href="'+link+'" target="_blank" rel="noopener">Ouvrir dans l’atelier</a></p>'+activityReadingHtml();se.activites.push({date:new Date().toISOString().slice(0,10),texte:texte,pdf:''});let {error:updateError}=await sb.from('Cahier').update({contenu}).eq('id',row.id);if(updateError)throw updateError;status('Activité ajoutée à la séance « '+cx.seance_titre+' ».')}catch(e){status(e.message,true)}}
 async function sendEvaluation(){try{requireUser();metadata();if(!project.graded||!['activite','exercice','evaluation'].includes(project.documentType))throw Error('Choisis une activité, un exercice ou une évaluation et coche Travail noté.');let cx=context();if(!cx.classe||cx.chapitre_index===null)throw Error('Choisis une classe et un chapitre.');if(!confirm('Enregistrer ce document et créer son entrée dans Évaluations ?'))return;if(!await saveCloud(false))return;let {data:d,error:e}=await sb.from('atelier_documents').select('*').eq('id',cloudId).eq('user_id',user.id).single();if(e)throw e;if(d.evaluation_id){status('Déjà associé à Évaluations : '+d.evaluation_id);return}let match=String(d.chapitre_titre||'').match(/chapitre\s*(\d+)/i),chapter=match?Number(match[1]):Number(d.chapitre_index)+1;let meta={__evaluationMeta:true,chapitre:chapter,typeEvaluation:project.documentType,coefficient:project.documentType==='evaluation'?1:.5,evaluationGroupId:null,classes:[d.classe],questions:[],atelierDocumentId:d.id};let {data:ev,error}=await sb.from('Evaluations').insert({titre:d.titre,classe:d.classe,total:0,criteres:[],exercices:[meta]}).select('id').single();if(error)throw error;let result=await sb.from('atelier_documents').update({evaluation_id:ev.id,is_graded:true,updated_at:new Date().toISOString()}).eq('id',d.id).eq('user_id',user.id);if(result.error)throw Error('Évaluation créée (ID '+ev.id+'), mais liaison échouée. Ne relance pas la création : '+result.error.message);status('Entrée créée dans Évaluations : '+ev.id+'. Complète les critères dans ton module habituel.')}catch(e){status(e.message,true)}}
 function ensureLogos(){project.pages.forEach(p=>{if(!p.objects.some(o=>o.type==='logo'))p.objects.push(object('logo',{x:49,y:25,w:65,h:65,label:'Logo SVT'}))})}
 Object.entries(CLASSES).forEach(([level,classes])=>{let group=document.createElement('optgroup');group.label=level;classes.forEach(c=>group.append(new Option(c,c)));$('linkClass').append(group)});$('linkClass').addEventListener('change',loadClass);$('linkChapter').addEventListener('change',loadSessions);
-(async () => {
-  try {
-    const saved = await new Promise((resolve, reject) => {
-      const request = indexedDB.open('herbier-draft', 1);
-
-      request.onupgradeneeded = () => {
-        request.result.createObjectStore('draft');
-      };
-
-      request.onsuccess = () => {
-        const db = request.result;
-        const tx = db.transaction('draft', 'readonly');
-        const req = tx.objectStore('draft').get('current');
-
-        req.onsuccess = () => resolve(req.result || null);
-        req.onerror = () => reject(req.error);
-      };
-
-      request.onerror = () => reject(request.error);
-    });
-
-    if (saved) {
-      const d = JSON.parse(saved);
-      project = validate(d.project);
-      cloudId = d.cloudId || null;
-      cloudOwner = d.cloudOwner || null;
-    } else {
-      demo();
-    }
-  } catch (e) {
-    demo();
-  }
-
-  ensureLogos();
-  syncMeta();
-  render();
-  initCloud();
-  showHome();
-})();
+try{let raw=localStorage.getItem(KEY);if(raw){let d=JSON.parse(raw);project=validate(d.project);cloudId=d.cloudId||null;cloudOwner=d.cloudOwner||null}else demo()}catch(e){demo()}ensureLogos();syncMeta();render();initCloud();showHome();
 </script><script id="herbier-image-bank-module">
 
 (function(){
@@ -292,6 +148,4 @@ const button=document.createElement('button');button.type='button';button.classN
 </script>
 
 <script src="site-identite.js?v=1" defer data-svt-identite="1"></script>
-<link rel="stylesheet" href="correctifs-prof.css">
-<script src="correctifs-prof.js"></script>
 </body></html>
