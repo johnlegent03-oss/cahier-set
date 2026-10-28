@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Fiche d’activité — Cahier numérique de SVT</title>
+<style>
+:root{--forest:#34533a;--sage:#70845d;--paper:#f7f4e7;--line:#d9dfc8;--muted:#687861}
+*{box-sizing:border-box}
+body{margin:0;background:radial-gradient(ellipse at 0 0,#c0cd9b40,transparent 40%),#f5f2e5;color:#344e39;font:16px/1.65 Arial,sans-serif}
+header{background:#fffdf2eF;border-bottom:1px solid var(--line);padding:18px 22px}
+.head{max-width:1000px;margin:auto;display:flex;align-items:center;gap:12px}
+.logo{width:48px;height:48px;border:1px solid #cbd4b7;border-radius:50%;display:grid;place-items:center;background:#fffdf4;font-size:25px;flex:0 0 auto}
+h1{font:700 25px Georgia,serif;margin:0;color:var(--forest)}
+.subtitle{font-size:12px;color:var(--muted);margin-top:4px}
+main{max-width:950px;margin:30px auto;padding:0 18px 45px}
+.paper{background:#fffdf3;border:1px solid var(--line);border-radius:12px;padding:clamp(20px,4vw,42px);box-shadow:0 4px 18px #465a2910}
+.paper h2{font:700 30px/1.2 Georgia,serif;color:var(--forest);margin:0 0 22px;padding-bottom:15px;border-bottom:1px solid var(--line)}
+.content{overflow-wrap:anywhere}
+.content img{display:block;max-width:100%!important;height:auto!important;object-fit:contain;margin:14px auto}
+.content table{border-collapse:collapse;width:100%;margin:12px 0}
+.content th,.content td{border:1px solid #a4b095;padding:8px;text-align:left}
+.content th{background:#e3e9d8}
+.status{padding:18px;border-radius:10px;background:#eef2df;border-left:4px solid #879d69}
+footer{text-align:center;color:var(--muted);font:12px Georgia,serif;padding:0 15px 28px}
+@media(max-width:600px){header{padding:14px}.head{align-items:flex-start}.logo{width:40px;height:40px}h1{font-size:21px}.paper{padding:18px}.paper h2{font-size:25px}}
+</style>
+<script src="./config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+<header><div class="head"><div class="logo" aria-hidden="true">❧</div><div><h1>Cahier numérique de SVT</h1><div class="subtitle">Fiche d’activité · Consultation élève</div></div></div></header>
+<main><article class="paper"><h2 id="title">Chargement de la fiche…</h2><div id="content" class="content"><p class="status">Recherche de l’activité…</p></div></article></main>
+<footer>Chaque observation est le début d’une découverte.</footer>
+<script>
+(async function(){
+  const params=new URLSearchParams(location.search);
+  const code=(params.get('code')||'').trim().toLowerCase();
+  const docId=(params.get('doc')||'').trim();
+  const titleEl=document.getElementById('title');
+  const contentEl=document.getElementById('content');
+  const classCodes={
+    'test-lab-9x2k':'TEST','svt6e1-7kq4':'6e1','svt6e2-m8p2':'6e2',
+    'svt6e3-r5x9':'6e3','svt6e4-n3v7':'6e4','svt6e5-t6h2':'6e5',
+    'svt5e1-q9w4':'5e1','svt5e3-k2m8':'5e3','svt5e5-p7r3':'5e5',
+    'svt3e2-x4n6':'3e2','svt3e3-b8q5':'3e3'
+  };
+  const classe=classCodes[code];
+  const showError=(message)=>{titleEl.textContent='Fiche indisponible';contentEl.innerHTML='';const p=document.createElement('p');p.className='status';p.textContent=message;contentEl.appendChild(p)};
+  const escapeRegex=s=>s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+  function safeHtml(raw){
+    const parsed=new DOMParser().parseFromString('<div>'+String(raw||'')+'</div>','text/html');
+    const root=parsed.body.firstElementChild;
+    root.querySelectorAll('script,iframe,object,embed,form,link,base,meta').forEach(n=>n.remove());
+    root.querySelectorAll('*').forEach(el=>{
+      [...el.attributes].forEach(attr=>{
+        const name=attr.name.toLowerCase(),value=attr.value.trim();
+        if(name.startsWith('on')||name==='srcdoc'){el.removeAttribute(attr.name);return}
+        if(['href','src','xlink:href'].includes(name)&&/^\s*(javascript|vbscript):/i.test(value)){el.removeAttribute(attr.name);return}
+        if(name==='style'&&/(expression\s*\(|javascript:|url\s*\()/i.test(value))el.removeAttribute(attr.name);
+      });
+    });
+    return root.innerHTML;
+  }
+  try{
+    if(!classe||!docId)throw new Error('Le lien de cette fiche est incomplet. Reviens au cahier de ta classe et réessaie.');
+    if(!window.supabase||typeof SUPABASE_URL==='undefined'||typeof SUPABASE_PUBLISHABLE_KEY==='undefined')
+      throw new Error('La configuration du cahier est introuvable.');
+    const sb=window.supabase.createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY,{auth:{persistSession:false,autoRefreshToken:false}});
+    const {data,error}=await sb.from('Cahier').select('contenu').eq('classe',classe).maybeSingle();
+    if(error)throw new Error('Impossible de charger le cahier de la classe.');
+    if(!data)throw new Error('Le cahier de cette classe est introuvable.');
+    let cahier=data.contenu;
+    if(typeof cahier==='string'){try{cahier=JSON.parse(cahier)}catch{throw new Error('Le contenu du cahier est illisible.')}}
+    if(Array.isArray(cahier))cahier={chapitres:cahier};
+    const marker=new RegExp('<!--atelier-payload:'+escapeRegex(docId)+':([A-Za-z0-9+/=]+)-->');
+    let payload=null;
+    for(const chapter of (cahier?.chapitres||[])){
+      const sessions=Array.isArray(chapter?.seances)?chapter.seances:(Array.isArray(chapter?.sessions)?chapter.sessions:[]);
+      for(const session of sessions){
+        for(const entry of (Array.isArray(session?.activites)?session.activites:[])){
+          const match=String(entry?.texte||'').match(marker);
+          if(match){payload=match[1];break}
+        }
+        if(payload)break;
+      }
+      if(payload)break;
+    }
+    if(!payload)throw new Error('Cette fiche n’a pas été trouvée dans la séance. Demande à ton professeur de vérifier le lien.');
+    const binary=atob(payload),bytes=new Uint8Array(binary.length);
+    for(let i=0;i<binary.length;i++)bytes[i]=binary.charCodeAt(i);
+    const activityHtml=new TextDecoder('utf-8').decode(bytes);
+    const safe=safeHtml(activityHtml);
+    if(!safe.trim())throw new Error('Cette fiche ne contient pas de contenu consultable.');
+    titleEl.textContent='Activité';
+    contentEl.innerHTML=safe;
+    document.title='Fiche d’activité — Cahier numérique de SVT';
+  }catch(e){showError(e?.message||'Une erreur est survenue pendant le chargement de la fiche.')}
+})();
+</script>
+</body>
+</html>
