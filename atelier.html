@@ -22,7 +22,32 @@ const uid=()=> 'o'+Math.random().toString(36).slice(2),current=()=>project.pages
 function object(type,e={}){return Object.assign({id:uid(),type,label:type,x:55,y:150,w:280,h:70,angle:0,color:'#254e3c',bg:'#e6eadb',transparent:true,size:16,radius:0,font:FONTS[0],align:'left',bold:false,italic:false,locked:false,text:'',groupId:null},e)}
 function checkpoint(){past.push(JSON.stringify(project));if(past.length>50)past.shift();future=[]}
 function metadata(){project.title=$('title').value;project.documentType=$('docType').value;project.graded=$('graded').checked}
-function persist(){metadata();try{localStorage.setItem(KEY,JSON.stringify({project,cloudId,cloudOwner}));$('localStatus').textContent='Brouillon local enregistré'}catch(e){$('localStatus').textContent='Stockage indisponible ou plein : exporte une copie JSON'}}
+function persist(metadata = true) {
+  try {
+    const data = JSON.stringify({ project, cloudId, cloudOwner });
+    const request = indexedDB.open('herbier-draft', 1);
+
+    request.onupgradeneeded = () => {
+      request.result.createObjectStore('draft');
+    };
+
+    request.onsuccess = () => {
+      const db = request.result;
+      const tx = db.transaction('draft', 'readwrite');
+      tx.objectStore('draft').put(data, 'current');
+      tx.oncomplete = () => {
+        localStatus.textContent = 'Brouillon local enregistré';
+        db.close();
+      };
+    };
+
+    request.onerror = () => {
+      localStatus.textContent = 'Stockage indisponible — exporte une copie JSON';
+    };
+  } catch (e) {
+    localStatus.textContent = 'Stockage indisponible — exporte une copie JSON';
+  }
+}
 function syncMeta(){$('title').value=project.title||'Document sans titre';$('docType').value=project.documentType||'activite';$('graded').checked=!!project.graded}
 function finish(){document.querySelectorAll('[contenteditable=true]').forEach(c=>c.contentEditable=false)}
 function apply(o,el){el.style.cssText=`left:${o.x}px;top:${o.y}px;width:${o.w}px;height:${o.h}px;transform:rotate(${o.angle}deg)`;let c=el.querySelector('.content');c.style.cssText=`font-family:${o.font};font-size:${o.size}px;color:${o.color};background:${o.transparent?'transparent':o.bg};border-radius:${o.radius}px;text-align:${o.align};font-weight:${o.bold?'bold':'normal'};font-style:${o.italic?'italic':'normal'};${o.type==='box'?`border:2px solid ${o.color};`:''}${o.type==='line'?'border-bottom:1px dotted '+o.color+';':''}${o.type==='number'?'display:flex;align-items:center;justify-content:center;':''}${o.type==='skills'?'padding:14px;':''}`}
@@ -202,7 +227,45 @@ async function addToSession(){
 async function sendEvaluation(){try{requireUser();metadata();if(!project.graded||!['activite','exercice','evaluation'].includes(project.documentType))throw Error('Choisis une activité, un exercice ou une évaluation et coche Travail noté.');let cx=context();if(!cx.classe||cx.chapitre_index===null)throw Error('Choisis une classe et un chapitre.');if(!confirm('Enregistrer ce document et créer son entrée dans Évaluations ?'))return;if(!await saveCloud(false))return;let {data:d,error:e}=await sb.from('atelier_documents').select('*').eq('id',cloudId).eq('user_id',user.id).single();if(e)throw e;if(d.evaluation_id){status('Déjà associé à Évaluations : '+d.evaluation_id);return}let match=String(d.chapitre_titre||'').match(/chapitre\s*(\d+)/i),chapter=match?Number(match[1]):Number(d.chapitre_index)+1;let meta={__evaluationMeta:true,chapitre:chapter,typeEvaluation:project.documentType,coefficient:project.documentType==='evaluation'?1:.5,evaluationGroupId:null,classes:[d.classe],questions:[],atelierDocumentId:d.id};let {data:ev,error}=await sb.from('Evaluations').insert({titre:d.titre,classe:d.classe,total:0,criteres:[],exercices:[meta]}).select('id').single();if(error)throw error;let result=await sb.from('atelier_documents').update({evaluation_id:ev.id,is_graded:true,updated_at:new Date().toISOString()}).eq('id',d.id).eq('user_id',user.id);if(result.error)throw Error('Évaluation créée (ID '+ev.id+'), mais liaison échouée. Ne relance pas la création : '+result.error.message);status('Entrée créée dans Évaluations : '+ev.id+'. Complète les critères dans ton module habituel.')}catch(e){status(e.message,true)}}
 function ensureLogos(){project.pages.forEach(p=>{if(!p.objects.some(o=>o.type==='logo'))p.objects.push(object('logo',{x:49,y:25,w:65,h:65,label:'Logo SVT'}))})}
 Object.entries(CLASSES).forEach(([level,classes])=>{let group=document.createElement('optgroup');group.label=level;classes.forEach(c=>group.append(new Option(c,c)));$('linkClass').append(group)});$('linkClass').addEventListener('change',loadClass);$('linkChapter').addEventListener('change',loadSessions);
-try{let raw=localStorage.getItem(KEY);if(raw){let d=JSON.parse(raw);project=validate(d.project);cloudId=d.cloudId||null;cloudOwner=d.cloudOwner||null}else demo()}catch(e){demo()}ensureLogos();syncMeta();render();initCloud();showHome();
+(async () => {
+  try {
+    const saved = await new Promise((resolve, reject) => {
+      const request = indexedDB.open('herbier-draft', 1);
+
+      request.onupgradeneeded = () => {
+        request.result.createObjectStore('draft');
+      };
+
+      request.onsuccess = () => {
+        const db = request.result;
+        const tx = db.transaction('draft', 'readonly');
+        const req = tx.objectStore('draft').get('current');
+
+        req.onsuccess = () => resolve(req.result || null);
+        req.onerror = () => reject(req.error);
+      };
+
+      request.onerror = () => reject(request.error);
+    });
+
+    if (saved) {
+      const d = JSON.parse(saved);
+      project = validate(d.project);
+      cloudId = d.cloudId || null;
+      cloudOwner = d.cloudOwner || null;
+    } else {
+      demo();
+    }
+  } catch (e) {
+    demo();
+  }
+
+  ensureLogos();
+  syncMeta();
+  render();
+  initCloud();
+  showHome();
+})();
 </script><script id="herbier-image-bank-module">
 
 (function(){
