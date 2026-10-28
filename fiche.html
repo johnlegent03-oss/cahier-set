@@ -1,0 +1,36 @@
+<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Fiche SVT</title>
+<style>body{margin:0;background:#f5f2e5;color:#34533a;font:16px Arial}header,main{padding:20px;max-width:1100px;margin:auto}h1{font-family:Georgia}iframe{width:100%;height:80vh;border:1px solid #cbd4b7;background:#fbf8ee}#status{padding:15px;background:#edf1e2}</style>
+<script src="config.js"></script><script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script></head>
+<body><header><h1 id="title">Fiche d’activité</h1></header><main><p id="status">Chargement…</p><iframe id="sheet" title="Fiche pédagogique" sandbox="" referrerpolicy="no-referrer" hidden></iframe></main>
+<script>
+(async()=>{
+ const classes={"svt6e1-7kq4": "6e1", "svt6e2-m8p2": "6e2", "svt6e3-r5x9": "6e3", "svt6e4-n3v7": "6e4", "svt6e5-t6h2": "6e5", "svt5e1-q9w4": "5e1", "svt5e3-k2m8": "5e3", "svt5e5-p7r3": "5e5", "svt3e2-x4n6": "3e2", "svt3e3-b8q5": "3e3", "test-lab-9x2k": "TEST"};
+ const p=new URLSearchParams(location.search),classe=classes[(p.get('code')||'').toLowerCase()];
+ const status=document.getElementById('status');
+ try{
+  if(!classe)throw Error('Code de classe absent ou invalide. Reviens au cahier.');
+  const sb=supabase.createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY,{auth:{persistSession:false,autoRefreshToken:false}});
+  let raw,title=p.get('title')||'Fiche d’activité';
+  if(p.get('doc')){
+   const {data,error}=await sb.rpc('svt_lire_fiche_publiee_v1',{p_document_id:p.get('doc'),p_classe:classe});
+   if(error)throw error;
+   if(!data?.length)throw Error('Fiche non publiée dans ce cahier, chapitre archivé ou lien devenu indisponible.');
+   raw=data[0].contenu_html;title=data[0].titre;
+  }else{
+   const path=p.get('path')||'';
+   if(!/^atelier-activities\/[a-zA-Z0-9_\/.-]+\.html$/.test(path)||path.includes('..'))throw Error('Ancien lien invalide.');
+   const {data}=sb.storage.from('documents').getPublicUrl(path);
+   const response=await fetch(data.publicUrl,{cache:'no-store'});
+   if(!response.ok)throw Error('Ancienne fiche inaccessible : HTTP '+response.status);
+   raw=await response.text();
+  }
+  const doc=new DOMParser().parseFromString(raw||'','text/html');
+  doc.querySelectorAll('script,iframe,object,embed,form,link,base,meta').forEach(n=>n.remove());
+  doc.querySelectorAll('*').forEach(el=>[...el.attributes].forEach(a=>{if(/^on/i.test(a.name)||a.name==='srcdoc')el.removeAttribute(a.name);}));
+  const csp="default-src 'none'; script-src 'none'; style-src 'unsafe-inline'; img-src data: https:; base-uri 'none'; form-action 'none'; object-src 'none'";
+  const frame=document.getElementById('sheet');
+  frame.srcdoc='<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="'+csp+'"><style>body{margin:12px;background:#f5f2e5;color:#34533a;font:14px Arial}.paper{box-sizing:border-box}img{object-fit:contain}table{border-collapse:collapse}td,th{border:1px solid #a4b095;padding:7px}</style></head><body>'+doc.body.innerHTML+'</body></html>';
+  document.getElementById('title').textContent=title;document.title=title+' — SVT';frame.hidden=false;status.hidden=true;
+ }catch(e){status.textContent=e.message||String(e);console.error('[Consultation fiche]',e);}
+})();
+</script></body></html>
