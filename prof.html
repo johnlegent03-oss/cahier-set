@@ -684,7 +684,7 @@ function sanitizeRichHtml(value){
       }else if(name==="src"&&el.tagName==="IMG"){
         try{const u=new URL(attr.value,location.href);if(u.protocol!=="https:")throw new Error("unsafe");el.setAttribute("src",u.href);}
         catch(e){el.removeAttribute("src");}
-      }else if(name==="class"&&el.tagName==="DETAILS"&&attr.value.split(/\\s+/).includes("atelier-activity")){
+      }else if(name==="class"&&el.tagName==="DETAILS"&&attr.value.split(/\s+/).includes("atelier-activity")){
         el.setAttribute("class","atelier-activity");
       }else if(name==="alt"&&el.tagName==="IMG"){
         el.setAttribute("alt",String(attr.value||"").slice(0,300));
