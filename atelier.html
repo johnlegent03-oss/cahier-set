@@ -152,10 +152,10 @@ async function addToSession(){
     const titre=escapeHtml(project.title||'Activité sans titre');
     const contenuActivite='<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>'+titre+'</title></head><body><h1>'+titre+'</h1>'+activityReadingHtml()+'</body></html>';
     // La fiche complète est stockée dans le bucket existant, jamais dans le JSON du cahier.
-    const filePath='atelier-activities/'+user.id+'/'+cloudId+'-'+Date.now()+'.html';
+    const filePath='atelier-activities/' + user.id + '/' + cloudId + '.html';
     etape='enregistrement de la fiche dans le stockage';
     const fileBlob=new Blob([contenuActivite],{type:'text/html;charset=utf-8'});
-    const {error:uploadError}=await sb.storage.from('documents').upload(filePath,fileBlob,{contentType:'text/html; charset=utf-8',upsert:false});
+    const {error:uploadError}=await sb.storage.from('documents').upload(filePath,fileBlob,{contentType:'text/html; charset=utf-8',upsert:true});
     if(uploadError)throw Error('Le document est enregistré dans la banque, mais le dépôt de la fiche dans le stockage a échoué : '+uploadError.message+'. Aucun lien n’a été ajouté au cahier.');
     const marker='atelier-doc='+cloudId;
     const viewerUrl='./fiche.html?code='+encodeURIComponent(classCode)+'&path='+encodeURIComponent(filePath)+'&title='+encodeURIComponent(project.title||'Activité sans titre');
