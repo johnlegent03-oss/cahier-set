@@ -2,11 +2,6 @@
 (function () {
   'use strict';
 
-  /*
-    CONFIGURATION
-    - activityLinkPattern : liens à corriger s'ils pointent vers l'éditeur.
-    - studentActivityBase : URL élève à utiliser pour les activités.
-  */
   const CONFIG = {
     activityLinkPattern: /(^|\/)prof\.html(#|\?).*activite/i,
     studentActivityBase: 'atelier.html'
@@ -83,13 +78,129 @@
     });
   }
 
+  /* Styles du cahier — sélecteur ajouté aux barres d'outils riches. */
+  const CAHIER_STYLES = [
+    { value: 'style-chapitre', label: 'Titre de chapitre' },
+    { value: 'style-problematique', label: 'Problématique' },
+    { value: 'style-seance', label: 'Titre de séance' },
+    { value: 'style-probleme', label: 'Problème de la séance' },
+    { value: 'style-activite', label: 'Lien d’activité' },
+    { value: 'style-bilan', label: 'Bilan' }
+  ];
+
+  const CAHIER_STYLE_CLASSES = CAHIER_STYLES.map(function (style) {
+    return style.value;
+  });
+
+  function findCurrentBlock(editor) {
+    const selection = window.getSelection();
+    if (!selection.rangeCount) return null;
+
+    let node = selection.getRangeAt(0).commonAncestorContainer;
+    const blockTags = ['P', 'DIV', 'H1', 'H2', 'H3', 'H4', 'LI', 'BLOCKQUOTE'];
+
+    while (node && node !== editor) {
+      if (node.nodeType === Node.ELEMENT_NODE && blockTags.includes(node.tagName)) {
+        return node;
+      }
+      node = node.parentNode;
+    }
+
+    return null;
+  }
+
+  function applyCahierStyle(editorId, className) {
+    const editor = document.getElementById(editorId);
+    if (!editor) return;
+
+    if (typeof restoreSelection === 'function') {
+      restoreSelection(editorId);
+    }
+
+    editor.focus();
+
+    let block = findCurrentBlock(editor);
+
+    if (!block) {
+      document.execCommand('formatBlock', false, 'p');
+      const paragraphs = editor.querySelectorAll('p');
+      block = paragraphs[paragraphs.length - 1] || null;
+    }
+
+    if (!block) return;
+
+    CAHIER_STYLE_CLASSES.forEach(function (existingClass) {
+      block.classList.remove(existingClass);
+    });
+
+    if (className) {
+      block.classList.add(className);
+    }
+
+    if (typeof rememberSelection === 'function') {
+      rememberSelection(editorId);
+    }
+
+    if (typeof scheduleAutosave === 'function') {
+      scheduleAutosave();
+    }
+  }
+
+  window.applyCahierStyle = applyCahierStyle;
+
+  function addCahierStyleMenu(toolbar) {
+    if (!toolbar || toolbar.querySelector('.cahier-style-choice')) return;
+
+    const editor = toolbar.nextElementSibling;
+    if (!editor || !editor.classList.contains('rich-editor') || !editor.id) return;
+
+    const select = document.createElement('select');
+    select.className = 'cahier-style-choice';
+    select.title = 'Style du cahier';
+
+    const defaultOption = document.createElement('option');
+    defaultOption.value = '';
+    defaultOption.textContent = '🎨 Style';
+    select.appendChild(defaultOption);
+
+    CAHIER_STYLES.forEach(function (style) {
+      const option = document.createElement('option');
+      option.value = style.value;
+      option.textContent = style.label;
+      select.appendChild(option);
+    });
+
+    const noneOption = document.createElement('option');
+    noneOption.value = '';
+    noneOption.textContent = 'Aucun style';
+    select.appendChild(noneOption);
+
+    select.addEventListener('change', function () {
+      applyCahierStyle(editor.id, select.value);
+      select.selectedIndex = 0;
+    });
+
+    const fontSelect = toolbar.querySelector('.font-choice');
+    if (fontSelect) {
+      toolbar.insertBefore(select, fontSelect);
+    } else {
+      toolbar.appendChild(select);
+    }
+  }
+
+  function initStyleMenus() {
+    document.querySelectorAll('.rich-toolbar').forEach(addCahierStyleMenu);
+  }
+
   function init() {
     fixActivityLinks(document);
     normalizeEditorImages();
+    initStyleMenus();
 
     const observer = new MutationObserver(function () {
       fixActivityLinks(document);
       normalizeEditorImages();
+      initStyleMenus();
     });
 
     observer.observe(document.body, {
