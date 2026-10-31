@@ -8,16 +8,86 @@ function getMasteryFromValidatedCriteria(validatedCount){
 ;
 const sb=supabase.createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY,{auth:{persistSession:true,autoRefreshToken:true,storage:window.sessionStorage}});
 let mfaBusy = false;
+let mfaCheckPromise = null;
+let mfaAuthGeneration = 0;
 
 function mfaRender(title, html) {
   label.textContent = "Espace professeur";
+  logoutBtn?.classList.add("hidden");
+  globalHome?.classList.remove("show");
   content.innerHTML = `
     <section class="hero login">
       <span class="eyebrow">Espace sécurisé</span>
       <h2>${title}</h2>
       ${html}
+      <div style="margin-top:12px"><button id="mfaLogoutBtn" type="button">Se déconnecter</button></div>
     </section>
   `;
+  document.getElementById("mfaLogoutBtn")?.addEventListener("click", mfaSignOut);
+}
+
+function mfaIsCurrent(generation, userId) {
+  return generation === mfaAuthGeneration && String(user?.id || "") === String(userId || "");
+}
+
+function mfaHideProfSpace() {
+  logoutBtn?.classList.add("hidden");
+  globalHome?.classList.remove("show");
+}
+
+function mfaShowFailure(error, generation = mfaAuthGeneration) {
+  if (generation !== mfaAuthGeneration) return;
+  console.error("Vérification MFA impossible :", error);
+  mfaRender("Vérification en deux étapes impossible", `
+    <p class="muted">${esc(error?.message || String(error) || "Une erreur inconnue est survenue.")}</p>
+    <p class="small-note">L’espace Évaluations reste verrouillé. Tu peux réessayer ou te déconnecter.</p>
+    <button id="mfaRetryBtn" class="primary" type="button">Réessayer</button>
+  `);
+  const retry = document.getElementById("mfaRetryBtn");
+  retry?.addEventListener("click", () => {
+    if (mfaCheckPromise) return;
+    retry.disabled = true;
+    retry.textContent = "Vérification…";
+    openProfSpaceIfMfaReady();
+  });
+}
+
+function mfaRequestLogin(message = "Aucune session active ou session expirée. Reconnecte-toi pour continuer.") {
+  user = null;
+  mfaHideProfSpace();
+  login(message);
+}
+
+async function mfaSignOut() {
+  if (!correctionAllowLeave()) return;
+  mfaAuthGeneration++;
+  mfaCheckPromise = null;
+  try {
+    const { error } = await sb.auth.signOut();
+    if (error) throw error;
+    user = null;
+    mfaHideProfSpace();
+    login("Tu es déconnecté. Connecte-toi pour continuer.");
+  } catch (error) {
+    mfaShowFailure(error);
+  }
+}
+
+async function mfaHandleVerificationError(error, status, button, generation, userId) {
+  let sessionResult;
+  try {
+    sessionResult = await sb.auth.getSession();
+  } catch (sessionError) {
+    if (mfaIsCurrent(generation, userId)) mfaRequestLogin("Ta session n’a pas pu être vérifiée. Reconnecte-toi pour continuer.");
+    return;
+  }
+  if (!mfaIsCurrent(generation, userId)) return;
+  if (sessionResult.error || !sessionResult.data?.session?.user || String(sessionResult.data.session.user.id) !== String(userId)) {
+      mfaRequestLogin("Aucune session active ou session expirée. Reconnecte-toi pour continuer.");
+    return;
+  }
+  status.textContent = "Code incorrect ou vérification indisponible : " + (error?.message || String(error)) + " Tu peux réessayer sans te déconnecter.";
+  button.disabled = false;
 }
 
 async function mfaGetAal() {
@@ -32,13 +102,14 @@ async function mfaGetVerifiedFactor() {
   return (data?.totp || []).find(f => f.status === "verified") || null;
 }
 
-function mfaEnterProfSpace() {
+function mfaEnterProfSpace(generation, userId) {
+  if (!mfaIsCurrent(generation, userId)) return;
   logoutBtn?.classList.remove("hidden");
   globalHome?.classList.add("show");
   restoreLastPosition();
 }
 
-async function mfaShowEnrollment() {
+async function mfaShowEnrollment(generation, userId) {
   if (mfaBusy) return;
   mfaBusy = true;
 
@@ -48,6 +119,7 @@ async function mfaShowEnrollment() {
       friendlyName: "Espace professeur"
     });
     if (error) throw new Error(error.message);
+    if (!mfaIsCurrent(generation, userId)) return;
 
     const qr = data?.totp?.qr_code || "";
     const secret = data?.totp?.secret || "";
@@ -88,26 +160,21 @@ async function mfaShowEnrollment() {
         if (error) throw new Error(error.message);
 
         status.textContent = "Double validation activée.";
-        mfaEnterProfSpace();
+        mfaEnterProfSpace(generation, userId);
       } catch (e) {
-        status.textContent = "Code incorrect : " + e.message;
-        btn.disabled = false;
+        await mfaHandleVerificationError(e, status, btn, generation, userId);
       }
     };
   } catch (e) {
-    mfaRender("Double validation indisponible", `
-      <p class="muted">${e.message}</p>
-      <button class="primary" onclick="location.reload()">Réessayer</button>
-    `);
+    mfaShowFailure(e, generation);
   } finally {
     mfaBusy = false;
   }
 }
 
-async function mfaShowChallenge() {
-  const factor = await mfaGetVerifiedFactor();
+async function mfaShowChallenge(factor, generation, userId) {
   if (!factor) {
-    await mfaShowEnrollment();
+    await mfaShowEnrollment(generation, userId);
     return;
   }
 
@@ -141,52 +208,61 @@ async function mfaShowChallenge() {
       });
       if (error) throw new Error(error.message);
 
-      mfaEnterProfSpace();
+      mfaEnterProfSpace(generation, userId);
     } catch (e) {
-      status.textContent = "Code incorrect : " + e.message;
-      btn.disabled = false;
+      await mfaHandleVerificationError(e, status, btn, generation, userId);
     }
   };
 }
 
-async function openProfSpaceIfMfaReady() {
-  const { data, error } = await sb.auth.getSession();
-  if (error) {
-    console.error("Erreur de session :", error);
-    login();
+async function checkProfSpaceIfMfaReady(generation) {
+  let data, error;
+  try {
+    ({ data, error } = await sb.auth.getSession());
+  } catch (sessionError) {
+    if (generation === mfaAuthGeneration) mfaRequestLogin("Ta session n’a pas pu être vérifiée. Reconnecte-toi pour continuer.");
     return;
   }
-
+  if (generation !== mfaAuthGeneration) return;
   const currentUser = data?.session?.user || null;
-  user = currentUser;
-
-  if (!currentUser) {
-    logoutBtn?.classList.add("hidden");
-    globalHome?.classList.remove("show");
-    login();
+  if (error || !currentUser) {
+    mfaRequestLogin("Ta session a expiré ou n’est plus disponible. Reconnecte-toi pour continuer.");
     return;
   }
+  user = currentUser;
+  const userId = currentUser.id;
 
   try {
     const factor = await mfaGetVerifiedFactor();
+    if (!mfaIsCurrent(generation, userId)) return;
 
     if (!factor) {
-      await mfaShowEnrollment();
+      await mfaShowEnrollment(generation, userId);
       return;
     }
 
     const aal = await mfaGetAal();
+    if (!mfaIsCurrent(generation, userId)) return;
 
     if (aal.currentLevel !== "aal2") {
-      await mfaShowChallenge();
+      await mfaShowChallenge(factor, generation, userId);
       return;
     }
 
-    mfaEnterProfSpace();
+    mfaEnterProfSpace(generation, userId);
   } catch (e) {
-    console.error("Vérification MFA impossible :", e);
-    mfaEnterProfSpace();
+    mfaShowFailure(e, generation);
   }
+}
+
+function openProfSpaceIfMfaReady() {
+  if (mfaCheckPromise) return mfaCheckPromise;
+  const generation = mfaAuthGeneration;
+  const request = checkProfSpaceIfMfaReady(generation).finally(() => {
+    if (mfaCheckPromise === request) mfaCheckPromise = null;
+  });
+  mfaCheckPromise = request;
+  return request;
 }
 const CLASSES={"6e":["6e1","6e2","6e3","6e4","6e5"],"5e":["5e1","5e3","5e5"],"3e":["3e2","3e3"]};
 const content=document.getElementById("content"),label=document.getElementById("label"),logoutBtn=document.getElementById("logoutBtn"),globalHome=document.getElementById("globalHome");
@@ -5908,38 +5984,31 @@ async function init(){
     Ainsi, il fonctionne aussi lorsque l'utilisateur
     arrive sur la page sans être encore connecté.
   */
-  sb.auth.onAuthStateChange(async(event,session)=>{
+  sb.auth.onAuthStateChange((event,session)=>{
     console.log("AUTH EVENT :",event);
     if(String(user?.id||'')!==String(session?.user?.id||''))localDraftStop(true);
     user=session?.user ?? null;
     if(event==="SIGNED_OUT" || !user){
-      logoutBtn.classList.add("hidden");
-      globalHome?.classList.remove("show");
-      login();
+      if(event==="SIGNED_OUT"){
+        mfaAuthGeneration++;
+        mfaCheckPromise=null;
+      }
+      mfaHideProfSpace();
+      login(event === "SIGNED_OUT" ? "Tu es déconnecté. Connecte-toi pour continuer." : "Aucune session active. Connecte-toi pour accéder à l’espace Évaluations.");
       return;
     }
-    /*
-      L'utilisateur vient de se connecter.
-      On affiche immédiatement l'espace professeur.
-    */
-    logoutBtn.classList.remove("hidden");
-    globalHome?.classList.add("show");
-    if (event === "SIGNED_IN") {
-  setTimeout(() => {
-    openProfSpaceIfMfaReady().catch(e => {
-      console.error("Vérification MFA après connexion impossible :", e);
-    });
-  }, 0);
-}
+    // L'interface reste verrouillée : init() ou doLogin() lancent l'unique contrôle MFA.
   });
   /*
     Vérification de la session déjà existante.
   */
  await openProfSpaceIfMfaReady();
 }
-function login(){
+function login(message=""){
   label.textContent="Espace professeur";
   content.innerHTML=`<section class="hero login"><span class="eyebrow">Espace sécurisé</span><h2>👨‍🏫 Espace professeur</h2><p class="muted">Connecte-toi pour gérer les évaluations et le suivi de tes élèves.</p><div class="editbox"><label>Email</label><input id="email" type="email" autocomplete="username" placeholder="ton adresse e-mail"><label>Mot de passe</label><input id="password" type="password" autocomplete="current-password" placeholder="Mot de passe"><button class="primary" style="width:100%;margin-top:5px" onclick="doLogin()">Se connecter</button><div id="loginStatus" class="status" style="margin-top:10px"></div></div></section>`;
+  const status=document.getElementById("loginStatus");
+  if(status&&message)status.textContent=message;
 }
 async function doLogin(){
   const email=
