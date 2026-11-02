@@ -1692,14 +1692,7 @@ async function init(){
     globalHome?.classList.add("show");
 
     if(event==="SIGNED_IN"){
-      setTimeout(()=>{
-        restoreLastPosition().catch(e=>{
-          console.error(
-            "Restauration après connexion impossible :",
-            e
-          );
-        });
-      },0);
+      setTimeout(()=>{home().catch(e=>console.error("Ouverture de l’accueil impossible :", e));},0);
     }
   });
 
@@ -1738,7 +1731,7 @@ async function init(){
     logoutBtn.classList.remove("hidden");
     globalHome?.classList.add("show");
 
-    await restoreLastPosition();
+    await home();
 
   }catch(error){
 
