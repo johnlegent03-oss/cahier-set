@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#e8efdf"><title>Mon espace SVT</title>
+<style>
+:root{--bg:#f4f6ee;--card:#fffef9;--ink:#304b37;--muted:#71806d;--green:#426849;--pale:#e8efdf;--line:#d9e2d1;--gold:#e6c66d}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.55 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;padding-bottom:88px}
+header{background:linear-gradient(135deg,#e8efdf,#f7f5e9);padding:18px 18px 20px;border-bottom:1px solid var(--line)}
+.brand{display:flex;align-items:center;gap:12px;max-width:760px;margin:auto}.bird{width:48px;height:48px;border-radius:16px;background:#d8e7d6;display:grid;place-items:center;font-size:26px}
+h1{font-size:20px;margin:0;line-height:1.2}header p{margin:4px 0 0;color:var(--muted);font-size:13px}
+main{max-width:760px;margin:18px auto;padding:0 14px}.welcome{padding:18px;border-radius:20px;background:var(--green);color:white;margin-bottom:16px}.welcome small{opacity:.8}.welcome h2{margin:4px 0;font-size:23px}
+.tabs{position:fixed;bottom:0;left:0;right:0;background:#fffef9;border-top:1px solid var(--line);display:grid;grid-template-columns:repeat(3,1fr);padding:7px 8px calc(7px + env(safe-area-inset-bottom));z-index:5}
+.tabs button{border:0;background:transparent;color:var(--muted);font:600 12px system-ui;padding:7px 2px;border-radius:12px}.tabs button.active{background:var(--pale);color:var(--green)}.tabs span{display:block;font-size:20px}
+.panel{background:var(--card);border:1px solid var(--line);border-radius:17px;padding:16px;margin:12px 0;box-shadow:0 3px 12px #203b2010}
+h2{font-size:19px;margin:0 0 10px}h3{font-size:16px;margin:0 0 7px}.muted{color:var(--muted)}.tag{display:inline-block;background:var(--pale);border-radius:999px;padding:3px 9px;font-size:12px;color:var(--green);font-weight:700}
+button.link{border:0;background:none;color:var(--green);font-weight:700;padding:8px 0;text-align:left}
+.resource{display:block;color:var(--green);font-weight:700;padding:9px 11px;background:#f1f5eb;border-radius:10px;margin:7px 0;text-decoration:none;overflow-wrap:anywhere}
+.lesson{border-top:1px solid var(--line);padding:12px 0}.lesson:first-child{border-top:0}.rich{overflow-wrap:anywhere}.rich img{max-width:100%;height:auto}.rich table{max-width:100%;display:block;overflow-x:auto}
+.eval{border:1px solid var(--line);border-radius:13px;padding:13px;margin:10px 0}.criterion{display:flex;justify-content:space-between;gap:10px;padding:7px 0;border-top:1px dashed var(--line)}.level{font-weight:700;color:var(--green);white-space:nowrap}
+.error{background:#fff0ee;border:1px solid #efc5bd;color:#8d3028;padding:18px;border-radius:15px}
+.hidden{display:none!important}
+@media(min-width:650px){.tabs{position:static;max-width:760px;margin:18px auto 0;border:1px solid var(--line);border-radius:16px}.tabs button{font-size:14px}body{padding-bottom:20px}}
+</style></head><body>
+<header><div class="brand"><div class="bird" aria-hidden="true">🐦</div><div><h1>Mon espace SVT</h1><p>Mon cahier · mes évaluations · mes compétences</p></div></div></header>
+<main id="app"><section class="panel"><p class="muted">Vérification de ton accès…</p></section></main>
+<nav class="tabs hidden" id="tabs" aria-label="Navigation">
+<button class="active" data-tab="cahier"><span>📘</span>Cahier</button><button data-tab="evaluations"><span>📝</span>Évaluations</button><button data-tab="competences"><span>🌱</span>Compétences</button>
+</nav>
+<script src="config.js"></script>
+<script>
+const $=id=>document.getElementById(id), app=$('app');
+let portal=null, activeTab='cahier';
+const fn=SUPABASE_URL+'/functions/v1/student-portal';
+function esc(x){return String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function cleanRich(value){const doc=new DOMParser().parseFromString('<div>'+String(value||'')+'</div>','text/html'),root=doc.body.firstElementChild;if(!root)return '';root.querySelectorAll('script,style,iframe,object,embed,form,input,button').forEach(x=>x.remove());root.querySelectorAll('*').forEach(el=>[...el.attributes].forEach(a=>{if(/^on/i.test(a.name)||((a.name==='href'||a.name==='src')&&/^\s*javascript:/i.test(a.value)))el.removeAttribute(a.name);}));return root.innerHTML;}
+async function api(token){const res=await fetch(fn,{method:'POST',headers:{'Content-Type':'application/json','apikey':SUPABASE_PUBLISHABLE_KEY},body:JSON.stringify({action:'access',token})});const j=await res.json();if(!res.ok||!j.ok)throw Error(j.error||'Accès refusé');return j.data;}
+function chapterHtml(ch){
+ let out='<article class="panel"><h2>'+cleanRich(ch.titre||ch.title||'Chapitre')+'</h2>';
+ if(ch.problematique||ch.probleme)out+='<p><strong>Problématique :</strong> '+cleanRich(ch.problematique||ch.probleme)+'</p>';
+ if(ch.germoir)out+='<div class="lesson"><h3>Germoir à idées</h3><div class="rich">'+cleanRich(ch.germoir)+'</div></div>';
+ const sessions=Array.isArray(ch.seances)?ch.seances:(ch.sessions||[]);
+ sessions.forEach((s,i)=>{out+='<div class="lesson"><h3>'+cleanRich(s.titre||s.title||('Séance '+(i+1)))+'</h3>';
+  if(s.problematique||s.probleme)out+='<p><strong>Problématique :</strong> '+cleanRich(s.problematique||s.probleme)+'</p>';
+  const entries=[['Activité',s.activites||null,s.activite||s.activity,s.pdfActivite||s.pdf_activite||s.pdf],['Correction',s.corrections||null,s.correction,s.pdfCorrection||s.pdf_correction],['Bilan',s.bilans||null,s.bilan,'']];
+  entries.forEach(([label,list,legacy,pdf])=>{if(Array.isArray(list)&&list.length){list.forEach(e=>{if(e.texte)out+='<div class="rich"><strong>'+label+'</strong><div>'+cleanRich(e.texte)+'</div></div>';if(e.pdf)out+='<a class="resource" href="'+esc(e.pdf)+'" target="_blank" rel="noopener">📄 '+label+' (PDF)</a>';});}else if(legacy)out+='<div class="rich"><strong>'+label+'</strong><div>'+cleanRich(legacy)+'</div></div>';if(pdf)out+='<a class="resource" href="'+esc(pdf)+'" target="_blank" rel="noopener">📄 '+label+' (PDF)</a>';});
+  out+='</div>';});
+ if(ch.schema)out+='<div class="lesson"><h3>Schéma-bilan</h3><div class="rich">'+cleanRich(ch.schema)+'</div></div>';
+ if(ch.schemaPdf)out+='<a class="resource" href="'+esc(ch.schemaPdf)+'" target="_blank" rel="noopener">📄 Schéma-bilan PDF</a>';
+ if(ch.memo)out+='<div class="lesson"><h3>Fiche de mémorisation</h3><div class="rich">'+cleanRich(ch.memo)+'</div></div>';
+ if(ch.memoPdf)out+='<a class="resource" href="'+esc(ch.memoPdf)+'" target="_blank" rel="noopener">📄 Fiche de mémorisation PDF</a>';
+ if(ch.evaluationPdf)out+='<a class="resource" href="'+esc(ch.evaluationPdf)+'" target="_blank" rel="noopener">📄 Évaluation PDF</a>';
+ return out+'</article>';
+}
+function masteryLabel(valid,total){
+ if(!total)return 'Non renseigné';
+ // Reprise de l'échelle utilisée dans l'interface d'évaluations :
+ // 4 critères validés = TBM ; 3 = MS ; 2 = MF ; sinon MI.
+ return valid>=4?'TBM':valid===3?'MS':valid===2?'MF':'MI';
+}
+function criteriaFromCorrection(c){
+ const result=c.resultat||{}, stats=result.criteriaStats||{}, ev=c.evaluation||{};
+ const historical=Array.isArray(ev.exercices)?ev.exercices.find(x=>x&&x.historique===true):null;
+ if(historical && result.masteryCode){
+  const code=String(result.masteryCode).toUpperCase();
+  const labels={TBM:'TBM',MS:'MS',MF:'MF',MI:'MI'};
+  return [{name:historical.competence||'Compétence évaluée',valid:0,total:0,directLevel:labels[code]||code}];
+ }
+ const criteria=Array.isArray(ev.criteres)?ev.criteres:[];
+ const grouped=new Map();
+ criteria.forEach(cr=>{const key=String(cr.competenceId||cr.competenceNom||'comp');if(!grouped.has(key))grouped.set(key,{name:cr.competenceNom||cr.competence||'Compétence évaluée',valid:0,total:0});const g=grouped.get(key);g.total++;if(stats[cr.id]?.validated)g.valid++;});
+ return [...grouped.values()];
+}
+function evalHtml(){
+ const rows=portal.corrections||[];
+ if(!rows.length)return '<section class="panel"><h2>Mes évaluations</h2><p class="muted">Aucune grille corrigée n’est encore disponible pour ton compte.</p></section>';
+ return '<section class="panel"><h2>Mes évaluations</h2><p class="muted">Tes corrections personnelles, classées de la plus récente à la plus ancienne.</p></section>'+rows.map(c=>{
+  const ev=c.evaluation||{},r=c.resultat||{},d=c.created_at?new Date(c.created_at).toLocaleDateString('fr-FR'):'';
+  let html='<article class="eval"><h3>'+esc(ev.titre||'Évaluation')+'</h3><p class="muted">'+esc(d)+'</p>';
+  if(Number.isFinite(Number(r.note)))html+='<p><strong>Résultat : '+esc(r.note)+(ev.total?' / '+esc(ev.total):'')+'</strong></p>';
+  const groups=criteriaFromCorrection(c);
+  if(groups.length)html+=groups.map(g=>'<div class="criterion"><span>'+esc(g.name)+'</span><span class="level">'+masteryLabel(g.valid,g.total)+'</span></div>').join('');
+  else html+='<p class="muted">Les détails de cette grille ne sont pas disponibles dans son ancien format.</p>';
+  return html+'</article>';
+ }).join('');
+}
+function competencyHtml(){
+ const groups=new Map();
+ (portal.corrections||[]).forEach(c=>criteriaFromCorrection(c).forEach(g=>{const k=g.name;if(!groups.has(k))groups.set(k,[]);groups.get(k).push({date:c.created_at,level:g.directLevel||masteryLabel(g.valid,g.total),valid:g.valid,total:g.total,title:c.evaluation?.titre||'Évaluation'});}));
+ if(!groups.size)return '<section class="panel"><h2>Mes compétences</h2><p class="muted">Tes compétences apparaîtront ici après tes premières grilles corrigées.</p></section>';
+ return '<section class="panel"><h2>Mes compétences</h2><p class="muted">Retrouve les niveaux de maîtrise observés au fil des évaluations.</p></section>'+[...groups].map(([name,items])=>'<article class="eval"><h3>'+esc(name)+'</h3>'+items.map(x=>'<div class="criterion"><span>'+esc(x.title)+' · '+(x.date?new Date(x.date).toLocaleDateString('fr-FR'):'')+'</span><span class="level">'+esc(x.level)+'</span></div>').join('')+'</article>').join('');
+}
+function render(){
+ const s=portal.student;let html='<section class="welcome"><small>Bienvenue dans ton carnet de progression</small><h2>'+esc(s.prenom)+' '+esc(s.nom)+'</h2><span class="tag">'+esc(s.classe)+'</span></section>';
+ if(activeTab==='cahier'){
+  const raw=portal.cahier||{},chapters=Array.isArray(raw)?raw:(raw.chapitres||[]);
+  const active=chapters.filter(c=>c.archive!==true);
+  html+=active.length?active.map(chapterHtml).join(''):'<section class="panel"><h2>Mon cahier de classe</h2><p class="muted">Aucun chapitre n’est publié pour le moment.</p></section>';
+ }else if(activeTab==='evaluations')html+=evalHtml();else html+=competencyHtml();
+ app.innerHTML=html;$('tabs').classList.remove('hidden');document.querySelectorAll('.tabs button').forEach(b=>b.classList.toggle('active',b.dataset.tab===activeTab));
+}
+document.querySelectorAll('.tabs button').forEach(b=>b.addEventListener('click',()=>{activeTab=b.dataset.tab;render();window.scrollTo({top:0,behavior:'smooth'});}));
+(async()=>{
+ try{
+  const params=new URLSearchParams(location.hash.replace(/^#/,'')),token=params.get('token')||'';
+  if(!token)throw Error('QR code manquant. Scanne le QR code individuel remis par ton professeur.');
+  // Efface le jeton de la barre d'adresse dès sa lecture.
+  history.replaceState(null,'',location.pathname);
+  portal=await api(token);render();
+ }catch(e){app.innerHTML='<section class="error"><h2>Accès indisponible</h2><p>'+esc(e.message)+'</p><p>Vérifie le QR code ou demande à ton professeur de le renouveler.</p></section>';}
+})();
+</script></body></html>

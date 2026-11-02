@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>QR codes élèves — Cahier numérique de SVT</title>
+<style>
+:root{--bg:#f4f5eb;--card:#fffef8;--ink:#304b37;--muted:#71806d;--green:#426849;--line:#d9e2d1}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,-apple-system,Arial,sans-serif}
+header{padding:22px max(18px,calc((100% - 1000px)/2));background:#e8efdf;border-bottom:1px solid var(--line)}
+h1{font-size:clamp(22px,4vw,30px);margin:0}header p{margin:5px 0;color:var(--muted)}
+main{max-width:1000px;margin:24px auto;padding:0 16px}.panel{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:20px;margin-bottom:18px;box-shadow:0 4px 16px #253d2410}
+.row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}select,button{font:inherit;border-radius:10px;padding:11px 14px;border:1px solid var(--line)}select{background:white;min-width:180px;flex:1}
+button{background:var(--green);color:white;border:0;font-weight:700;cursor:pointer}button.secondary{background:#e8efdf;color:var(--ink);border:1px solid var(--line)}button:disabled{opacity:.5;cursor:wait}
+.note{color:var(--muted);font-size:13px}.error{color:#9a3028}.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:12px;margin-top:18px}
+.qr-card{background:white;border:1px solid var(--line);border-radius:14px;padding:14px;text-align:center;break-inside:avoid;page-break-inside:avoid}
+.qr-card canvas,.qr-card img{display:block;margin:10px auto;width:150px!important;height:150px!important}.qr-card strong{display:block;font-size:16px}.qr-card small{color:var(--muted)}
+#status{min-height:22px;margin-top:10px}.hidden{display:none!important}
+@media print{body{background:white}.noprint,header .note{display:none!important}main{max-width:none;margin:0;padding:0}.panel{border:0;box-shadow:none;padding:0}.grid{grid-template-columns:repeat(3,1fr);gap:8mm}.qr-card{border:1px solid #bbb;padding:8mm 4mm}.qr-card canvas,.qr-card img{width:34mm!important;height:34mm!important}header{padding:0 0 8mm;background:white;border:0}h1{font-size:18pt}}
+</style></head><body>
+<header><h1>QR codes individuels des élèves</h1><p>Cahier numérique de SVT · Gestion professeur</p></header>
+<main>
+<section class="panel noprint">
+ <h2>Générer une planche de QR codes</h2>
+ <p class="note">Choisis une classe. Les anciens QR codes actifs de ses élèves seront révoqués et remplacés. Les nouveaux codes ne seront affichés qu'une fois : imprime ou enregistre immédiatement la planche en PDF.</p>
+ <div class="row"><select id="classSelect"><option value="">Chargement des classes…</option></select><button id="generate">Générer les QR codes</button><button id="print" class="secondary" disabled>Imprimer / Enregistrer en PDF</button></div>
+ <div id="status" class="note" role="status"></div>
+</section>
+<section class="panel"><div class="row"><h2 style="margin:0">Planche de la classe <span id="classLabel"></span></h2><span class="note" id="count"></span></div><div id="cards" class="grid"></div></section>
+</main>
+<script src="config.js"></script><script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script>
+const sb=supabase.createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY,{auth:{persistSession:true,autoRefreshToken:true,storage:window.sessionStorage}});
+const $=id=>document.getElementById(id), fn=SUPABASE_URL+'/functions/v1/student-portal';
+async function invoke(action,body={}){
+ const {data:{session}}=await sb.auth.getSession(); if(!session)throw Error('Session professeur absente ou expirée. Reconnecte-toi dans prof.html.');
+ const res=await fetch(fn,{method:'POST',headers:{'Content-Type':'application/json','apikey':SUPABASE_PUBLISHABLE_KEY,'Authorization':'Bearer '+session.access_token},body:JSON.stringify({action,...body})});
+ const j=await res.json();if(!res.ok||!j.ok)throw Error(j.error||'Erreur serveur');return j;
+}
+async function init(){
+ const {data:{session}}=await sb.auth.getSession();if(!session){$('status').textContent='Connecte-toi d’abord dans ton interface professeur, puis ouvre cette page dans le même onglet.';$('status').className='error';$('generate').disabled=true;return;}
+ const {data,error}=await sb.from('Eleves').select('classe').order('classe');
+ if(error){$('status').textContent='Impossible de charger les classes : '+error.message;$('status').className='error';return;}
+ const classes=[...new Set((data||[]).map(x=>x.classe).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'fr',{numeric:true}));
+ $('classSelect').innerHTML='<option value="">Choisir une classe…</option>'+classes.map(c=>'<option>'+esc(c)+'</option>').join('');
+ $('status').textContent=classes.length+' classe(s) trouvée(s).';
+}
+function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+$('generate').addEventListener('click',async()=>{
+ const classe=$('classSelect').value;if(!classe){$('status').textContent='Choisis une classe.';return;}
+ $('generate').disabled=true;$('print').disabled=true;$('cards').innerHTML='';$('status').textContent='Génération et révocation des anciens QR codes…';
+ try{
+  const r=await invoke('issue-class',{classe});$('classLabel').textContent=classe;$('count').textContent=r.students.length+' élève(s)';
+  r.students.forEach(st=>{
+   const card=document.createElement('article');card.className='qr-card';
+   const holder=document.createElement('div');card.append(holder);
+   card.insertAdjacentHTML('beforeend','<strong>'+esc(st.prenom)+' '+esc(st.nom)+'</strong><small>'+esc(st.classe)+'</small><button type="button" class="secondary revoke noprint" style="margin-top:9px;padding:7px 10px;font-size:12px">Révoquer ce QR</button>');
+   card.querySelector('.revoke').addEventListener('click',async()=>{
+    if(!confirm('Révoquer le QR code de '+st.prenom+' '+st.nom+' ?'))return;
+    const b=card.querySelector('.revoke');b.disabled=true;
+    try{await invoke('revoke-student',{student_id:st.id});holder.innerHTML='<p class="error">QR révoqué</p>';b.remove();}
+    catch(err){b.disabled=false;alert(err.message);}
+   });
+   $('cards').append(card);
+   const target=new URL('eleve.html',location.href);target.hash='token='+encodeURIComponent(st.token);
+   new QRCode(holder,{text:target.href,width:180,height:180,correctLevel:QRCode.CorrectLevel.M});
+  });
+  $('status').textContent='Planche prête. Les anciens QR codes ont été révoqués. Imprime ou enregistre cette page en PDF maintenant.';
+  $('print').disabled=!r.students.length;
+ }catch(e){$('status').textContent=e.message;$('status').className='error';}
+ finally{$('generate').disabled=false;}
+});
+$('print').addEventListener('click',()=>window.print());
+init();
+</script></body></html>
