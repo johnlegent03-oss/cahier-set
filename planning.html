@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Planning — Espace professeur SVT</title>
+<link rel="stylesheet" href="planning.css">
+</head>
+<body>
+<main class="planning-shell">
+<header class="planning-top">
+ <div class="planning-title"><h1>Mon planning</h1><p id="planningPeriod">Chargement de la période…</p></div>
+ <div class="planning-actions"><a class="planning-btn" href="prof.html">← Espace professeur</a><button class="planning-btn" id="planningRefresh">Actualiser</button></div>
+</header>
+<div id="planningMessage" class="planning-alert" role="status" hidden></div>
+<nav class="planning-tabs" aria-label="Vues du planning">
+ <button data-tab="planning" aria-selected="true">Ma semaine</button><button data-tab="events" aria-selected="false">Événements</button><button data-tab="settings" aria-selected="false">Période et données</button>
+</nav>
+<section id="planningWeekView" class="planning-panel">
+ <div class="planning-toolbar">
+  <div class="planning-controls"><button class="planning-btn" id="planningPrev">←</button><button class="planning-btn" id="planningToday">Aujourd’hui</button><button class="planning-btn" id="planningNext">→</button><span id="planningWeek" class="planning-week-label"></span></div>
+  <div class="planning-controls"><label for="planningPattern" class="planning-muted">Semaine</label><select id="planningPattern" class="planning-select"><option>A</option><option>B</option></select></div>
+ </div>
+ <div class="planning-grid-wrap"><table class="planning-grid" id="planningGrid"><tbody><tr><td>Chargement…</td></tr></tbody></table></div>
+ <p class="planning-muted">Clique sur une séance pour modifier sa date, son horaire, sa classe, son état ou ses notes. Les conflits sont à vérifier avant validation.</p>
+</section>
+<section id="planningEventsView" class="planning-panel" hidden>
+ <div class="planning-toolbar"><h2>Événements personnels</h2><button class="planning-btn primary" id="planningAddEvent">＋ Ajouter un événement</button></div>
+ <div id="planningEvents" class="planning-cards"></div>
+</section>
+<section id="planningSettingsView" class="planning-panel" hidden><h2>Période scolaire</h2><div id="planningSettings"></div></section>
+</main>
+<div class="planning-modal" id="planningModal" hidden>
+ <section class="planning-dialog" role="dialog" aria-modal="true" aria-labelledby="planningDialogTitle">
+  <div class="planning-dialog-head"><h2 id="planningDialogTitle"></h2><button class="planning-btn" id="planningModalClose" aria-label="Fermer">✕</button></div>
+  <div id="planningDialogBody"></div>
+ </section>
+</div>
+<script src="config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>window.sb = window.sb || supabase.createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY,{auth:{persistSession:true,autoRefreshToken:true,storage:window.sessionStorage}});</script>
+<script src="planning.js?v=3"></script>
+<script src="site-identite.js?v=1" defer></script>
+</body></html>
