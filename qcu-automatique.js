@@ -89,57 +89,181 @@
       const byId=Object.fromEntries(students.map(s=>[s.id,s]));
       const cards=createdAttrs.map(a=>{const e=byId[a.eleve_id],code=Object.keys(subjectIds).find(k=>subjectIds[k]===a.sujet_id);return {id:a.id,name:e.prenom+' '+e.nom,code};});
       window.qcuAutoPrintCards=cards;
-      result.innerHTML=`<section class="hero" style="margin-top:16px"><h3>Session créée</h3><p>${cards.length} fiches individuelles créées pour la 5e1. Répartition des sujets A, B, C et D.</p><p><strong>Important :</strong> cette première version prépare la session et les fiches QR. La lecture photographique et la correction automatique seront ajoutées après validation de l'impression.</p><button class="primary" onclick="qcuAutoPrint()">Imprimer les fiches-réponses</button></section><div id="qcuAutoPrintArea" class="qcu-auto-print">${cards.map(c=>`<article class="qcu-auto-sheet"><table class="qcu-auto-marker-table"><tbody><tr><td><span class="qcu-auto-marker"></span></td><td><span class="qcu-auto-marker"></span></td></tr></tbody></table><div class="qcu-auto-sheet-head"><div><h2>Fiche-réponse · Mémo 1</h2><p>Chapitre 1 · 5e1 · Sujet ${c.code}</p><p>Élève : <strong>${esc(c.name)}</strong></p></div><div class="qcu-auto-qr" data-id="${c.id}"></div></div><p>Pour chaque question, noircis complètement le cercle correspondant à une seule réponse. Utilise un stylo noir ou bleu foncé. Ne coche pas plusieurs réponses.</p><table><thead><tr><th>Question</th><th>A</th><th>B</th><th>C</th><th>D</th></tr></thead><tbody>${[1,2,3,4,5].map(n=>`<tr><th>${n}</th>${['A','B','C','D'].map(v=>`<td><span class="qcu-auto-bubble" aria-label="Réponse ${v}"></span></td>`).join('')}</tr>`).join('')}</tbody></table><small>Code individuel : ${c.id}</small><table class="qcu-auto-marker-table qcu-auto-marker-table-bottom"><tbody><tr><td><span class="qcu-auto-marker"></span></td><td><span class="qcu-auto-marker"></span></td></tr></tbody></table></article>`).join('')}</div>`;
+      result.innerHTML=`<section class="hero" style="margin-top:16px"><h3>Session créée</h3><p>${cards.length} fiches individuelles créées pour la 5e1. Répartition des sujets A, B, C et D.</p><p><strong>Important :</strong> cette première version prépare la session et les fiches QR. La lecture photographique et la correction automatique seront ajoutées après validation de l'impression.</p><button class="primary" onclick="qcuAutoPrint()">Imprimer les fiches-réponses</button></section><div id="qcuAutoPrintArea" class="qcu-auto-print">${cards.map(c=>`<article class="qcu-auto-sheet"><table class="qcu-auto-marker-table"><tbody><tr><td><span class="qcu-auto-marker qcu-auto-marker-tl"></span>
+<span class="qcu-auto-marker qcu-auto-marker-tr"></span>
+<span class="qcu-auto-marker qcu-auto-marker-bl"></span>
+<span class="qcu-auto-marker qcu-auto-marker-br"></span></td></tr></tbody></table><div class="qcu-auto-sheet-head"><div><h2>Fiche-réponse · Mémo 1</h2><p>Chapitre 1 · 5e1 · Sujet ${c.code}</p><p>Élève : <strong>${esc(c.name)}</strong></p></div><div class="qcu-auto-qr" data-id="${c.id}"></div></div><p>Pour chaque question, noircis complètement le cercle correspondant à une seule réponse. Utilise un stylo noir ou bleu foncé. Ne coche pas plusieurs réponses.</p><table><thead><tr><th>Question</th><th>A</th><th>B</th><th>C</th><th>D</th></tr></thead><tbody>${[1,2,3,4,5].map(n=>`<tr><th>${n}</th>${['A','B','C','D'].map(v=>`<td><span class="qcu-auto-bubble" aria-label="Réponse ${v}"></span></td>`).join('')}</tr>`).join('')}</tbody></table><small>Code individuel : ${c.id}</small><table class="qcu-auto-marker-table qcu-auto-marker-table-bottom"><tbody><tr><td><span class="qcu-auto-marker"></span></td><td><span class="qcu-auto-marker"></span></td></tr></tbody></table></article>`).join('')}</div>`;
       if(!document.getElementById('qcuAutoQrLib')){const sc=document.createElement('script');sc.id='qcuAutoQrLib';sc.src='https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js';sc.onload=drawQR;document.head.appendChild(sc);}else drawQR();
       msg.textContent='Session créée avec succès.';
     }catch(e){console.error(e);msg.textContent='Erreur : '+(e.message||String(e));btn.disabled=false;btn.textContent='Réessayer';}
   }
   function drawQR(){if(!window.QRCode)return;document.querySelectorAll('.qcu-auto-qr').forEach(el=>{if(el.dataset.done)return;new QRCode(el,{text:el.dataset.id,width:105,height:105,correctLevel:QRCode.CorrectLevel.M});el.dataset.done='1';});}
-  function qcuAutoPrint(){
-    drawQR();
-    const source=document.getElementById('qcuAutoPrintArea');
-    if(!source){alert('Les fiches-réponses sont introuvables.');return;}
-    const printWindow=window.open('','_blank');
-    if(!printWindow){alert('La fenêtre d’impression a été bloquée. Autorise les fenêtres pop-up pour ce site puis réessaie.');return;}
-    const sheets=source.innerHTML;
-    printWindow.document.open();
-    printWindow.document.write(`<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Fiches-réponses · Mémo 1</title><style>
-      @page{size:A4 portrait;margin:10mm}
-      *{box-sizing:border-box}
-      html,body{margin:0;padding:0;background:#fff;color:#111;font-family:Arial,sans-serif}
-      .qcu-auto-sheet{position:relative;width:100%;min-height:270mm;padding:0 0 2mm;background:#fff;color:#111;page-break-after:always;break-after:page}
-      .qcu-auto-marker-table{width:100%;height:8mm;table-layout:fixed;border:0!important;border-collapse:collapse!important;margin:0 0 3mm!important}
-      .qcu-auto-marker-table td{width:50%;height:8mm;border:0!important;padding:0 8mm!important;text-align:left;vertical-align:top}
-      .qcu-auto-marker-table td:last-child{text-align:right}
-      .qcu-auto-marker-table-bottom{margin:3mm 0 0!important}
-      .qcu-auto-marker-table-bottom td{vertical-align:bottom}
-      .qcu-auto-marker{display:inline-block;width:6mm;height:6mm;background:#000!important;print-color-adjust:exact;-webkit-print-color-adjust:exact}
+  
+function qcuAutoPrint(){
+  drawQR();
 
-      .qcu-auto-marker{position:absolute;width:5mm;height:5mm;background:#000;display:block}
-      .qcu-auto-marker-tl{top:0;left:0}
-      .qcu-auto-marker-tr{top:0;right:0}
-      .qcu-auto-marker-bl{bottom:0;left:0}
-      .qcu-auto-marker-br{bottom:0;right:0}
-      .qcu-auto-sheet:last-child{page-break-after:auto;break-after:auto}
-      .qcu-auto-sheet-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12mm}
-      .qcu-auto-sheet h2{font-family:Georgia,serif;font-size:21pt;margin:0 0 8mm;color:#244a32}
-      .qcu-auto-sheet p{font-size:11pt;margin:0 0 7mm}
-      .qcu-auto-qr{width:30mm;height:30mm;min-width:30mm;min-height:30mm}
-      .qcu-auto-qr img{width:30mm!important;height:30mm!important;display:block}
-      .qcu-auto-sheet table{width:100%;border-collapse:collapse;margin:8mm 0}
-      .qcu-auto-sheet th,.qcu-auto-sheet td{border:1px solid #222;text-align:center;padding:10mm 3mm;font-size:13pt}
-      .qcu-auto-sheet tbody th{font-size:14pt;font-weight:700}
-      .qcu-auto-sheet thead th{padding:6mm 3mm}
-      .qcu-auto-sheet thead th{background:#edf2e2}
-      .qcu-auto-bubble{display:inline-block;width:11mm;height:11mm;border:1.6px solid #111;border-radius:50%;vertical-align:middle;background:#fff}
-      .qcu-auto-sheet small{font-size:7pt;overflow-wrap:anywhere}
-      @media screen{body{padding:12mm;background:#eee}.qcu-auto-sheet{max-width:190mm;margin:0 auto 12mm;padding:10mm;background:#fff;box-shadow:0 1px 5px #999}.qcu-auto-marker-tl{top:3mm;left:3mm}.qcu-auto-marker-tr{top:3mm;right:3mm}.qcu-auto-marker-bl{bottom:3mm;left:3mm}.qcu-auto-marker-br{bottom:3mm;right:3mm}}
-    </style></head><body>${sheets}<script>window.onload=()=>{setTimeout(()=>window.print(),400)};<\/script></body></html>`);
-    printWindow.document.close();
+  const source = document.getElementById('qcuAutoPrintArea');
+  if (!source) {
+    alert('Les fiches-réponses sont introuvables.');
+    return;
   }
-  const style=document.createElement('style');style.textContent=`@media print{body *{visibility:hidden!important}#qcuAutoPrintArea,#qcuAutoPrintArea *{visibility:visible!important}#qcuAutoPrintArea{position:absolute;left:0;top:0;width:100%}.qcu-auto-sheet{page-break-after:always;break-after:page;padding:10mm;color:#111;background:#fff!important}.qcu-auto-sheet:last-child{page-break-after:auto}.qcu-auto-sheet table{width:100%;border-collapse:collapse;margin:22px 0}.qcu-auto-sheet th,.qcu-auto-sheet td{border:1px solid #222!important;text-align:center;padding:13px}.qcu-auto-sheet-head{display:flex;justify-content:space-between;align-items:center}.qcu-auto-bubble{display:inline-flex;width:25px;height:25px;border:1.5px solid #111;border-radius:50%;align-items:center;justify-content:center;font-size:12px}.qcu-auto-sheet small{font-size:7px;overflow-wrap:anywhere}}.qcu-auto-sheet{background:#fff;color:#222;padding:16px;margin:12px 0;border:1px solid #ccc}.qcu-auto-marker-table{width:100%;height:8mm;table-layout:fixed;border-collapse:collapse;margin:0 0 3mm}.qcu-auto-marker-table td{width:50%;border:0;padding:0 8mm;text-align:left;vertical-align:top}.qcu-auto-marker-table td:last-child{text-align:right}.qcu-auto-marker-table-bottom{margin:3mm 0 0}.qcu-auto-marker-table-bottom td{vertical-align:bottom}.qcu-auto-marker{display:inline-block;width:6mm;height:6mm;background:#000!important;print-color-adjust:exact;-webkit-print-color-adjust:exact}.qcu-auto-sheet table{width:100%;border-collapse:collapse}.qcu-auto-sheet th,.qcu-auto-sheet td{border:1px solid #444;padding:12px;text-align:center}.qcu-auto-sheet-head{display:flex;justify-content:space-between;align-items:center}.qcu-auto-qr{min-width:105px;min-height:105px}.qcu-auto-bubble{display:inline-flex;width:25px;height:25px;border:1px solid #333;border-radius:50%;align-items:center;justify-content:center}`;document.head.appendChild(style);
-  window.openQcuAuto=openQcuAuto;window.qcuAutoSelect=qcuAutoSelect;window.qcuAutoClear=qcuAutoClear;window.qcuAutoCreateSession=qcuAutoCreateSession;window.qcuAutoPrint=qcuAutoPrint;
-  const originalHome=window.home;
-  if(typeof originalHome==='function')window.home=async function(){const r=await originalHome.apply(this,arguments);addHomeCard();return r;};
-  document.addEventListener('DOMContentLoaded',addHomeCard);setTimeout(addHomeCard,500);
-})();
+
+  const printWindow = window.open('', '_blank');
+  if (!printWindow) {
+    alert('Autorise les fenêtres pop-up pour ce site puis réessaie.');
+    return;
+  }
+
+  const sheets = source.innerHTML;
+
+  printWindow.document.open();
+  printWindow.document.write(`<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Fiches-réponses · Mémo 1</title>
+<style>
+  @page {
+    size: A4 portrait;
+    margin: 0;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: white;
+    color: #111;
+    font-family: Arial, sans-serif;
+  }
+
+  .qcu-auto-sheet {
+    position: relative;
+    width: 210mm;
+    height: 297mm;
+    min-height: 297mm;
+    margin: 0;
+    padding: 15mm 14mm 12mm;
+    overflow: hidden;
+    background: white;
+    page-break-after: always;
+    break-after: page;
+  }
+
+  .qcu-auto-sheet:last-child {
+    page-break-after: auto;
+    break-after: auto;
+  }
+
+  .qcu-auto-marker {
+    position: absolute;
+    display: block;
+    width: 6mm;
+    height: 6mm;
+    background: #000 !important;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+    z-index: 10;
+  }
+
+  .qcu-auto-marker-tl {
+    top: 8mm;
+    left: 8mm;
+  }
+
+  .qcu-auto-marker-tr {
+    top: 8mm;
+    right: 8mm;
+  }
+
+  .qcu-auto-marker-bl {
+    bottom: 8mm;
+    left: 8mm;
+  }
+
+  .qcu-auto-marker-br {
+    bottom: 8mm;
+    right: 8mm;
+  }
+
+  .qcu-auto-sheet-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 12mm;
+  }
+
+  .qcu-auto-sheet h2 {
+    font-family: Georgia, serif;
+    font-size: 21pt;
+    margin: 0 0 8mm;
+    color: #244a32;
+  }
+
+  .qcu-auto-sheet p {
+    font-size: 11pt;
+    margin: 0 0 7mm;
+  }
+
+  .qcu-auto-qr {
+    width: 30mm;
+    height: 30mm;
+    min-width: 30mm;
+    min-height: 30mm;
+  }
+
+  .qcu-auto-qr img {
+    width: 30mm !important;
+    height: 30mm !important;
+    display: block;
+  }
+
+  .qcu-auto-sheet table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 8mm 0;
+  }
+
+  .qcu-auto-sheet th,
+  .qcu-auto-sheet td {
+    border: 1px solid #222;
+    text-align: center;
+    padding: 10mm 3mm;
+    font-size: 13pt;
+  }
+
+  .qcu-auto-sheet thead th {
+    padding: 6mm 3mm;
+    background: #edf2e2;
+  }
+
+  .qcu-auto-bubble {
+    display: inline-block;
+    width: 11mm;
+    height: 11mm;
+    border: 1.6px solid #111;
+    border-radius: 50%;
+    background: white;
+  }
+
+  .qcu-auto-sheet small {
+    font-size: 7pt;
+    overflow-wrap: anywhere;
+  }
+</style>
+</head>
+<body>
+${sheets}
+<script>
+window.onload = () => {
+  setTimeout(() => window.print(), 400);
+};
+<\/script>
+</body>
+</html>`);
+
+  printWindow.document.close();
+}
