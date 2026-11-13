@@ -16,6 +16,9 @@
   let qrPromise = null;
   let camera = null;
   let currentScan = null;
+  let savedMemos = [];
+  let editingMemoId = null;
+  let assigningMemo = null;
 
   function addCard() {
     const main = document.querySelector("main#content");
@@ -79,7 +82,27 @@
         <div id="qmSubjects"></div>
       </section>
       <section class="card" style="padding:18px;margin-top:14px">
-        <h3>3. Fiches élèves et correction</h3>
+        <h3>3. Banque de mémorisations enregistrées</h3>
+        <p class="muted">Enregistre les quatre sujets préparés pour les réutiliser, les modifier ou les attribuer à plusieurs classes. Une attribution crée une session indépendante par classe.</p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+          <input id="qmMemoName" placeholder="Nom de la mémorisation (ex. Mémo 1 – 6e)" style="flex:1;min-width:220px">
+          <button class="primary" id="qmMemoSave" type="button" disabled>Enregistrer les sujets préparés</button>
+          <button id="qmMemoCancel" type="button" style="display:none">Annuler la modification</button>
+        </div>
+        <p id="qmMemoMsg" class="muted" aria-live="polite"></p>
+        <div id="qmMemoList"></div>
+        <div id="qmMemoAssign" style="display:none;margin-top:12px;padding:12px;border:1px solid #bbb;border-radius:10px">
+          <h4 id="qmAssignTitle">Attribuer aux classes</h4>
+          <p class="muted">Sélectionne une ou plusieurs classes. Chaque classe recevra sa propre session, ses propres fiches et ses propres résultats.</p>
+          <div id="qmClassChoices" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(100px,1fr));gap:6px"></div>
+          <label>Trimestre<select id="qmMemoTerm"><option>1</option><option>2</option><option>3</option></select></label>
+          <button class="primary" id="qmMemoAssignGo" type="button">Créer les sessions pour les classes sélectionnées</button>
+          <button id="qmMemoAssignCancel" type="button">Fermer</button>
+          <p id="qmAssignMsg" class="muted" aria-live="polite"></p>
+        </div>
+      </section>
+      <section class="card" style="padding:18px;margin-top:14px">
+        <h3>4. Fiches élèves et correction</h3>
         <div id="qmSheets"></div>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
           <button id="qmPrint" type="button" disabled>Imprimer les fiches A4</button>
@@ -93,6 +116,10 @@
     $("qmAdd").onclick = addQuestion;
     $("qmCsv").onchange = importCsv;
     $("qmCreate").onclick = prepareSubjects;
+    $("qmMemoSave").onclick = saveMemo;
+    $("qmMemoCancel").onclick = cancelMemoEdit;
+    $("qmMemoAssignCancel").onclick = closeMemoAssign;
+    $("qmMemoAssignGo").onclick = assignMemoToClasses;
     $("qmPrint").onclick = printSheets;
     $("qmCameraStart").onclick = startCamera;
     $("qmCameraStop").onclick = stopCamera;
@@ -100,6 +127,7 @@
     $("qmLevel").onchange = loadBank;
     $("qmChapter").onchange = loadBank;
     await loadBank();
+    await loadMemos();
   }
 
   async function loadBank() {
@@ -215,6 +243,7 @@
 
   function renderPreparedSubjects() {
     const host = $("qmSubjects");
+    $("qmMemoSave").disabled = !Array.isArray(subjects) || subjects.length !== 4 || subjects.some(a=>!Array.isArray(a)||a.length!==5);
     host.innerHTML = `
       <p class="muted" style="margin:12px 0">Déplace une question sur une autre pour la réordonner ou l’échanger entre deux sujets. Les quatre sujets conservent chacun cinq questions.</p>
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px">
@@ -271,6 +300,100 @@
     });
   }
 
+  function memoSnapshot() {
+    return subjects.map((arr,i)=>arr.map((q,j)=>({
+      id:q.id ?? null, question_text:q.question_text, options:q.options,
+      correct_option:q.correct_option, position:j+1, subject:i+1
+    })));
+  }
+  function validMemoContent(content) {
+    return Array.isArray(content) && content.length===4 && content.every(a=>Array.isArray(a)&&a.length===5&&a.every(q=>q&&typeof q.question_text==="string"&&q.options&&typeof q.correct_option==="string"));
+  }
+  async function loadMemos() {
+    const {data,error}=await client().from("qcu_memos").select("id,nom,niveau,chapitres,contenu,created_at,updated_at").eq("created_by",window.qcuMemoUserId).order("updated_at",{ascending:false});
+    if(error){$("qmMemoMsg").textContent="Banque de mémorisations indisponible : "+error.message+". Vérifie que le script SQL a été exécuté.";return;}
+    savedMemos=data||[]; renderMemos();
+  }
+  function renderMemos() {
+    const host=$("qmMemoList"); if(!host)return;
+    if(!savedMemos.length){host.innerHTML='<p class="muted">Aucune mémorisation enregistrée pour le moment.</p>';return;}
+    host.innerHTML=savedMemos.map(m=>`<article style="border:1px solid #ddd;border-radius:9px;padding:10px;margin:8px 0">
+      <strong>${esc(m.nom)}</strong> <span class="muted">· ${esc(m.niveau)} · ${esc((m.chapitres||[]).join(", "))} · 4 sujets / 20 questions</span>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">
+        <button type="button" data-memo-open="${esc(m.id)}">Ouvrir / modifier</button>
+        <button type="button" data-memo-duplicate="${esc(m.id)}">Dupliquer</button>
+        <button type="button" data-memo-assign="${esc(m.id)}">Attribuer aux classes</button>
+        <button type="button" data-memo-delete="${esc(m.id)}">Supprimer</button>
+      </div></article>`).join("");
+    host.querySelectorAll("[data-memo-open]").forEach(b=>b.onclick=()=>openMemo(b.dataset.memoOpen));
+    host.querySelectorAll("[data-memo-duplicate]").forEach(b=>b.onclick=()=>duplicateMemo(b.dataset.memoDuplicate));
+    host.querySelectorAll("[data-memo-assign]").forEach(b=>b.onclick=()=>showMemoAssign(b.dataset.memoAssign));
+    host.querySelectorAll("[data-memo-delete]").forEach(b=>b.onclick=()=>deleteMemo(b.dataset.memoDelete));
+  }
+  async function saveMemo() {
+    if(!validMemoContent(subjects))return alert("Prépare d'abord quatre sujets de cinq questions.");
+    const nom=$("qmMemoName").value.trim(); if(!nom)return alert("Donne un nom à cette mémorisation.");
+    const row={created_by:window.qcuMemoUserId,nom,niveau:$("qmSessionLevel").value,chapitres:[Number($("qmChapter").value)],contenu:memoSnapshot(),updated_at:new Date().toISOString()};
+    let result;
+    if(editingMemoId) result=await client().from("qcu_memos").update(row).eq("id",editingMemoId).eq("created_by",window.qcuMemoUserId);
+    else result=await client().from("qcu_memos").insert(row);
+    if(result.error)return alert("Enregistrement impossible : "+result.error.message);
+    $("qmMemoMsg").textContent=editingMemoId?"Modifications enregistrées.":"Mémorisation ajoutée à la banque.";
+    editingMemoId=null;$("qmMemoName").value="";$("qmMemoCancel").style.display="none";$("qmMemoSave").textContent="Enregistrer les sujets préparés";
+    await loadMemos();
+  }
+  function cancelMemoEdit(){editingMemoId=null;$("qmMemoName").value="";$("qmMemoCancel").style.display="none";$("qmMemoSave").textContent="Enregistrer les sujets préparés";$("qmMemoMsg").textContent="Modification annulée.";}
+  function openMemo(id) {
+    const m=savedMemos.find(x=>x.id===id);if(!m)return;
+    if(!validMemoContent(m.contenu))return alert("Le contenu de cette mémorisation est incomplet ou incompatible.");
+    subjects=m.contenu.map(a=>a.map(q=>({...q})));
+    $("qmSessionLevel").value=m.niveau;$("qmLevel").value=m.niveau;
+    if(m.chapitres?.length)$("qmChapter").value=m.chapitres[0];
+    $("qmMemoName").value=m.nom;editingMemoId=m.id;
+    $("qmMemoCancel").style.display="inline-block";$("qmMemoSave").textContent="Enregistrer les modifications";
+    students=[];renderPreparedSubjects();
+    $("qmSessionMsg").textContent="Mémorisation chargée. Tu peux déplacer les questions puis enregistrer les modifications ou l'attribuer aux classes.";
+    $("qmMemoMsg").textContent="Tu modifies une copie de travail : l'original ne change qu'après avoir cliqué sur Enregistrer les modifications.";
+  }
+  async function duplicateMemo(id) {
+    const m=savedMemos.find(x=>x.id===id);if(!m)return;
+    const name=prompt("Nom de la copie :",m.nom+" (copie)");if(!name?.trim())return;
+    const {error}=await client().from("qcu_memos").insert({created_by:window.qcuMemoUserId,nom:name.trim(),niveau:m.niveau,chapitres:m.chapitres||[],contenu:m.contenu});
+    if(error)return alert("Duplication impossible : "+error.message);
+    await loadMemos();
+  }
+  async function deleteMemo(id) {
+    const m=savedMemos.find(x=>x.id===id);if(!m||!confirm(`Supprimer définitivement « ${m.nom} » ? Les sessions déjà créées ne seront pas supprimées.`))return;
+    const {error}=await client().from("qcu_memos").delete().eq("id",id).eq("created_by",window.qcuMemoUserId);
+    if(error)return alert("Suppression impossible : "+error.message);
+    await loadMemos();
+  }
+  async function showMemoAssign(id) {
+    const m=savedMemos.find(x=>x.id===id);if(!m)return;
+    if(!validMemoContent(m.contenu))return alert("Contenu de mémorisation invalide.");
+    assigningMemo=m;$("qmAssignTitle").textContent="Attribuer « "+m.nom+" » aux classes";$("qmAssignMsg").textContent="Chargement des classes…";$("qmMemoAssign").style.display="block";
+    const {data,error}=await client().from("Eleves").select("classe").order("classe");
+    if(error){$("qmAssignMsg").textContent="Impossible de charger les classes : "+error.message;return;}
+    const classes=[...new Set((data||[]).map(x=>(x.classe||"").trim()).filter(c=>c && c.toLowerCase().startsWith(m.niveau.toLowerCase())))].sort((a,b)=>a.localeCompare(b,"fr",{numeric:true}));
+    if(!classes.length){$("qmClassChoices").innerHTML="";$("qmAssignMsg").textContent="Aucune classe trouvée dans la table Eleves.";return;}
+    $("qmClassChoices").innerHTML=classes.map((c,i)=>`<label style="display:flex;gap:6px;align-items:center"><input type="checkbox" value="${esc(c)}" id="qmClassPick${i}"> ${esc(c)}</label>`).join("");
+    $("qmAssignMsg").textContent=`${classes.length} classe(s) disponibles.`;
+  }
+  function closeMemoAssign(){assigningMemo=null;$("qmMemoAssign").style.display="none";}
+  async function assignMemoToClasses() {
+    const m=assigningMemo;if(!m)return;
+    const chosen=[...$("qmClassChoices").querySelectorAll("input:checked")].map(x=>x.value);
+    if(!chosen.length)return alert("Sélectionne au moins une classe.");
+    const btn=$("qmMemoAssignGo");btn.disabled=true;$("qmAssignMsg").textContent="Préparation des sessions…";
+    const rosters=[];
+    for(const classe of chosen){const {data,error}=await client().from("Eleves").select("id,nom,prenom,classe").eq("classe",classe).order("nom").order("prenom");if(error){$("qmAssignMsg").textContent=`Erreur pour ${classe} : ${error.message}`;btn.disabled=false;return;}if(!data?.length){$("qmAssignMsg").textContent=`Aucun élève trouvé pour ${classe}. Aucune session créée.`;btn.disabled=false;return;}rosters.push({classe,students:data});}
+    const done=[],failed=[];
+    for(const r of rosters){const res=await createSessionForClass(r.classe,r.students,m.contenu,m.niveau,m.chapitres,Number($("qmMemoTerm").value),m.nom);if(res.error)failed.push(`${r.classe} : ${res.error}`);else done.push(r.classe);}
+    $("qmAssignMsg").textContent=`Sessions créées : ${done.join(", ")||"aucune"}. ${failed.length?"Échecs : "+failed.join(" ; "):"Toutes les classes ont été traitées."}`;
+    btn.disabled=false;
+    if(done.length)alert(`Sessions créées pour : ${done.join(", ")}. Chaque classe possède une session indépendante.`);
+  }
+
   async function prepareSubjects() {
     const db=client(), classe=$("qmClass").value.trim(), level=$("qmSessionLevel").value, chapter=Number($("qmChapter").value);
     if(!classe)return alert("Indique la classe.");
@@ -288,30 +411,37 @@
     $("qmSessionMsg").textContent=`${students.length} élèves chargés. Réorganise les questions si nécessaire, puis clique sur le bouton de validation situé sous les quatre sujets.`;
   }
 
-    async function createSession() {
-    const db=client(), user=window.qcuMemoUserId, level=$("qmSessionLevel").value, classe=$("qmClass").value.trim();
-    const {data:s,error:se}=await db.from("qcu_sessions").insert({created_by:user,classe,trimestre:Number($("qmTerm").value),
-      titre:$("qmTitle").value.trim()||"Mémorisation active",date_qcu:new Date().toISOString().slice(0,10),statut:"brouillon",
-      niveau:level,chapitres:[Number($("qmChapter").value)]}).select().single();
-    if(se)return alert("Création de session impossible : "+se.message); session=s;
-    const subjectIds=[];
-    for(let i=0;i<4;i++){
-      const code=String(i+1);
-      const {data:sub,error}=await db.from("qcu_sujets").insert({created_by:user,session_id:s.id,code,titre:"Sujet "+code}).select().single();
-      if(error)return alert(error.message); subjectIds.push(sub.id);
-      const rows=subjects[i].map((q,j)=>({created_by:user,sujet_id:sub.id,question_id:q.id,position:j+1,
-        question_text_snapshot:q.question_text,options_snapshot:q.options,correct_option_snapshot:q.correct_option}));
-      const {error:qe}=await db.from("qcu_sujet_questions").insert(rows); if(qe)return alert(qe.message);
-    }
-    const attrs=[];
-    for(const student of students)for(let i=0;i<4;i++)attrs.push({created_by:user,session_id:s.id,sujet_id:subjectIds[i],
-      eleve_id:student.id,classe,statut:"attribue"});
-    const {error:ae}=await db.from("qcu_attributions").insert(attrs);
-    if(ae)return alert("Les sujets sont créés mais les attributions ont échoué : "+ae.message);
+  async function createSession() {
+    const classe=$("qmClass").value.trim(), level=$("qmSessionLevel").value;
+    if(!classe)return alert("Indique la classe.");
+    if(!students.length)return alert("Charge d'abord les élèves de la classe.");
+    const res=await createSessionForClass(classe,students,subjects,level,[Number($("qmChapter").value)],Number($("qmTerm").value),$("qmTitle").value.trim()||"Mémorisation active");
+    if(res.error)return alert("Création de session impossible : "+res.error);
+    session=res.session;
     $("qmPrint").disabled=false;$("qmCameraStart").disabled=false;
     $("qmSheets").innerHTML=`<p><strong>Session créée :</strong> ${students.length} élèves · 4 sujets chacun · 20 réponses possibles.</p>
       <p>Le QR code imprimé identifie l'élève (identifiant permanent de la table Eleves). Le numéro de sujet est coché sur la fiche à chaque passage.</p>`;
     alert("Session créée. Tu peux imprimer les fiches A4.");
+  }
+  async function createSessionForClass(classe, roster, memoSubjects, level, chapters, term, title) {
+    const db=client(),user=window.qcuMemoUserId;
+    const {data:s,error:se}=await db.from("qcu_sessions").insert({created_by:user,classe,trimestre:term,titre:title,date_qcu:new Date().toISOString().slice(0,10),statut:"brouillon",niveau:level,chapitres:chapters||[]}).select().single();
+    if(se)return {error:se.message};
+    const subjectIds=[];
+    for(let i=0;i<4;i++){
+      const code=String(i+1);
+      const {data:sub,error}=await db.from("qcu_sujets").insert({created_by:user,session_id:s.id,code,titre:"Sujet "+code}).select().single();
+      if(error)return {error:`${error.message} (session ${classe} déjà créée)`};
+      subjectIds.push(sub.id);
+      const rows=memoSubjects[i].map((q,j)=>({created_by:user,sujet_id:sub.id,question_id:q.id||null,position:j+1,question_text_snapshot:q.question_text,options_snapshot:q.options,correct_option_snapshot:q.correct_option}));
+      const {error:qe}=await db.from("qcu_sujet_questions").insert(rows);
+      if(qe)return {error:`${qe.message} (session ${classe} partiellement créée)`};
+    }
+    const attrs=[];
+    for(const student of roster)for(let i=0;i<4;i++)attrs.push({created_by:user,session_id:s.id,sujet_id:subjectIds[i],eleve_id:student.id,classe,statut:"attribue"});
+    const {error:ae}=await db.from("qcu_attributions").insert(attrs);
+    if(ae)return {error:`${ae.message} (sujets créés mais attributions non terminées pour ${classe})`};
+    return {session:s};
   }
 
   function ensureQr() {
