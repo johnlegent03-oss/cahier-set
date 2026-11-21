@@ -74,3 +74,73 @@ test('le planning hebdomadaire intègre les événements et permet leur créatio
  assert.match(js,/data-week-event-id/);
  assert.match(js,/scrollIntoView\(\{behavior:'smooth',block:'center'\}\)/);
 });
+
+
+const vm=require('node:vm');
+const planningCode=fs.readFileSync(path.join(__dirname,'..','planning.js'),'utf8');
+function extractPlanning(start,end){
+ const a=planningCode.indexOf(start),b=planningCode.indexOf(end,a+start.length);
+ assert.ok(a>=0&&b>a,'Fonction introuvable : '+start);
+ return planningCode.slice(a,b);
+}
+function gridFor(events){
+ const target={innerHTML:''},state={
+  period:{id:'school'},weekPattern:'A',weekStart:new Date('2026-11-23T12:00:00+01:00'),
+  slots:[{week_pattern:'AB',start_time:'08:30:00',end_time:'09:25:00'}],
+  occurrences:[],events,cahierSessionsByUid:{}
+ };
+ const context={
+  state,window:{PlanningCalendarEvents:{weekCells}},
+  DAYS:['Lundi','Mardi','Mercredi','Jeudi','Vendredi'],
+  weekPatternFor:()=> 'A',visibleOccurrences:()=> [],
+  iso:d=>[d.getFullYear(),String(d.getMonth()+1).padStart(2,'0'),String(d.getDate()).padStart(2,'0')].join('-'),
+  plusDays:(d,n)=>{const copy=new Date(d);copy.setDate(copy.getDate()+n);return copy;},
+  $:()=>target,$$:()=>[],
+  esc:String,colorFor:()=> '#000',statusLabel:()=> 'Prévu',editOccurrence:()=>{}
+ };
+ vm.createContext(context);
+ vm.runInContext(extractPlanning('function renderGrid(){','function colorFor('),context);
+ context.renderGrid();
+ return target.innerHTML;
+}
+test('Rendu HTML : le conseil à 17h30 existe réellement dans la grille, pas seulement dans les données',()=>{
+ const html=gridFor([event('Conseil de classe 6e3','2026-11-23T17:30:00+01:00','2026-11-23T18:30:00+01:00')]);
+ assert.match(html,/Conseil de classe 6e3/);
+ assert.match(html,/17:30–18:30/);
+ assert.match(html,/class="planning-week-event"/);
+ assert.match(html,/data-week-event-id="Conseil de classe 6e3"/);
+});
+test('Rendu HTML : un conseil après 16h45 et les cours ordinaires coexistent',()=>{
+ const html=gridFor([
+  event('Conseil 6e1','2026-11-23T17:00:00+01:00','2026-11-23T18:00:00+01:00'),
+  event('Conseil 6e2','2026-11-24T18:30:00+01:00','2026-11-24T19:30:00+01:00')
+ ]);
+ assert.match(html,/08:30/);
+ assert.match(html,/17:00/);
+ assert.match(html,/18:30/);
+ assert.match(html,/Conseil 6e1/);
+ assert.match(html,/Conseil 6e2/);
+});
+test('Navigation : le bouton Voir dans ma semaine active la bonne date et le bon onglet',()=>{
+ let rendered=0,scrolled=0,focused=false;
+ const state={
+  events:[event('conseil','2026-12-15T17:15:00+01:00','2026-12-15T18:15:00+01:00')],
+  tab:'events',weekStart:new Date('2026-11-23T12:00:00+01:00'),weekPattern:'A'
+ };
+ const node={dataset:{weekEventId:'conseil'},classList:{add:k=>{if(k==='planning-week-event-focused')focused=true}},scrollIntoView:()=>scrolled++};
+ const ctx={
+  state,mondayOf:d=>{const x=new Date(d);x.setHours(0,0,0,0);x.setDate(x.getDate()-((x.getDay()+6)%7));return x},
+  weekPatternFor:()=> 'B',render:()=>rendered++,
+  $$:()=>[node],notify:()=>{throw new Error('Aucun avertissement attendu')}
+ };
+ vm.createContext(ctx);
+ vm.runInContext(extractPlanning('function showEventInWeek(eventId){','function renderSettings(){'),ctx);
+ ctx.showEventInWeek('conseil');
+ assert.equal(state.tab,'planning');
+ assert.equal(state.weekPattern,'B');
+ assert.equal(state.weekStart.getDate(),14);
+ assert.equal(state.weekStart.getMonth(),11);
+ assert.equal(rendered,1);
+ assert.equal(scrolled,1);
+ assert.equal(focused,true);
+});
