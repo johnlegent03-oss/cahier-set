@@ -34,7 +34,7 @@
     const alreadyLinked=new Set(classRows.map(o=>text(o.cahier_planning_uid)).filter(Boolean));
     let index=firstUid?byUid.get(firstUid):0;
     const items=[];
-    const stats={existing:0,modified:0,cancelled:0,noMore:0,alreadyUsed:alreadyLinked.size,candidates:unique.length};
+    const stats={existing:0,modified:0,cancelled:0,noMore:0,exceptions:0,alreadyUsed:alreadyLinked.size,candidates:unique.length};
     for(const occ of sorted){
       if(text(occ.cahier_planning_uid)){
         stats.existing++;
@@ -43,18 +43,20 @@
         continue;
       }
       if(!schedulable.has(occ.status)){stats.cancelled++;continue;}
+      if(/^\[SVT:CRENEAU:v1:(evaluation|intervention|sortie|absence|autre)\]/.test(text(occ.notes))){stats.exceptions++;continue;}
       // Par sécurité, ne jamais toucher aux créneaux déjà adaptés manuellement.
       if(occ.is_modified!==false){stats.modified++;continue;}
       if(!occ.id||!occ.start_time||!occ.end_time)continue;
       while(index<unique.length&&alreadyLinked.has(unique[index].uid))index++;
-      if(index>=unique.length){stats.noMore++;continue;}
+      if(index>=unique.length)stats.noMore++;
       if(items.length>=limit)break;
-      const session=unique[index++];
+      const session=index<unique.length?unique[index++]:null;
       items.push({
         id:occ.id,class_name:className,session_date:occ.session_date,
         start_time:occ.start_time,end_time:occ.end_time,status:occ.status,
-        uid:session.uid,chapterTitle:session.chapterTitle||'Chapitre',
-        sessionTitle:session.sessionTitle||'Séance'
+        uid:session?.uid||'',chapterTitle:session?.chapterTitle||'',
+        sessionTitle:session?.sessionTitle||'',kind:'cours',detail:'',
+        originalNotes:occ.notes??null
       });
     }
     return {items,stats,fromDate,toDate,className,firstUid,limit};
