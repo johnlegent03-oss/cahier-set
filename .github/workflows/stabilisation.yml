@@ -1,0 +1,22 @@
+name: Tests de stabilisation
+on:
+  pull_request:
+  push:
+    branches:
+      - "stabilisation/**"
+permissions:
+  contents: read
+jobs:
+  verification:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Vérifier la syntaxe JavaScript
+        run: |
+          node --check evaluations.js
+          node --check behavior-supabase.js
+      - name: Tester les règles de calcul et les chargements
+        run: node --test tests/*.test.cjs
