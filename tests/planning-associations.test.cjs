@@ -77,7 +77,11 @@ test('l’interface dispose d’un aperçu et préserve les lignes modifiées en
  const page=fs.readFileSync(path.join(__dirname,'..','planning.html'),'utf8');
  assert.match(page,/id="planningBulkLink"/);
  assert.match(page,/planning-associations\.js/);
- assert.match(source,/planningBulkSignature\(now\)!==planningBulkSignature\(proposed\)/);
+ assert.match(source,/planningBulkSignature\(now\)!==proposed\.baseSignature/);
+ assert.match(source,/class="planning-select planning-bulk-choice"/);
+ assert.match(source,/proposed\.items\.filter\(item=>item\.uid\)/);
+ assert.match(source,/entry\.uid=selected\?\.uid\|\|''/);
+ assert.match(source,/const knownUids=new Set\(sessions\.map\(session=>session\.uid\)\)/);
  assert.match(source,/\.is\('cahier_planning_uid',null\)/);
  assert.match(source,/\.eq\('is_modified',false\)/);
  assert.match(source,/const \{data,error\}=await client\(\)\.from\('planning_session_occurrences'\)/);
