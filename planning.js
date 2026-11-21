@@ -152,7 +152,7 @@ function showEventInWeek(eventId){
  state.tab='planning';
  render();
  // Le surlignage est effectué uniquement après le rendu de la bonne semaine.
- const node=$('#planningGrid [data-week-event-id]').find(el=>el.dataset.weekEventId===String(eventId));
+ const node=$$('#planningGrid [data-week-event-id]').find(el=>el.dataset.weekEventId===String(eventId));
  if(node){
   node.classList.add('planning-week-event-focused');
   node.scrollIntoView({behavior:'smooth',block:'center'});
