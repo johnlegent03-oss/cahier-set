@@ -154,22 +154,30 @@
 
     try{
 
-      const {data,error}=await client
-        .from(TABLE)
-        .select(
-          "id,eleve_id,classe,type,period,date,note,created_at"
-        )
-        .order("date",{ascending:false});
-
-      if(error){
-        throw error;
+      // Les requêtes Supabase peuvent être limitées à 1 000 lignes.
+      // Paginer garantit que les observations anciennes restent visibles.
+      const rows=[];
+      const pageSize=500;
+      for(let offset=0;;offset+=pageSize){
+        const {data,error}=await client
+          .from(TABLE)
+          .select(
+            "id,eleve_id,classe,type,period,date,note,created_at"
+          )
+          .order("date",{ascending:false})
+          .order("id",{ascending:false})
+          .range(offset,offset+pageSize-1);
+        if(error)throw error;
+        const page=data||[];
+        rows.push(...page);
+        if(page.length<pageSize)break;
       }
 
       const studentNames=
-        await buildStudentNames(data||[]);
+        await buildStudentNames(rows);
 
       setCache(
-        (data||[]).map(row=>
+        rows.map(row=>
           normalizeEvent(
             row,
             studentNames.get(
