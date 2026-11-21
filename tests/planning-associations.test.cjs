@@ -79,11 +79,35 @@ test('l’interface dispose d’un aperçu et préserve les lignes modifiées en
  assert.match(page,/planning-associations\.js/);
  assert.match(source,/planningBulkSignature\(now\)!==proposed\.baseSignature/);
  assert.match(source,/class="planning-select planning-bulk-choice"/);
- assert.match(source,/proposed\?\.items\.filter\(item=>item\.uid\)/);
+ assert.match(source,/proposed\?\.items\.filter\(item=>item\.uid\|\|item\.kind!=='cours'\)/);
  assert.match(source,/entry\.uid=selected\?\.uid\|\|''/);
  assert.match(source,/const knownUids=new Set\(sessions\.map\(session=>session\.uid\)\)/);
  assert.match(source,/\.is\('cahier_planning_uid',null\)/);
  assert.match(source,/\.eq\('is_modified',false\)/);
- assert.match(source,/const \{data,error\}=await client\(\)\.from\('planning_session_occurrences'\)/);
+ assert.match(source,/const \{data,error\}=await request\.select\('id'\)/);
+ assert.match(source,/window\.PlanningKinds\.write\(item\.kind,item\.detail\)/);
+ assert.match(source,/request\.is\('notes',null\)/);
  assert.doesNotMatch(source,/openPlanningBulk\s*\(\s*\)\s*\{[^]*?\bupsert\(/);
+});
+
+test('les créneaux déjà identifiés comme évaluations ou absences sont exclus de la répartition',()=>{
+ const old=[
+  row('eval','2026-11-23','6e1',{notes:'[SVT:CRENEAU:v1:evaluation]\nContrôle du chapitre'}),
+  row('absence','2026-11-24','6e1',{notes:'[SVT:CRENEAU:v1:absence]\nVoyage'}),
+  row('cours','2026-11-25')
+ ];
+ const p=plan(options(old));
+ assert.deepEqual(p.items.map(x=>x.id),['cours']);
+ assert.equal(p.stats.exceptions,2);
+});
+test('un créneau libre sans séance restante reste visible dans l’aperçu pour y indiquer une évaluation',()=>{
+ const p=plan(options([row('1','2026-11-23')],[]));
+ assert.equal(p.items.length,1);
+ assert.equal(p.items[0].uid,'');
+});
+test('les notes d’origine restent accessibles et ne sont pas modifiées pendant l’aperçu',()=>{
+ const notes='Prévenir les parents';
+ const p=plan(options([row('1','2026-11-23','6e1',{notes})],[]));
+ assert.equal(p.items[0].detail,notes);
+ assert.equal(p.items[0].originalNotes,notes);
 });
