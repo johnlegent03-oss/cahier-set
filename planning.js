@@ -126,7 +126,7 @@ function renderGrid(){
  const timeSet=new Set(state.slots.filter(s=>s.week_pattern==='AB'||s.week_pattern===pattern).map(s=>`${s.start_time.slice(0,5)}|${s.end_time.slice(0,5)}`));occ.forEach(o=>timeSet.add(`${o.start_time.slice(0,5)}|${o.end_time.slice(0,5)}`));
  events.timed.forEach(e=>timeSet.add(`${e.from}|${e.to}`));
  const times=[...timeSet].sort();
- const eventHtml=e=>'<div class="planning-week-event"><strong>'+esc(e.title)+'</strong><small>'+esc(e.from)+'–'+esc(e.to)+(e.class_name?' · '+esc(e.class_name):'')+'</small>'+(e.description?'<small>'+esc(e.description)+'</small>':'')+'</div>';
+ const eventHtml=e=>'<div class="planning-week-event" data-week-event-id="'+esc(e.id)+'"><strong>'+esc(e.title)+'</strong><small>'+esc(e.from)+'–'+esc(e.to)+(e.class_name?' · '+esc(e.class_name):'')+'</small>'+(e.description?'<small>'+esc(e.description)+'</small>':'')+'</div>';
  const allDayRow=events.allDay.length?'<tr><td>Toute la journée</td>'+DAYS.map((_,i)=>{const day=iso(plusDays(state.weekStart,i));return '<td>'+events.allDay.filter(e=>e.day===day).map(eventHtml).join('')+'</td>'}).join('')+'</tr>':'';
  const rows=times.map(t=>{const [a,b]=t.split('|');return `<tr><td>${a}<br>– ${b}</td>${DAYS.map((_,i)=>{const day=plusDays(state.weekStart,i);const items=occ.filter(o=>o.session_date===iso(day)&&o.start_time.slice(0,5)===a&&o.end_time.slice(0,5)===b);return `<td>${items.map(o=>{const meta=window.PlanningKinds?.read(o.notes)||{kind:'cours',detail:''};
   const kind=window.PlanningKinds?.descriptor(meta.kind);
@@ -140,7 +140,25 @@ function renderGrid(){
 function colorFor(c){const i=CLASSES.indexOf(c);return ['#71966a','#8ba96b','#5d927d','#a2a66a','#7297a5','#b28c63','#8c9b71','#a48a78','#7d91a8','#9b8ba7'][Math.max(0,i)]}
 function statusLabel(s){return ({planned:'À venir',completed:'Effectué',postponed:'Reporté',cancelled:'Annulé'})[s]||s}
 function renderEvents(){
- $('#planningEvents').innerHTML=state.events.sort((a,b)=>a.start_at.localeCompare(b.start_at)).map(e=>`<article class="planning-card"><strong>${esc(e.title)}</strong><div class="planning-muted">${new Date(e.start_at).toLocaleString('fr-FR')} · ${e.all_day?'Toute la journée':new Date(e.end_at).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}</div><p>${esc(e.description||'')}</p><span class="planning-status ${esc(e.status)}">${statusLabel(e.status)}</span></article>`).join('')||'<p class="planning-muted">Aucun événement enregistré.</p>';
+ $('#planningEvents').innerHTML=state.events.slice().sort((a,b)=>a.start_at.localeCompare(b.start_at)).map(e=>`<article class="planning-card"><strong>${esc(e.title)}</strong><div class="planning-muted">${new Date(e.start_at).toLocaleString('fr-FR')} · ${e.all_day?'Toute la journée':new Date(e.end_at).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}</div><p>${esc(e.description||'')}</p><span class="planning-status ${esc(e.status)}">${statusLabel(e.status)}</span><div class="planning-event-actions"><button class="planning-btn" type="button" data-event-week="${esc(e.id)}">Voir dans ma semaine</button></div></article>`).join('')||'<p class="planning-muted">Aucun événement enregistré.</p>';
+}
+function showEventInWeek(eventId){
+ const event=state.events.find(e=>String(e.id)===String(eventId));
+ if(!event)return notify('Événement introuvable. Actualise le planning.',true);
+ const start=new Date(event.start_at);
+ if(!Number.isFinite(start.getTime()))return notify('La date de cet événement est invalide.',true);
+ state.weekStart=mondayOf(start);
+ state.weekPattern=weekPatternFor(state.weekStart);
+ state.tab='planning';
+ render();
+ // Le surlignage est effectué uniquement après le rendu de la bonne semaine.
+ const node=$('#planningGrid [data-week-event-id]').find(el=>el.dataset.weekEventId===String(eventId));
+ if(node){
+  node.classList.add('planning-week-event-focused');
+  node.scrollIntoView({behavior:'smooth',block:'center'});
+ }else{
+  notify('Semaine affichée, mais cet événement ne figure pas dans la grille. Vérifie sa date et son horaire ; la grille affiche seulement du lundi au vendredi.',true);
+ }
 }
 function renderSettings(){
  $('#planningSettings').innerHTML=state.period?`<div class="planning-cards"><article class="planning-card"><strong>${esc(state.period.name)}</strong><p>${state.period.start_date} → ${state.period.end_date}</p><p class="planning-muted">${state.slots.length} créneaux récurrents · ${state.occurrences.length} séances générées</p></article><article class="planning-card"><strong>Alternance A/B</strong><p>Référence semaine A : ${esc(state.period.week_a_reference_date)}</p><p class="planning-muted">Les vacances ne décalent pas l’alternance.</p></article></div>${state.slots.length===0?`<div class="planning-card planning-settings-actions"><h3>Initialiser ton emploi du temps</h3><p>Enregistre les 26 créneaux récurrents communiqués, avec les alternances A/B et les classes correspondantes. Aucune séance ne sera encore générée.</p><button class="planning-btn primary" id="planningInitSlots">Enregistrer mes 26 créneaux</button></div>`:`<div class="planning-card planning-settings-actions"><h3>Génération des cours</h3><p>Génère les occurrences à partir des créneaux récurrents enregistrés. Les vacances scolaires de la zone B sont exclues.</p><button class="planning-btn primary" id="planningGenerate">Générer les cours de l’année</button></div>`}`:`<div class="planning-card"><h3>Créer la période 2026–2027</h3><p>Académie d’Amiens · zone B · du 1er septembre 2026 au 3 juillet 2027.</p><form id="periodForm" class="planning-form-grid"><div class="planning-field full"><label>Nom de la période</label><input class="planning-input" name="name" value="Année scolaire 2026-2027" required></div><div class="planning-field"><label>Début</label><input class="planning-input" type="date" name="start_date" value="2026-09-01" required></div><div class="planning-field"><label>Fin</label><input class="planning-input" type="date" name="end_date" value="2027-07-03" required></div><div class="planning-field"><label>Référence de la semaine A</label><input class="planning-input" type="date" name="week_a_reference_date" value="2026-08-31" required></div><div class="planning-field full"><p class="planning-muted">Vacances intégrées automatiquement : Toussaint, Noël, hiver et printemps (zone B), ainsi que le vendredi 7 mai 2027.</p></div><div class="planning-field full"><button class="planning-btn primary">Créer la période</button></div></form></div>`;
@@ -455,6 +473,7 @@ function bind(){
  $('#planningPattern').onchange=e=>{state.weekPattern=e.target.value;render()};
  $$('.planning-tabs button').forEach(b=>b.onclick=()=>{state.tab=b.dataset.tab;render()});
  window.addEventListener('pagehide',savePlanningNav);window.addEventListener('scroll',()=>{clearTimeout(window.__planningNavTimer);window.__planningNavTimer=setTimeout(savePlanningNav,250)},{passive:true});
+ $('#planningEvents').addEventListener('click',e=>{const button=e.target.closest('[data-event-week]');if(button)showEventInWeek(button.dataset.eventWeek)});
  $('#planningAddEvent').onclick=addEvent;
  $('#planningWeekAddEvent').onclick=addEvent;
  $('#planningBulkLink').onclick=openPlanningBulk;
