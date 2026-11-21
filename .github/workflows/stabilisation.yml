@@ -21,6 +21,7 @@ jobs:
           node --check atelier-mise-en-page.js
           node --check planning-associations.js
           node --check planning-types.js
+          node --check planning-calendar-events.js
           node --check planning.js
       - name: Tester les règles de calcul et les chargements
         run: node --test tests/*.test.cjs
