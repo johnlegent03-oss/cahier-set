@@ -269,13 +269,13 @@ async function openPlanningBulk(){
  if(!window.PlanningBatch)return notify('Le module d’association des séances est introuvable.',true);
  const options=CLASSES.map(c=>'<option value="'+esc(c)+'">'+esc(c)+'</option>').join('');
  openModal('Associer les séances en série',
-  '<p class="planning-muted">Aperçu d’abord : aucune modification ne sera envoyée tant que tu ne confirmes pas. Les liens existants et les cours déjà modifiés manuellement sont protégés.</p>'
+  '<p class="planning-muted">La correspondance automatique est <strong>indicative</strong> : une séance pédagogique peut durer plusieurs cours. Vérifie et modifie chaque association dans le tableau, puis confirme uniquement celles qui sont exactes. Les liens existants et les cours modifiés manuellement sont protégés.</p>'
   +'<form id="planningBulkForm" class="planning-form-grid">'
   +'<div class="planning-field"><label for="bulkClass">Classe</label><select id="bulkClass" class="planning-select" name="class_name" required>'+options+'</select></div>'
   +'<div class="planning-field"><label for="bulkStart">À partir du</label><input id="bulkStart" class="planning-input" type="date" name="from_date" value="'+esc(iso(state.weekStart))+'" required></div>'
   +'<div class="planning-field"><label for="bulkEnd">Jusqu’au</label><input id="bulkEnd" class="planning-input" type="date" name="to_date" value="'+esc(state.period.end_date)+'" required></div>'
   +'<div class="planning-field"><label for="bulkSession">Séance de départ (facultatif)</label><select id="bulkSession" class="planning-select" name="first_uid"><option value="">Première séance non encore associée</option></select></div>'
-  +'<div class="planning-field full"><small class="planning-muted">Une séance du cahier par créneau, dans l’ordre des chapitres. Maximum 40 associations par confirmation. Tu peux relancer pour continuer.</small></div>'
+  +'<div class="planning-field full"><small class="planning-muted">Suggestion initiale : une séance différente par créneau. Tu pourras ensuite la répéter ou choisir « Ne pas associer » pour chaque cours. Maximum 40 lignes par prévisualisation.</small></div>'
   +'<div class="planning-field full"><button class="planning-btn primary" type="submit">🔎 Prévisualiser les associations</button></div>'
   +'</form>'
   +'<div id="planningBulkPreview" aria-live="polite"></div>'
@@ -285,6 +285,21 @@ async function openPlanningBulk(){
  const form=$('#planningBulkForm'),preview=$('#planningBulkPreview'),save=$('#planningBulkApply');
  let proposed=null;
  const reset=()=>{proposed=null;preview.innerHTML='';save.hidden=true};
+ preview.addEventListener('change',e=>{
+  const select=e.target.closest('.planning-bulk-choice');
+  if(!select||!proposed)return;
+  const entry=proposed.items.find(x=>String(x.id)===select.dataset.occId);
+  if(!entry)return;
+  const selected=proposed.availableSessions.find(s=>s.uid===select.value);
+  if(select.value&&!selected){notify('Séance inconnue : refais la prévisualisation.',true);reset();return;}
+  entry.uid=selected?.uid||'';
+  entry.chapterTitle=selected?.chapterTitle||'';
+  entry.sessionTitle=selected?.sessionTitle||'';
+  const count=proposed.items.filter(x=>x.uid).length;
+  const label=preview.querySelector('#planningBulkSelectedCount');
+  if(label)label.textContent=count+' association(s) sélectionnée(s).';
+  save.hidden=count===0;
+ });
  const fillSessions=async()=>{
   const select=form.elements.first_uid;
   select.disabled=true;
@@ -310,24 +325,31 @@ async function openPlanningBulk(){
     occurrences:state.occurrences,sessions,className,fromDate,toDate,
     firstUid:String(values.get('first_uid')||''),limit:40
    });
-   proposed={...proposal,periodId:state.period.id,ownerId:state.user.id};
+   proposed={...proposal,periodId:state.period.id,ownerId:state.user.id,
+    baseSignature:planningBulkSignature(proposal),availableSessions:sessions};
+   const sessionOptions=(chosen)=>'<option value="">— Ne pas associer ce créneau —</option>'
+    +sessions.map(session=>'<option value="'+esc(session.uid)+'"'
+    +(session.uid===chosen?' selected':'')+'>'+esc(session.chapterTitle+' — '+session.sessionTitle)+'</option>').join('');
    const rows=proposal.items.map(x=>'<tr><td>'+esc(x.session_date)+'</td><td>'
     +esc(x.start_time.slice(0,5))+'–'+esc(x.end_time.slice(0,5))+'</td><td>'
-    +esc(x.chapterTitle)+'</td><td>'+esc(x.sessionTitle)+'</td></tr>').join('');
+    +'<select class="planning-select planning-bulk-choice" data-occ-id="'+esc(x.id)+'"'
+    +' aria-label="Séance associée au cours du '+esc(x.session_date)+'">'
+    +sessionOptions(x.uid)+'</select></td></tr>').join('');
    preview.innerHTML='<h3>Proposition pour '+esc(className)+'</h3>'
-    +'<p><strong>'+proposal.items.length+' association(s) proposée(s).</strong> '
+    +'<p><strong id="planningBulkSelectedCount">'+proposal.items.length+' association(s) sélectionnée(s).</strong> '
     +proposal.stats.existing+' créneau(x) déjà associés, '
     +proposal.stats.modified+' créneau(x) modifiés manuellement ignorés. '
     +proposal.stats.cancelled+' cours annulés ou reportés ignorés.</p>'
-    +(rows?'<div class="planning-bulk-table"><table><thead><tr><th>Date</th><th>Horaire</th><th>Chapitre</th><th>Séance proposée</th></tr></thead><tbody>'+rows+'</tbody></table></div>':
+    +(rows?'<div class="planning-bulk-table"><table><thead><tr><th>Date</th><th>Horaire</th><th>Séance à associer (modifiable)</th></tr></thead><tbody>'+rows+'</tbody></table></div>':
       '<p class="planning-muted">Aucun créneau libre compatible ou aucune séance du cahier restante sur cette période.</p>')
-    +'<p class="planning-muted">Les associations existantes ne seront pas remplacées. Les horaires, les notes et les statuts resteront inchangés.</p>';
+    +'<p class="planning-muted"><strong>Important :</strong> la répartition automatique est une simple suggestion. Corrige chaque choix : une même séance peut occuper plusieurs créneaux, et « Ne pas associer » exclut le créneau. Les liens existants et les horaires restent inchangés.</p>';
    save.hidden=!proposal.items.length;
   }catch(err){notify('Prévisualisation impossible : '+err.message,true)}
  });
  save.onclick=async()=>{
-  if(!proposed||state.busy||!proposed.items.length)return;
-  if(!confirm('Confirmer '+proposed.items.length+' association(s) pour '+proposed.className+' ? Cette opération modifiera le planning Supabase.'))return;
+  const selected=proposed?.items.filter(item=>item.uid)||[];
+  if(!proposed||state.busy||!selected.length)return;
+  if(!confirm('Confirmer uniquement les '+selected.length+' association(s) sélectionnée(s) pour '+proposed.className+' ? Vérifie que chaque séance correspond au cours réel. Cette opération modifiera le planning Supabase.'))return;
   state.busy=true;save.disabled=true;
   let completed=0;
   try{
@@ -341,9 +363,12 @@ async function openPlanningBulk(){
     fromDate:proposed.fromDate,toDate:proposed.toDate,
     firstUid:proposed.firstUid,limit:proposed.limit
    });
-   if(planningBulkSignature(now)!==planningBulkSignature(proposed))
+   if(planningBulkSignature(now)!==proposed.baseSignature)
     throw new Error('Le planning ou les séances ont changé depuis l’aperçu. Ferme la fenêtre et recommence.');
-   for(const item of proposed.items){
+   const knownUids=new Set(sessions.map(session=>session.uid));
+   if(selected.some(item=>!knownUids.has(item.uid)))
+    throw new Error('Une séance sélectionnée a disparu du cahier : aucune sauvegarde lancée.');
+   for(const item of selected){
     // Protection contre un changement entre deux clics/onglets : condition
     // SQL sur l’état de la ligne + refus si déjà associée.
     const {data,error}=await client().from('planning_session_occurrences')
@@ -363,7 +388,7 @@ async function openPlanningBulk(){
    notify(completed+' association(s) enregistrée(s) et vérifiée(s) pour '+proposed.className+'.');
   }catch(err){
    try{await loadPeriod();render()}catch(_){}
-   notify('Association interrompue : '+completed+' sur '+proposed.items.length+' enregistrée(s). '+err.message,true);
+   notify('Association interrompue : '+completed+' sur '+selected.length+' enregistrée(s). '+err.message,true);
    reset();
   }finally{state.busy=false;save.disabled=false}
  };
