@@ -15,7 +15,16 @@ checks AS (
   COALESCE((SELECT NOT prosecdef FROM func LIMIT 1), false) AS utilise_security_invoker,
   COALESCE((SELECT has_function_privilege('authenticated', oid, 'EXECUTE') FROM func LIMIT 1), false) AS execute_authentifie,
   COALESCE((SELECT NOT has_function_privilege('anon', oid, 'EXECUTE') FROM func LIMIT 1), false) AS bloque_anonyme,
-  COALESCE((SELECT NOT has_function_privilege('PUBLIC', oid, 'EXECUTE') FROM func LIMIT 1), false) AS bloque_public,
+  COALESCE((SELECT NOT EXISTS(
+   SELECT 1
+   FROM pg_catalog.pg_proc p
+   CROSS JOIN LATERAL pg_catalog.aclexplode(
+     COALESCE(p.proacl, pg_catalog.acldefault('f', p.proowner))
+   ) AS acl
+   WHERE p.oid=func.oid
+     AND acl.grantee=0
+     AND acl.privilege_type='EXECUTE'
+  ) FROM func LIMIT 1), false) AS bloque_public,
   EXISTS(
    SELECT 1
    FROM pg_catalog.pg_class c
