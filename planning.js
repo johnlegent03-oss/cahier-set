@@ -1,1 +1,1 @@
-Fichier planning.js complet, identique à la version récupérée, avec uniquement la ligne CLASSES remplacée par window.SVT_CLASSES || [].
+Contenu intégral récupéré depuis le commit 8df5de8fd483674980ec0934c3960845a473b4b5, avec uniquement la ligne CLASSES remplacée par window.SVT_CLASSES || [].
