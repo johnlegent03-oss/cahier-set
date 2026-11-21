@@ -271,20 +271,20 @@ async function generateOccurrences(){
 
 /* Associations en série : aperçu obligatoire et écritures conditionnelles. */
 function planningBulkSignature(plan){
- return plan.items.map(x=>[x.id,x.uid,x.session_date,x.start_time,x.end_time,x.status].join('|')).join('\n');
+ return plan.items.map(x=>[x.id,x.uid,x.session_date,x.start_time,x.end_time,x.status,x.originalNotes??'<null>'].join('|')).join('\n');
 }
 async function openPlanningBulk(){
  if(!state.period||!state.occurrences.length)return notify('Aucune séance de planning générée à associer.',true);
- if(!window.PlanningBatch)return notify('Le module d’association des séances est introuvable.',true);
+ if(!window.PlanningBatch||!window.PlanningKinds)return notify('Les modules du planning sont incomplets : actualise la page.',true);
  const options=CLASSES.map(c=>'<option value="'+esc(c)+'">'+esc(c)+'</option>').join('');
  openModal('Associer les séances en série',
-  '<p class="planning-muted">La correspondance automatique est <strong>indicative</strong> : une séance pédagogique peut durer plusieurs cours. Vérifie et modifie chaque association dans le tableau, puis confirme uniquement celles qui sont exactes. Les liens existants et les cours modifiés manuellement sont protégés.</p>'
+  '<p class="planning-muted">La correspondance automatique est <strong>indicative</strong>. Pour chaque créneau, tu peux choisir une séance du cahier, une évaluation, une intervention, une sortie/voyage scolaire, une absence ou rien. Aucune écriture avant validation explicite.</p>'
   +'<form id="planningBulkForm" class="planning-form-grid">'
   +'<div class="planning-field"><label for="bulkClass">Classe</label><select id="bulkClass" class="planning-select" name="class_name" required>'+options+'</select></div>'
   +'<div class="planning-field"><label for="bulkStart">À partir du</label><input id="bulkStart" class="planning-input" type="date" name="from_date" value="'+esc(iso(state.weekStart))+'" required></div>'
   +'<div class="planning-field"><label for="bulkEnd">Jusqu’au</label><input id="bulkEnd" class="planning-input" type="date" name="to_date" value="'+esc(state.period.end_date)+'" required></div>'
   +'<div class="planning-field"><label for="bulkSession">Séance de départ (facultatif)</label><select id="bulkSession" class="planning-select" name="first_uid"><option value="">Première séance non encore associée</option></select></div>'
-  +'<div class="planning-field full"><small class="planning-muted">Suggestion initiale : une séance différente par créneau. Tu pourras ensuite la répéter ou choisir « Ne pas associer » pour chaque cours. Maximum 40 lignes par prévisualisation.</small></div>'
+  +'<div class="planning-field full"><small class="planning-muted">Suggestion initiale : une séance différente par créneau. Tu pourras la répéter, choisir un autre type de créneau ou laisser le cours sans association. Maximum 40 lignes par prévisualisation.</small></div>'
   +'<div class="planning-field full"><button class="planning-btn primary" type="submit">🔎 Prévisualiser les associations</button></div>'
   +'</form>'
   +'<div id="planningBulkPreview" aria-live="polite"></div>'
@@ -299,16 +299,36 @@ async function openPlanningBulk(){
   if(!select||!proposed)return;
   const entry=proposed.items.find(x=>String(x.id)===select.dataset.occId);
   if(!entry)return;
-  const selected=proposed.availableSessions.find(s=>s.uid===select.value);
-  if(select.value&&!selected){notify('Séance inconnue : refais la prévisualisation.',true);reset();return;}
-  entry.uid=selected?.uid||'';
-  entry.chapterTitle=selected?.chapterTitle||'';
-  entry.sessionTitle=selected?.sessionTitle||'';
-  const count=proposed.items.filter(x=>x.uid).length;
-  const label=preview.querySelector('#planningBulkSelectedCount');
-  if(label)label.textContent=count+' association(s) sélectionnée(s).';
-  save.hidden=count===0;
+  const selected=proposed.availableSessions.find(session=>session.uid===select.value);
+  if(select.value.startsWith('kind:')){
+   const kind=select.value.slice(5);
+   if(!window.PlanningKinds.types.some(t=>t.value===kind&&kind!=='cours')){
+    notify('Type de créneau inconnu : refais la prévisualisation.',true);reset();return;
+   }
+   entry.kind=kind;entry.uid='';entry.chapterTitle='';entry.sessionTitle='';
+  }else{
+   if(select.value&&!selected){notify('Séance inconnue : refais la prévisualisation.',true);reset();return;}
+   entry.kind='cours';
+   entry.uid=selected?.uid||'';
+   entry.chapterTitle=selected?.chapterTitle||'';
+   entry.sessionTitle=selected?.sessionTitle||'';
+  }
+  const detail=preview.querySelector('.planning-bulk-detail[data-occ-id="'+entry.id+'"]');
+  if(detail)detail.hidden=entry.kind==='cours';
+  updateSelectedCount();
  });
+ preview.addEventListener('input',e=>{
+  const input=e.target.closest('.planning-bulk-detail');
+  if(!input||!proposed)return;
+  const entry=proposed.items.find(x=>String(x.id)===input.dataset.occId);
+  if(entry)entry.detail=input.value;
+ });
+ const updateSelectedCount=()=>{
+  const count=proposed?.items.filter(x=>x.uid||x.kind!=='cours').length||0;
+  const label=preview.querySelector('#planningBulkSelectedCount');
+  if(label)label.textContent=count+' créneau(x) sélectionné(s).';
+  save.hidden=count===0;
+ };
  const fillSessions=async()=>{
   const select=form.elements.first_uid;
   select.disabled=true;
@@ -337,28 +357,31 @@ async function openPlanningBulk(){
    proposed={...proposal,periodId:state.period.id,ownerId:state.user.id,
     baseSignature:planningBulkSignature(proposal),availableSessions:sessions};
    const sessionOptions=(chosen)=>'<option value="">— Ne pas associer ce créneau —</option>'
+    +window.PlanningKinds.types.filter(t=>t.value!=='cours').map(t=>'<option value="kind:'+esc(t.value)+'">'+esc(t.icon+' '+t.label)+'</option>').join('')
     +sessions.map(session=>'<option value="'+esc(session.uid)+'"'
     +(session.uid===chosen?' selected':'')+'>'+esc(session.chapterTitle+' — '+session.sessionTitle)+'</option>').join('');
    const rows=proposal.items.map(x=>'<tr><td>'+esc(x.session_date)+'</td><td>'
     +esc(x.start_time.slice(0,5))+'–'+esc(x.end_time.slice(0,5))+'</td><td>'
     +'<select class="planning-select planning-bulk-choice" data-occ-id="'+esc(x.id)+'"'
     +' aria-label="Séance associée au cours du '+esc(x.session_date)+'">'
-    +sessionOptions(x.uid)+'</select></td></tr>').join('');
+    +sessionOptions(x.uid)+'</select>'
+    +'<input class="planning-input planning-bulk-detail" data-occ-id="'+esc(x.id)+'" type="text" maxlength="200" placeholder="Intitulé facultatif (ex. contrôle chapitre 2)" value="'+esc(x.originalNotes||'')+'" hidden></td></tr>').join('');
    preview.innerHTML='<h3>Proposition pour '+esc(className)+'</h3>'
-    +'<p><strong id="planningBulkSelectedCount">'+proposal.items.length+' association(s) sélectionnée(s).</strong> '
+    +'<p><strong id="planningBulkSelectedCount">'+proposal.items.filter(x=>x.uid).length+' créneau(x) sélectionné(s).</strong> '
     +proposal.stats.existing+' créneau(x) déjà associés, '
     +proposal.stats.modified+' créneau(x) modifiés manuellement ignorés. '
-    +proposal.stats.cancelled+' cours annulés ou reportés ignorés.</p>'
+    +proposal.stats.cancelled+' cours annulés ou reportés ignorés, '
+    +proposal.stats.exceptions+' créneau(x) particuliers ignorés.</p>'
     +(rows?'<div class="planning-bulk-table"><table><thead><tr><th>Date</th><th>Horaire</th><th>Séance à associer (modifiable)</th></tr></thead><tbody>'+rows+'</tbody></table></div>':
       '<p class="planning-muted">Aucun créneau libre compatible ou aucune séance du cahier restante sur cette période.</p>')
-    +'<p class="planning-muted"><strong>Important :</strong> la répartition automatique est une simple suggestion. Corrige chaque choix : une même séance peut occuper plusieurs créneaux, et « Ne pas associer » exclut le créneau. Les liens existants et les horaires restent inchangés.</p>';
-   save.hidden=!proposal.items.length;
+    +'<p class="planning-muted"><strong>Important :</strong> la répartition automatique est une suggestion. Choisis une séance, une évaluation, une intervention, une sortie ou une absence. Tu peux répéter une séance ou laisser un créneau vide. Les liens existants et les horaires restent inchangés.</p>';
+   updateSelectedCount();
   }catch(err){notify('Prévisualisation impossible : '+err.message,true)}
  });
  save.onclick=async()=>{
-  const selected=proposed?.items.filter(item=>item.uid)||[];
+  const selected=proposed?.items.filter(item=>item.uid||item.kind!=='cours')||[];
   if(!proposed||state.busy||!selected.length)return;
-  if(!confirm('Confirmer uniquement les '+selected.length+' association(s) sélectionnée(s) pour '+proposed.className+' ? Vérifie que chaque séance correspond au cours réel. Cette opération modifiera le planning Supabase.'))return;
+  if(!confirm('Confirmer les '+selected.length+' créneau(x) sélectionné(s) pour '+proposed.className+' ? Vérifie les séances, les évaluations et les absences. Cette opération modifiera le planning Supabase.'))return;
   state.busy=true;save.disabled=true;
   let completed=0;
   try{
@@ -375,19 +398,24 @@ async function openPlanningBulk(){
    if(planningBulkSignature(now)!==proposed.baseSignature)
     throw new Error('Le planning ou les séances ont changé depuis l’aperçu. Ferme la fenêtre et recommence.');
    const knownUids=new Set(sessions.map(session=>session.uid));
-   if(selected.some(item=>!knownUids.has(item.uid)))
+   if(selected.some(item=>item.uid&&!knownUids.has(item.uid)))
     throw new Error('Une séance sélectionnée a disparu du cahier : aucune sauvegarde lancée.');
    for(const item of selected){
     // Protection contre un changement entre deux clics/onglets : condition
     // SQL sur l’état de la ligne + refus si déjà associée.
-    const {data,error}=await client().from('planning_session_occurrences')
-      .update({cahier_planning_uid:item.uid,is_modified:true})
+    const payload=item.kind==='cours'
+      ?{cahier_planning_uid:item.uid,is_modified:true}
+      :{cahier_planning_uid:null,notes:window.PlanningKinds.write(item.kind,item.detail||item.originalNotes||''),is_modified:true};
+    let request=client().from('planning_session_occurrences')
+      .update(payload)
       .eq('id',item.id).eq('owner_id',state.user.id)
       .eq('period_id',proposed.periodId).eq('class_name',proposed.className)
       .eq('session_date',item.session_date)
       .eq('start_time',item.start_time).eq('end_time',item.end_time)
       .eq('status',item.status).eq('is_modified',false)
-      .is('cahier_planning_uid',null).select('id');
+      .is('cahier_planning_uid',null);
+    request=item.originalNotes===null?request.is('notes',null):request.eq('notes',item.originalNotes);
+    const {data,error}=await request.select('id');
     if(error)throw new Error('Créneau '+item.session_date+' : '+error.message);
     if(!Array.isArray(data)||data.length!==1)
       throw new Error('Le créneau du '+item.session_date+' a changé ou n’est plus accessible. Association refusée.');
