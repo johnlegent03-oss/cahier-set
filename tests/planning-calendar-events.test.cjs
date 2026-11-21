@@ -65,7 +65,7 @@ test('le planning hebdomadaire intègre les événements et permet leur créatio
  assert.match(js,/events\.timed\.forEach\(e=>timeSet\.add/);
  assert.match(js,/events\.timed\.filter\(e=>e\.day===iso\(day\)/);
  assert.match(js,/events\.allDay\.filter\(e=>e\.day===day\)/);
- assert.match(js,/planningWeekAddEvent'\)\.onclick=addEvent/);
+ assert.match(js,/weekAddEvent\.onclick=addEvent/);
  assert.match(js,/<option value="meeting">Conseil de classe/);
  assert.match(js,/data-event-week/);
  assert.match(js,/function showEventInWeek\(eventId\)/);
@@ -83,14 +83,14 @@ function extractPlanning(start,end){
  assert.ok(a>=0&&b>a,'Fonction introuvable : '+start);
  return planningCode.slice(a,b);
 }
-function gridFor(events){
+function gridFor(events,{calendarModule=true}={}){
  const target={innerHTML:''},state={
   period:{id:'school'},weekPattern:'A',weekStart:new Date('2026-11-23T12:00:00+01:00'),
   slots:[{week_pattern:'AB',start_time:'08:30:00',end_time:'09:25:00'}],
   occurrences:[],events,cahierSessionsByUid:{}
  };
  const context={
-  state,window:{PlanningCalendarEvents:{weekCells}},
+  state,window:calendarModule?{PlanningCalendarEvents:{weekCells}}:{},
   DAYS:['Lundi','Mardi','Mercredi','Jeudi','Vendredi'],
   weekPatternFor:()=> 'A',visibleOccurrences:()=> [],
   iso:d=>[d.getFullYear(),String(d.getMonth()+1).padStart(2,'0'),String(d.getDate()).padStart(2,'0')].join('-'),
@@ -99,7 +99,7 @@ function gridFor(events){
   esc:String,colorFor:()=> '#000',statusLabel:()=> 'Prévu',editOccurrence:()=>{}
  };
  vm.createContext(context);
- vm.runInContext(extractPlanning('function renderGrid(){','function colorFor('),context);
+ vm.runInContext(extractPlanning('function planningWeekEvents(','function colorFor('),context);
  context.renderGrid();
  return target.innerHTML;
 }
@@ -143,4 +143,24 @@ test('Navigation : le bouton Voir dans ma semaine active la bonne date et le bon
  assert.equal(rendered,1);
  assert.equal(scrolled,1);
  assert.equal(focused,true);
+});
+
+test('sans planning-calendar-events.js, un conseil enregistré à 17h45 apparaît dans la grille',()=>{
+ const html=gridFor([
+  event('Conseil de classe 5e1','2026-11-25T17:45:00+01:00','2026-11-25T19:00:00+01:00')
+ ],{calendarModule:false});
+ assert.match(html,/Conseil de classe 5e1/);
+ assert.match(html,/17:45/);
+ assert.match(html,/19:00/);
+});
+test('sans planning-calendar-events.js, les événements sur plusieurs jours restent visibles',()=>{
+ const html=gridFor([
+  event('Formation','2026-11-23T08:00:00+01:00','2026-11-24T18:15:00+01:00')
+ ],{calendarModule:false});
+ assert.match(html,/Formation/);
+ assert.match(html,/08:00–24:00/);
+ assert.match(html,/00:00–18:15/);
+});
+test('le bouton Ajouter un événement reste facultatif si le HTML est plus ancien',()=>{
+ assert.match(planningCode,/const weekAddEvent=\$\('#planningWeekAddEvent'\);if\(weekAddEvent\)weekAddEvent\.onclick=addEvent/);
 });
