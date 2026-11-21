@@ -848,16 +848,22 @@ async function saveClass(c,contenu,id){
     if(currentClassData?.id!==id||currentClassData?.classe!==c||currentClassData.originalContent===undefined)throw new Error("Recharge le cahier avant de l’enregistrer : la version de départ est inconnue.");
     const original=currentClassData.originalContent;
     const payload=typeof original==="string"?JSON.stringify(contenu):contenu;
-    const{data:latest,error:readError}=await sb.from("Cahier").select("contenu").eq("id",id).maybeSingle();
-    if(readError)throw new Error(readError.message);
-    if(!latest)throw new Error("Le cahier n’est plus disponible. Recharge-le avant de réessayer.");
-    const sameContent=value=>typeof value==="string"?value:JSON.stringify(value??null);
-    if(sameContent(latest.contenu)!==sameContent(original))throw new Error("Le cahier a été modifié depuis son chargement. Recharge-le pour éviter d’écraser les changements.");
-    const{data,error}=await sb.from("Cahier").update({contenu:payload}).eq("id",id).select("id,contenu").maybeSingle();
-    if(error)throw new Error(error.message);
-    if(!data?.id)throw new Error("Le cahier a été modifié depuis son chargement ou l’enregistrement est refusé. Recharge-le avant de réessayer.");
-    currentClassData.originalContent=data.contenu;
-    return data.id;
+    // Un UPDATE conditionnel exécuté dans PostgreSQL empêche qu'un autre onglet
+    // écrase des modifications effectuées après le chargement du cahier.
+    // Voir sql/proposition-svt-cahier-cas-v1.sql (à déployer avant cette version).
+    const {data,error}=await sb.rpc("svt_cahier_cas_v1",{
+      p_id:id,p_original:original,p_nouveau:payload
+    });
+    if(error){
+      if(error.code==="PGRST202")throw new Error("Sauvegarde protégée indisponible : la fonction Supabase svt_cahier_cas_v1 n’est pas installée. Aucune modification n’a été envoyée au cahier.");
+      throw new Error(error.message);
+    }
+    const saved=Array.isArray(data)?data[0]:null;
+    if(!saved?.cahier_id){
+      throw new Error("Conflit d’enregistrement : ce cahier a été modifié dans un autre onglet, supprimé, ou l’accès est refusé. Aucune donnée existante n’a été écrasée. Conserve cet onglet et une copie de tes modifications avant de recharger.");
+    }
+    currentClassData.originalContent=saved.cahier_contenu;
+    return saved.cahier_id;
   }
   const{data,error}=await sb.from("Cahier").insert({classe:c,contenu}).select("id,contenu").maybeSingle();
   if(error)throw new Error(error.message);
