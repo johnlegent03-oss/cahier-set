@@ -1147,6 +1147,15 @@ async function addToSession(){
     const ch=contenu?.chapitres?.[cx.chapitre_index];
     const se=(ch?.seances||ch?.sessions)?.[cx.seance_index];
     if(!se)throw Error('Séance introuvable.');
+    // Les index de l'atelier peuvent dater d'un ancien chargement : s'assurer
+    // que le lien sera bien ajouté à la séance sélectionnée, pas à une autre.
+    const selectedChapter=cahier?.chapitres?.[cx.chapitre_index];
+    const selectedSession=(selectedChapter?.seances||selectedChapter?.sessions)?.[cx.seance_index];
+    const selectedUid=String(selectedSession?.planning_uid||'').trim();
+    if(selectedUid ? String(se.planning_uid||'').trim()!==selectedUid
+      : plain(ch?.titre||ch?.title||'')!==cx.chapitre_titre||plain(se?.titre||se?.title||'')!==cx.seance_titre){
+      throw Error('La séance sélectionnée a changé depuis son chargement. Actualise la classe dans l’atelier avant d’ajouter le lien.');
+    }
     if(se.activites!=null&&!Array.isArray(se.activites))throw Error('Format des activités inattendu.');
     const list=se.activites||(se.activites=[]);
     const existing=list.find(e=>String(e.atelier_document_id||'')===id||String(e.texte||'').includes('doc='+encodeURIComponent(id)));
@@ -1160,9 +1169,20 @@ async function addToSession(){
         texte:'<a href="'+escapeHtml(url)+'" target="_blank" rel="noopener noreferrer">'+escapeHtml(title)+' — Ouvrir la fiche ↗</a>',pdf:''});
     }
     etape='enregistrement du lien';
-    const result=await sb.from('Cahier').update({contenu:wasString?JSON.stringify(contenu):contenu}).eq('id',row.id).select('id').maybeSingle();
-    if(result.error)throw result.error;
-    if(!result.data?.id)throw Error('Cahier modifié entre-temps ou accès refusé. Recharge avant de réessayer.');
+    // Comparaison et mise à jour dans UNE opération SQL ; sans relecture
+    // séparée qui laisserait une fenêtre d'écrasement entre deux onglets.
+    const result=await sb.rpc('svt_cahier_cas_v1',{
+      p_id:row.id,
+      p_original:row.contenu,
+      p_nouveau:wasString?JSON.stringify(contenu):contenu
+    });
+    if(result.error){
+      if(result.error.code==='PGRST202')throw Error('Sauvegarde protégée indisponible : installe la fonction Supabase svt_cahier_cas_v1 avant de déployer cette version.');
+      throw result.error;
+    }
+    if(!Array.isArray(result.data)||!result.data[0]?.cahier_id){
+      throw Error('Le cahier a changé pendant l’ajout du lien, ou l’accès est refusé. Le cahier n’a pas été écrasé. La fiche est conservée dans la banque ; actualise la classe puis réessaie.');
+    }
     status('Lien ajouté à la séance. Aucun contenu de fiche copié dans le cahier.');
   }catch(e){console.error('[Ajout du lien]',etape,e);status('Étape '+etape+' : '+(e.message||String(e)),true);}
   finally{atelierLinkBusy=false;}
