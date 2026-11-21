@@ -134,7 +134,8 @@ function renderEvents(){
 function renderSettings(){
  $('#planningSettings').innerHTML=state.period?`<div class="planning-cards"><article class="planning-card"><strong>${esc(state.period.name)}</strong><p>${state.period.start_date} → ${state.period.end_date}</p><p class="planning-muted">${state.slots.length} créneaux récurrents · ${state.occurrences.length} séances générées</p></article><article class="planning-card"><strong>Alternance A/B</strong><p>Référence semaine A : ${esc(state.period.week_a_reference_date)}</p><p class="planning-muted">Les vacances ne décalent pas l’alternance.</p></article></div>${state.slots.length===0?`<div class="planning-card planning-settings-actions"><h3>Initialiser ton emploi du temps</h3><p>Enregistre les 26 créneaux récurrents communiqués, avec les alternances A/B et les classes correspondantes. Aucune séance ne sera encore générée.</p><button class="planning-btn primary" id="planningInitSlots">Enregistrer mes 26 créneaux</button></div>`:`<div class="planning-card planning-settings-actions"><h3>Génération des cours</h3><p>Génère les occurrences à partir des créneaux récurrents enregistrés. Les vacances scolaires de la zone B sont exclues.</p><button class="planning-btn primary" id="planningGenerate">Générer les cours de l’année</button></div>`}`:`<div class="planning-card"><h3>Créer la période 2026–2027</h3><p>Académie d’Amiens · zone B · du 1er septembre 2026 au 3 juillet 2027.</p><form id="periodForm" class="planning-form-grid"><div class="planning-field full"><label>Nom de la période</label><input class="planning-input" name="name" value="Année scolaire 2026-2027" required></div><div class="planning-field"><label>Début</label><input class="planning-input" type="date" name="start_date" value="2026-09-01" required></div><div class="planning-field"><label>Fin</label><input class="planning-input" type="date" name="end_date" value="2027-07-03" required></div><div class="planning-field"><label>Référence de la semaine A</label><input class="planning-input" type="date" name="week_a_reference_date" value="2026-08-31" required></div><div class="planning-field full"><p class="planning-muted">Vacances intégrées automatiquement : Toussaint, Noël, hiver et printemps (zone B), ainsi que le vendredi 7 mai 2027.</p></div><div class="planning-field full"><button class="planning-btn primary">Créer la période</button></div></form></div>`;
 }
-function openModal(title,body){$('#planningDialogTitle').textContent=title;$('#planningDialogBody').innerHTML=body;$('#planningModal').hidden=false}
+function openModal(title,body,wide=false){
+ $(".planning-dialog").classList.toggle("is-wide",wide);$('#planningDialogTitle').textContent=title;$('#planningDialogBody').innerHTML=body;$('#planningModal').hidden=false}
 function closeModal(){$('#planningModal').hidden=true}
 async function getCahierSessions(className){
  const {data,error}=await client().from('Cahier').select('classe,contenu').eq('classe',className).maybeSingle();
@@ -258,6 +259,117 @@ async function generateOccurrences(){
   await loadPeriod();render();notify(`${count} occurrences générées. Les semaines A/B et les vacances ont été prises en compte.`);
  }catch(e){notify(e.message||'Génération impossible.',true)}
 }
+
+/* Associations en série : aperçu obligatoire et écritures conditionnelles. */
+function planningBulkSignature(plan){
+ return plan.items.map(x=>[x.id,x.uid,x.session_date,x.start_time,x.end_time,x.status].join('|')).join('\n');
+}
+async function openPlanningBulk(){
+ if(!state.period||!state.occurrences.length)return notify('Aucune séance de planning générée à associer.',true);
+ if(!window.PlanningBatch)return notify('Le module d’association des séances est introuvable.',true);
+ const options=CLASSES.map(c=>'<option value="'+esc(c)+'">'+esc(c)+'</option>').join('');
+ openModal('Associer les séances en série',
+  '<p class="planning-muted">Aperçu d’abord : aucune modification ne sera envoyée tant que tu ne confirmes pas. Les liens existants et les cours déjà modifiés manuellement sont protégés.</p>'
+  +'<form id="planningBulkForm" class="planning-form-grid">'
+  +'<div class="planning-field"><label for="bulkClass">Classe</label><select id="bulkClass" class="planning-select" name="class_name" required>'+options+'</select></div>'
+  +'<div class="planning-field"><label for="bulkStart">À partir du</label><input id="bulkStart" class="planning-input" type="date" name="from_date" value="'+esc(iso(state.weekStart))+'" required></div>'
+  +'<div class="planning-field"><label for="bulkEnd">Jusqu’au</label><input id="bulkEnd" class="planning-input" type="date" name="to_date" value="'+esc(state.period.end_date)+'" required></div>'
+  +'<div class="planning-field"><label for="bulkSession">Séance de départ (facultatif)</label><select id="bulkSession" class="planning-select" name="first_uid"><option value="">Première séance non encore associée</option></select></div>'
+  +'<div class="planning-field full"><small class="planning-muted">Une séance du cahier par créneau, dans l’ordre des chapitres. Maximum 40 associations par confirmation. Tu peux relancer pour continuer.</small></div>'
+  +'<div class="planning-field full"><button class="planning-btn primary" type="submit">🔎 Prévisualiser les associations</button></div>'
+  +'</form>'
+  +'<div id="planningBulkPreview" aria-live="polite"></div>'
+  +'<div class="planning-footer"><button type="button" class="planning-btn" id="planningBulkCancel">Fermer sans enregistrer</button>'
+  +'<button type="button" class="planning-btn primary" id="planningBulkApply" hidden>💾 Confirmer les associations</button></div>',
+  true);
+ const form=$('#planningBulkForm'),preview=$('#planningBulkPreview'),save=$('#planningBulkApply');
+ let proposed=null;
+ const reset=()=>{proposed=null;preview.innerHTML='';save.hidden=true};
+ const fillSessions=async()=>{
+  const select=form.elements.first_uid;
+  select.disabled=true;
+  try{
+   const all=await getCahierSessions(form.elements.class_name.value);
+   select.innerHTML='<option value="">Première séance non encore associée</option>'
+    +all.map(s=>'<option value="'+esc(s.uid)+'">'+esc(s.chapterTitle+' — '+s.sessionTitle)+'</option>').join('');
+  }catch(e){select.innerHTML='<option value="">Cahier non disponible</option>';notify('Lecture des séances impossible : '+e.message,true)}
+  finally{select.disabled=false}
+ };
+ form.addEventListener('input',reset);
+ form.addEventListener('change',e=>{reset();if(e.target.name==='class_name')fillSessions()});
+ $('#planningBulkCancel').onclick=closeModal;
+ form.addEventListener('submit',async e=>{
+  e.preventDefault();reset();
+  const values=new FormData(form),className=String(values.get('class_name')||'');
+  const fromDate=String(values.get('from_date')||''),toDate=String(values.get('to_date')||'');
+  try{
+   if(!state.period||fromDate<state.period.start_date||toDate>state.period.end_date)
+    throw new Error('Choisis des dates comprises dans la période scolaire du planning.');
+   const sessions=await getCahierSessions(className);
+   const proposal=window.PlanningBatch.plan({
+    occurrences:state.occurrences,sessions,className,fromDate,toDate,
+    firstUid:String(values.get('first_uid')||''),limit:40
+   });
+   proposed={...proposal,periodId:state.period.id,ownerId:state.user.id};
+   const rows=proposal.items.map(x=>'<tr><td>'+esc(x.session_date)+'</td><td>'
+    +esc(x.start_time.slice(0,5))+'–'+esc(x.end_time.slice(0,5))+'</td><td>'
+    +esc(x.chapterTitle)+'</td><td>'+esc(x.sessionTitle)+'</td></tr>').join('');
+   preview.innerHTML='<h3>Proposition pour '+esc(className)+'</h3>'
+    +'<p><strong>'+proposal.items.length+' association(s) proposée(s).</strong> '
+    +proposal.stats.existing+' créneau(x) déjà associés, '
+    +proposal.stats.modified+' créneau(x) modifiés manuellement ignorés. '
+    +proposal.stats.cancelled+' cours annulés ou reportés ignorés.</p>'
+    +(rows?'<div class="planning-bulk-table"><table><thead><tr><th>Date</th><th>Horaire</th><th>Chapitre</th><th>Séance proposée</th></tr></thead><tbody>'+rows+'</tbody></table></div>':
+      '<p class="planning-muted">Aucun créneau libre compatible ou aucune séance du cahier restante sur cette période.</p>')
+    +'<p class="planning-muted">Les associations existantes ne seront pas remplacées. Les horaires, les notes et les statuts resteront inchangés.</p>';
+   save.hidden=!proposal.items.length;
+  }catch(err){notify('Prévisualisation impossible : '+err.message,true)}
+ });
+ save.onclick=async()=>{
+  if(!proposed||state.busy||!proposed.items.length)return;
+  if(!confirm('Confirmer '+proposed.items.length+' association(s) pour '+proposed.className+' ? Cette opération modifiera le planning Supabase.'))return;
+  state.busy=true;save.disabled=true;
+  let completed=0;
+  try{
+   // Recharger et revérifier l’aperçu avant toute écriture.
+   await loadPeriod();
+   if(!state.period||state.period.id!==proposed.periodId||state.user.id!==proposed.ownerId)
+    throw new Error('La période ou la session a changé. Refais la prévisualisation.');
+   const sessions=await getCahierSessions(proposed.className);
+   const now=window.PlanningBatch.plan({
+    occurrences:state.occurrences,sessions,className:proposed.className,
+    fromDate:proposed.fromDate,toDate:proposed.toDate,
+    firstUid:proposed.firstUid,limit:proposed.limit
+   });
+   if(planningBulkSignature(now)!==planningBulkSignature(proposed))
+    throw new Error('Le planning ou les séances ont changé depuis l’aperçu. Ferme la fenêtre et recommence.');
+   for(const item of proposed.items){
+    // Protection contre un changement entre deux clics/onglets : condition
+    // SQL sur l’état de la ligne + refus si déjà associée.
+    const {data,error}=await client().from('planning_session_occurrences')
+      .update({cahier_planning_uid:item.uid,is_modified:true})
+      .eq('id',item.id).eq('owner_id',state.user.id)
+      .eq('period_id',proposed.periodId).eq('class_name',proposed.className)
+      .eq('session_date',item.session_date)
+      .eq('start_time',item.start_time).eq('end_time',item.end_time)
+      .eq('status',item.status).eq('is_modified',false)
+      .is('cahier_planning_uid',null).select('id');
+    if(error)throw new Error('Créneau '+item.session_date+' : '+error.message);
+    if(!Array.isArray(data)||data.length!==1)
+      throw new Error('Le créneau du '+item.session_date+' a changé ou n’est plus accessible. Association refusée.');
+    completed++;
+   }
+   await loadPeriod();render();closeModal();
+   notify(completed+' association(s) enregistrée(s) et vérifiée(s) pour '+proposed.className+'.');
+  }catch(err){
+   try{await loadPeriod();render()}catch(_){}
+   notify('Association interrompue : '+completed+' sur '+proposed.items.length+' enregistrée(s). '+err.message,true);
+   reset();
+  }finally{state.busy=false;save.disabled=false}
+ };
+ await fillSessions();
+}
+
 async function addEvent(){
  openModal('Ajouter un événement',`<form id="eventForm"><div class="planning-form-grid"><div class="planning-field full"><label>Intitulé</label><input class="planning-input" name="title" required maxlength="180" placeholder="Conseil de classe, réunion…"></div><div class="planning-field"><label>Début</label><input class="planning-input" type="datetime-local" name="start_at" required></div><div class="planning-field"><label>Fin</label><input class="planning-input" type="datetime-local" name="end_at" required></div><div class="planning-field"><label>Type</label><select class="planning-select" name="event_type"><option>meeting</option><option>outing</option><option>training</option><option>other</option></select></div><div class="planning-field"><label>Classe (facultatif)</label><select class="planning-select" name="class_name"><option value="">Toutes</option>${CLASSES.map(c=>`<option>${c}</option>`).join('')}</select></div><div class="planning-field full"><label>Description</label><textarea class="planning-textarea" name="description"></textarea></div></div><div class="planning-footer"><button type="button" class="planning-btn" id="eventCancel">Annuler</button><button class="planning-btn primary">Créer l’événement</button></div></form>`);
  $('#eventCancel').onclick=closeModal;
@@ -276,6 +388,7 @@ function bind(){
  $$('.planning-tabs button').forEach(b=>b.onclick=()=>{state.tab=b.dataset.tab;render()});
  window.addEventListener('pagehide',savePlanningNav);window.addEventListener('scroll',()=>{clearTimeout(window.__planningNavTimer);window.__planningNavTimer=setTimeout(savePlanningNav,250)},{passive:true});
  $('#planningAddEvent').onclick=addEvent;
+ $('#planningBulkLink').onclick=openPlanningBulk;
  $('#planningRefresh').onclick=async()=>{try{await loadPeriod();render();notify('Planning actualisé.')}catch(e){notify(e.message,true)}};
  $('#planningModalClose').onclick=closeModal;
  $('#planningModal').addEventListener('click',e=>{if(e.target.id==='planningModal')closeModal()});
