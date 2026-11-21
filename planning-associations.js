@@ -55,7 +55,7 @@
         id:occ.id,class_name:className,session_date:occ.session_date,
         start_time:occ.start_time,end_time:occ.end_time,status:occ.status,
         uid:session?.uid||'',chapterTitle:session?.chapterTitle||'',
-        sessionTitle:session?.sessionTitle||'',kind:'cours',detail:'',
+        sessionTitle:session?.sessionTitle||'',kind:'cours',detail:String(occ.notes??''),
         originalNotes:occ.notes??null
       });
     }
