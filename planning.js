@@ -143,7 +143,7 @@ async function getCahierSessions(className){
  let contenu=data?.contenu??{};
  if(typeof contenu==='string'){try{contenu=JSON.parse(contenu)}catch(e){throw new Error(`Le cahier de ${className} contient un JSON illisible.`)}}
  const chapters=Array.isArray(contenu?.chapitres)?contenu.chapitres:[];
- return chapters.flatMap((chapter,chapterIndex)=>(Array.isArray(chapter?.seances)?chapter.seances:[]).map((session,sessionIndex)=>({
+ return chapters.flatMap((chapter,chapterIndex)=>chapter?.archive===true?[]:(Array.isArray(chapter?.seances)?chapter.seances:[]).map((session,sessionIndex)=>({
   uid:session?.planning_uid||'',chapterIndex,sessionIndex,
   chapterTitle:plainText(chapter?.titre)||`Chapitre ${chapterIndex+1}`,
   sessionTitle:plainText(session?.titre)||`Séance ${sessionIndex+1}`
