@@ -58,3 +58,8 @@ body.planning-page{margin:0;background:#f5f2e5;color:var(--pl-ink);font-family:I
 .planning-bulk-table table{width:100%;border-collapse:collapse;font-size:13px}
 .planning-bulk-table th,.planning-bulk-table td{border-bottom:1px solid var(--pl-line);padding:9px;text-align:left;vertical-align:top}
 .planning-bulk-table th{position:sticky;top:0;background:#edf2e5}
+
+/* Créneaux particuliers : évaluations, interventions, sorties et absences. */
+.planning-special-title{display:block;background:#f8ecdb;border-left:3px solid #b78544;color:#785327!important;border-radius:4px;padding:5px 6px;margin-top:6px;font-weight:650!important;white-space:normal;overflow-wrap:anywhere}
+.planning-bulk-detail{display:block;width:100%;margin-top:5px}
+.planning-bulk-detail[hidden]{display:none}
