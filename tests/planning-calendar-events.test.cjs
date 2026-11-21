@@ -67,4 +67,10 @@ test('le planning hebdomadaire intègre les événements et permet leur créatio
  assert.match(js,/events\.allDay\.filter\(e=>e\.day===day\)/);
  assert.match(js,/planningWeekAddEvent'\)\.onclick=addEvent/);
  assert.match(js,/<option value="meeting">Conseil de classe/);
+ assert.match(js,/data-event-week/);
+ assert.match(js,/function showEventInWeek\(eventId\)/);
+ assert.match(js,/state\.weekStart=mondayOf\(start\)/);
+ assert.match(js,/state\.tab='planning'/);
+ assert.match(js,/data-week-event-id/);
+ assert.match(js,/scrollIntoView\(\{behavior:'smooth',block:'center'\}\)/);
 });
