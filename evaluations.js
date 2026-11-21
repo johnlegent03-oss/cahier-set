@@ -1249,14 +1249,13 @@ function studentTrackingAverageDetails(rows,qcuRows){
     const coefficient=Number(c.evaluation?.coefficient);
     weighted.push({score,coefficient:Number.isFinite(coefficient)&&coefficient>0?coefficient:1});
   });
-  if(!weighted.length)return {base:null,final:null,qcuAverage:null,qcuCount:0,qcuIncluded:false};
   const baseWeight=weighted.reduce((n,x)=>n+x.coefficient,0);
-  const base=weighted.reduce((n,x)=>n+x.score*x.coefficient,0)/baseWeight;
+  const base=baseWeight>0?weighted.reduce((n,x)=>n+x.score*x.coefficient,0)/baseWeight:null;
   const validQcu=(qcuRows||[]).filter(q=>q&&q.hasScore&&Number.isFinite(Number(q.score)));
   if(!validQcu.length)return {base,final:base,qcuAverage:null,qcuCount:0,qcuIncluded:false};
   const rawQcuAverage=studentTrackingQCUOverallAverage(validQcu);
   const qcuAverage=studentTrackingRoundMemorisationGrade(rawQcuAverage);
-  if(qcuAverage===null||qcuAverage<=base)
+  if(qcuAverage===null||base!==null&&qcuAverage<=base)
     return {base,final:base,qcuAverage,qcuRawAverage:rawQcuAverage,qcuCount:validQcu.length,qcuIncluded:false};
   // La moyenne de l'ensemble des QCU constitue une seule note de théorie,
   // de coefficient 1, quel que soit le nombre de QCU réalisés.
