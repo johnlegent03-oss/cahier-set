@@ -1080,12 +1080,16 @@ async function loadStudentTrackingQCUFresh(){
     if(sessionError)throw sessionError;
 
     const sessionsForTracking=[];
-    for(const ses of (sessions||[])){
+    // Charger jusqu'à quatre sessions en parallèle : moins d'attente
+    // sans ouvrir une requête concurrente pour chaque session.
+    const trackingSessions=sessions||[];
+    for(let offset=0;offset<trackingSessions.length;offset+=4){
+      const batch=await Promise.all(trackingSessions.slice(offset,offset+4).map(async ses=>{
       const {data:subjects,error:subjectsError}=await sb.from("qcu_sujets")
         .select("id,code,titre").eq("session_id",ses.id).order("code");
       if(subjectsError)throw subjectsError;
       const subjectIds=(subjects||[]).map(x=>x.id);
-      if(!subjectIds.length)continue;
+      if(!subjectIds.length)return null;
 
       const [{data:attrs,error:attrsError},{data:subjectQuestions,error:questionsError}]=await Promise.all([
         sb.from("qcu_attributions").select("id,eleve_id,sujet_id,statut")
@@ -1162,14 +1166,17 @@ async function loadStudentTrackingQCUFresh(){
 
       const chapters=Array.isArray(ses.chapitres)?ses.chapitres:
         (ses.chapitres!==null&&ses.chapitres!==undefined?[ses.chapitres]:[]);
-      sessionsForTracking.push({
+      return {
         id:ses.id,classe:ses.classe,titre:ses.titre||"Mémorisation active",
         niveau:ses.niveau,trimestre:Number(ses.trimestre)||null,date_qcu:ses.date_qcu,
         chapters,studentScores,
         questionStats:[...classQuestionStats.values()].map(x=>({
           ...x,successRate:x.total?x.correct/x.total*100:null
         }))
-      });
+      };
+      }));
+      // Promise.all conserve l'ordre des sessions malgré des réponses asynchrones.
+      sessionsForTracking.push(...batch.filter(Boolean));
     }
     studentTrackingQCUCache=sessionsForTracking;
     return sessionsForTracking;
@@ -1242,14 +1249,13 @@ function studentTrackingAverageDetails(rows,qcuRows){
     const coefficient=Number(c.evaluation?.coefficient);
     weighted.push({score,coefficient:Number.isFinite(coefficient)&&coefficient>0?coefficient:1});
   });
-  if(!weighted.length)return {base:null,final:null,qcuAverage:null,qcuCount:0,qcuIncluded:false};
   const baseWeight=weighted.reduce((n,x)=>n+x.coefficient,0);
-  const base=weighted.reduce((n,x)=>n+x.score*x.coefficient,0)/baseWeight;
+  const base=baseWeight>0?weighted.reduce((n,x)=>n+x.score*x.coefficient,0)/baseWeight:null;
   const validQcu=(qcuRows||[]).filter(q=>q&&q.hasScore&&Number.isFinite(Number(q.score)));
   if(!validQcu.length)return {base,final:base,qcuAverage:null,qcuCount:0,qcuIncluded:false};
   const rawQcuAverage=studentTrackingQCUOverallAverage(validQcu);
   const qcuAverage=studentTrackingRoundMemorisationGrade(rawQcuAverage);
-  if(qcuAverage===null||qcuAverage<=base)
+  if(qcuAverage===null||base!==null&&qcuAverage<=base)
     return {base,final:base,qcuAverage,qcuRawAverage:rawQcuAverage,qcuCount:validQcu.length,qcuIncluded:false};
   // La moyenne de l'ensemble des QCU constitue une seule note de théorie,
   // de coefficient 1, quel que soit le nombre de QCU réalisés.
