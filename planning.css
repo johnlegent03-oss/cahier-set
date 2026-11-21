@@ -63,3 +63,9 @@ body.planning-page{margin:0;background:#f5f2e5;color:var(--pl-ink);font-family:I
 .planning-special-title{display:block;background:#f8ecdb;border-left:3px solid #b78544;color:#785327!important;border-radius:4px;padding:5px 6px;margin-top:6px;font-weight:650!important;white-space:normal;overflow-wrap:anywhere}
 .planning-bulk-detail{display:block;width:100%;margin-top:5px}
 .planning-bulk-detail[hidden]{display:none}
+
+/* Conseils de classe et événements après les heures de cours. */
+.planning-week-event{border-radius:8px;border:1px solid #d3c7e7;border-left:4px solid #856aa6;background:#f3effa;padding:8px;margin:0 0 5px;color:#42375d;overflow-wrap:anywhere}
+.planning-week-event strong{display:block;font-size:12px;line-height:1.3;margin-bottom:4px}
+.planning-week-event small{display:block;font-size:11px;margin-top:3px;line-height:1.3}
+.planning-bulk-actions{gap:8px;flex-wrap:wrap}
