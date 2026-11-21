@@ -96,6 +96,7 @@ function gridHtml(state){
  const context={
   state,DAYS:['Lundi','Mardi','Mercredi','Jeudi','Vendredi'],
   weekPatternFor:()=> 'A',visibleOccurrences:()=>[],
+  planningWeekEvents:()=>({timed:[],allDay:[]}),
   iso:()=> '2026-11-23',plusDays:d=>d,
   $:()=>target,$$:()=>[],
   esc:String,colorFor:()=> '#000',statusLabel:()=> 'Prévu'

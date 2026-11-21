@@ -97,7 +97,7 @@ function weekPatternFor(date){
 }
 function visibleOccurrences(){
  const start=iso(state.weekStart),end=iso(plusDays(state.weekStart,6));
- return state.occurrences.filter(o=>o.session_date>=start&&o.session_date<=end&&o.status!=='cancelled');
+ return state.occurrences.filter(o=>o.session_date>=start&&o.session_date<=end&&(o.status!=='cancelled'||window.PlanningKinds?.isSpecial(o.notes)));
 }
 function render(){
  $('#planningPeriod').textContent=state.period?state.period.name:'Période non configurée';
@@ -108,33 +108,89 @@ function render(){
  $('#planningSettingsView').hidden=state.tab!=='settings';
  renderGrid();renderEvents();renderSettings();savePlanningNav();
 }
+/* Projection des événements intégrée : la grille fonctionne même si planning-calendar-events.js manque. */
+function planningWeekEvents(events,weekStart,days=5){
+ if(window.PlanningCalendarEvents&&typeof window.PlanningCalendarEvents.weekCells==='function')
+  return window.PlanningCalendarEvents.weekCells(events,weekStart,days);
+ const timed=[],allDay=[];
+ const base=new Date(weekStart);
+ if(!Number.isFinite(base.getTime()))return {timed,allDay};
+ base.setHours(0,0,0,0);
+ const hm=d=>String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');
+ for(let i=0;i<days;i++){
+  const begin=new Date(base);begin.setDate(begin.getDate()+i);
+  const finish=new Date(begin);finish.setDate(finish.getDate()+1);
+  for(const e of events||[]){
+   const start=new Date(e.start_at),end=new Date(e.end_at);
+   if(!Number.isFinite(start.getTime())||!Number.isFinite(end.getTime())||end<=start||start>=finish||end<=begin)continue;
+   const from=new Date(Math.max(start.getTime(),begin.getTime()));
+   const to=new Date(Math.min(end.getTime(),finish.getTime()));
+   const projected={id:e.id,day:iso(begin),title:e.title||'Événement',
+    description:e.description||'',class_name:e.class_name||'',event_type:e.event_type||'other',
+    status:e.status||'',from:hm(from),to:to.getTime()===finish.getTime()?'24:00':hm(to)};
+   if(e.all_day)allDay.push(projected);else timed.push(projected);
+  }
+ }
+ timed.sort((a,b)=>a.day.localeCompare(b.day)||a.from.localeCompare(b.from)||a.to.localeCompare(b.to));
+ return {timed,allDay};
+}
 function renderGrid(){
- const pattern=state.weekPattern||weekPatternFor(state.weekStart);const occ=visibleOccurrences(),head=DAYS.map((d,i)=>`<th>${d}<br><span>${plusDays(state.weekStart,i).toLocaleDateString('fr-FR',{day:'2-digit',month:'2-digit'})}</span></th>`).join('');
+ const pattern=state.weekPattern||weekPatternFor(state.weekStart);const occ=visibleOccurrences();
+ const events=planningWeekEvents(state.events||[],state.weekStart,5);
+ const head=DAYS.map((d,i)=>`<th>${d}<br><span>${plusDays(state.weekStart,i).toLocaleDateString('fr-FR',{day:'2-digit',month:'2-digit'})}</span></th>`).join('');
  const setupMessage=!state.period
   ?'Aucune année scolaire configurée. Ouvre l’onglet Paramètres pour créer la période.'
   :!state.slots.length
    ?'Aucun créneau enregistré. Ouvre l’onglet Paramètres pour initialiser ton emploi du temps.'
-   :!state.occurrences.length
+   :!state.occurrences.length&&!events.timed.length&&!events.allDay.length
     ?'Les créneaux existent, mais les séances ne sont pas encore générées. Ouvre l’onglet Paramètres puis clique sur Générer les cours de l’année.'
     :'';
  if(setupMessage){
   $('#planningGrid').innerHTML=`<thead><tr><th>Horaire</th>${head}</tr></thead><tbody><tr><td colspan="6" class="planning-empty">${setupMessage}</td></tr></tbody>`;
   return;
  }
- const timeSet=new Set(state.slots.filter(s=>s.week_pattern==='AB'||s.week_pattern===pattern).map(s=>`${s.start_time.slice(0,5)}|${s.end_time.slice(0,5)}`));occ.forEach(o=>timeSet.add(`${o.start_time.slice(0,5)}|${o.end_time.slice(0,5)}`));const times=[...timeSet].sort();
- const rows=times.map(t=>{const [a,b]=t.split('|');return `<tr><td>${a}<br>– ${b}</td>${DAYS.map((_,i)=>{const day=plusDays(state.weekStart,i);const items=occ.filter(o=>o.session_date===iso(day)&&o.start_time.slice(0,5)===a&&o.end_time.slice(0,5)===b);return `<td>${items.map(o=>{const linked=state.cahierSessionsByUid[o.cahier_planning_uid];const href=linked?`prof.html?classe=${encodeURIComponent(o.class_name)}&planning_uid=${encodeURIComponent(o.cahier_planning_uid)}`:'';return `<div class="planning-course-wrap"><button class="planning-course" data-occ="${esc(o.id)}" style="--course-color:${colorFor(o.class_name)}">${esc(o.class_name||o.title||'Événement')}<small>${esc(o.start_time.slice(0,5))}–${esc(o.end_time.slice(0,5))} · ${statusLabel(o.status)}</small>${linked?`<small class="planning-linked-title">${esc(linked.chapterTitle)} — ${esc(linked.sessionTitle)}</small>`:''}</button>${linked?`<a class="planning-open-session" href="${href}" title="Ouvrir la séance du cahier">↗ Cahier</a>`:''}</div>`}).join('')||'<span class="planning-empty">—</span>'}</td>`}).join('')}</tr>`}).join('');
- $('#planningGrid').innerHTML=`<thead><tr><th>Horaire</th>${head}</tr></thead><tbody>${rows||'<tr><td colspan="6">Aucun créneau pour cette semaine.</td></tr>'}</tbody>`;
+ const timeSet=new Set(state.slots.filter(s=>s.week_pattern==='AB'||s.week_pattern===pattern).map(s=>`${s.start_time.slice(0,5)}|${s.end_time.slice(0,5)}`));occ.forEach(o=>timeSet.add(`${o.start_time.slice(0,5)}|${o.end_time.slice(0,5)}`));
+ events.timed.forEach(e=>timeSet.add(`${e.from}|${e.to}`));
+ const times=[...timeSet].sort();
+ const eventHtml=e=>'<div class="planning-week-event" data-week-event-id="'+esc(e.id)+'"><strong>'+esc(e.title)+'</strong><small>'+esc(e.from)+'–'+esc(e.to)+(e.class_name?' · '+esc(e.class_name):'')+'</small>'+(e.description?'<small>'+esc(e.description)+'</small>':'')+'</div>';
+ const allDayRow=events.allDay.length?'<tr><td>Toute la journée</td>'+DAYS.map((_,i)=>{const day=iso(plusDays(state.weekStart,i));return '<td>'+events.allDay.filter(e=>e.day===day).map(eventHtml).join('')+'</td>'}).join('')+'</tr>':'';
+ const rows=times.map(t=>{const [a,b]=t.split('|');return `<tr><td>${a}<br>– ${b}</td>${DAYS.map((_,i)=>{const day=plusDays(state.weekStart,i);const items=occ.filter(o=>o.session_date===iso(day)&&o.start_time.slice(0,5)===a&&o.end_time.slice(0,5)===b);return `<td>${items.map(o=>{const meta=window.PlanningKinds?.read(o.notes)||{kind:'cours',detail:''};
+  const kind=window.PlanningKinds?.descriptor(meta.kind);
+  const special=meta.kind!=='cours';
+  const kindText=special?'<small class="planning-special-title">'+esc(kind.icon+' '+kind.label)
+   +(meta.detail.trim()?' — '+esc(meta.detail.trim().split(/\r?\n/)[0].slice(0,95)):'')+'</small>':'';
+  const linked=special?null:state.cahierSessionsByUid[o.cahier_planning_uid];const href=linked?`prof.html?classe=${encodeURIComponent(o.class_name)}&planning_uid=${encodeURIComponent(o.cahier_planning_uid)}`:'';return `<div class="planning-course-wrap"><button class="planning-course" data-occ="${esc(o.id)}" style="--course-color:${colorFor(o.class_name)}">${esc(o.class_name||o.title||'Événement')}<small>${esc(o.start_time.slice(0,5))}–${esc(o.end_time.slice(0,5))} · ${statusLabel(o.status)}</small>${kindText}${linked?`<small class="planning-linked-title">${esc(linked.chapterTitle)} — ${esc(linked.sessionTitle)}</small>`:''}</button>${linked?`<a class="planning-open-session" href="${href}" title="Ouvrir la séance du cahier">↗ Cahier</a>`:''}</div>`}).join('')+events.timed.filter(e=>e.day===iso(day)&&e.from===a&&e.to===b).map(eventHtml).join('')||'<span class="planning-empty">—</span>'}</td>`}).join('')}</tr>`}).join('');
+ $('#planningGrid').innerHTML=`<thead><tr><th>Horaire</th>${head}</tr></thead><tbody>${allDayRow}${rows||(!allDayRow?'<tr><td colspan="6">Aucun créneau pour cette semaine.</td></tr>':'')}</tbody>`;
  $$('#planningGrid [data-occ]').forEach(b=>b.addEventListener('click',()=>editOccurrence(b.dataset.occ)));
 }
 function colorFor(c){const i=CLASSES.indexOf(c);return ['#71966a','#8ba96b','#5d927d','#a2a66a','#7297a5','#b28c63','#8c9b71','#a48a78','#7d91a8','#9b8ba7'][Math.max(0,i)]}
 function statusLabel(s){return ({planned:'À venir',completed:'Effectué',postponed:'Reporté',cancelled:'Annulé'})[s]||s}
 function renderEvents(){
- $('#planningEvents').innerHTML=state.events.sort((a,b)=>a.start_at.localeCompare(b.start_at)).map(e=>`<article class="planning-card"><strong>${esc(e.title)}</strong><div class="planning-muted">${new Date(e.start_at).toLocaleString('fr-FR')} · ${e.all_day?'Toute la journée':new Date(e.end_at).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}</div><p>${esc(e.description||'')}</p><span class="planning-status ${esc(e.status)}">${statusLabel(e.status)}</span></article>`).join('')||'<p class="planning-muted">Aucun événement enregistré.</p>';
+ $('#planningEvents').innerHTML=state.events.slice().sort((a,b)=>a.start_at.localeCompare(b.start_at)).map(e=>`<article class="planning-card"><strong>${esc(e.title)}</strong><div class="planning-muted">${new Date(e.start_at).toLocaleString('fr-FR')} · ${e.all_day?'Toute la journée':new Date(e.end_at).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}</div><p>${esc(e.description||'')}</p><span class="planning-status ${esc(e.status)}">${statusLabel(e.status)}</span><div class="planning-event-actions"><button class="planning-btn" type="button" data-event-week="${esc(e.id)}">Voir dans ma semaine</button></div></article>`).join('')||'<p class="planning-muted">Aucun événement enregistré.</p>';
+}
+function showEventInWeek(eventId){
+ const event=state.events.find(e=>String(e.id)===String(eventId));
+ if(!event)return notify('Événement introuvable. Actualise le planning.',true);
+ const start=new Date(event.start_at);
+ if(!Number.isFinite(start.getTime()))return notify('La date de cet événement est invalide.',true);
+ state.weekStart=mondayOf(start);
+ state.weekPattern=weekPatternFor(state.weekStart);
+ state.tab='planning';
+ render();
+ // Le surlignage est effectué uniquement après le rendu de la bonne semaine.
+ const node=$$('#planningGrid [data-week-event-id]').find(el=>el.dataset.weekEventId===String(eventId));
+ if(node){
+  node.classList.add('planning-week-event-focused');
+  node.scrollIntoView({behavior:'smooth',block:'center'});
+ }else{
+  notify('Semaine affichée, mais cet événement ne figure pas dans la grille. Vérifie sa date et son horaire ; la grille affiche seulement du lundi au vendredi.',true);
+ }
 }
 function renderSettings(){
  $('#planningSettings').innerHTML=state.period?`<div class="planning-cards"><article class="planning-card"><strong>${esc(state.period.name)}</strong><p>${state.period.start_date} → ${state.period.end_date}</p><p class="planning-muted">${state.slots.length} créneaux récurrents · ${state.occurrences.length} séances générées</p></article><article class="planning-card"><strong>Alternance A/B</strong><p>Référence semaine A : ${esc(state.period.week_a_reference_date)}</p><p class="planning-muted">Les vacances ne décalent pas l’alternance.</p></article></div>${state.slots.length===0?`<div class="planning-card planning-settings-actions"><h3>Initialiser ton emploi du temps</h3><p>Enregistre les 26 créneaux récurrents communiqués, avec les alternances A/B et les classes correspondantes. Aucune séance ne sera encore générée.</p><button class="planning-btn primary" id="planningInitSlots">Enregistrer mes 26 créneaux</button></div>`:`<div class="planning-card planning-settings-actions"><h3>Génération des cours</h3><p>Génère les occurrences à partir des créneaux récurrents enregistrés. Les vacances scolaires de la zone B sont exclues.</p><button class="planning-btn primary" id="planningGenerate">Générer les cours de l’année</button></div>`}`:`<div class="planning-card"><h3>Créer la période 2026–2027</h3><p>Académie d’Amiens · zone B · du 1er septembre 2026 au 3 juillet 2027.</p><form id="periodForm" class="planning-form-grid"><div class="planning-field full"><label>Nom de la période</label><input class="planning-input" name="name" value="Année scolaire 2026-2027" required></div><div class="planning-field"><label>Début</label><input class="planning-input" type="date" name="start_date" value="2026-09-01" required></div><div class="planning-field"><label>Fin</label><input class="planning-input" type="date" name="end_date" value="2027-07-03" required></div><div class="planning-field"><label>Référence de la semaine A</label><input class="planning-input" type="date" name="week_a_reference_date" value="2026-08-31" required></div><div class="planning-field full"><p class="planning-muted">Vacances intégrées automatiquement : Toussaint, Noël, hiver et printemps (zone B), ainsi que le vendredi 7 mai 2027.</p></div><div class="planning-field full"><button class="planning-btn primary">Créer la période</button></div></form></div>`;
 }
-function openModal(title,body){$('#planningDialogTitle').textContent=title;$('#planningDialogBody').innerHTML=body;$('#planningModal').hidden=false}
+function openModal(title,body,wide=false){
+ $(".planning-dialog").classList.toggle("is-wide",wide);$('#planningDialogTitle').textContent=title;$('#planningDialogBody').innerHTML=body;$('#planningModal').hidden=false}
 function closeModal(){$('#planningModal').hidden=true}
 async function getCahierSessions(className){
  const {data,error}=await client().from('Cahier').select('classe,contenu').eq('classe',className).maybeSingle();
@@ -142,7 +198,7 @@ async function getCahierSessions(className){
  let contenu=data?.contenu??{};
  if(typeof contenu==='string'){try{contenu=JSON.parse(contenu)}catch(e){throw new Error(`Le cahier de ${className} contient un JSON illisible.`)}}
  const chapters=Array.isArray(contenu?.chapitres)?contenu.chapitres:[];
- return chapters.flatMap((chapter,chapterIndex)=>(Array.isArray(chapter?.seances)?chapter.seances:[]).map((session,sessionIndex)=>({
+ return chapters.flatMap((chapter,chapterIndex)=>chapter?.archive===true?[]:(Array.isArray(chapter?.seances)?chapter.seances:[]).map((session,sessionIndex)=>({
   uid:session?.planning_uid||'',chapterIndex,sessionIndex,
   chapterTitle:plainText(chapter?.titre)||`Chapitre ${chapterIndex+1}`,
   sessionTitle:plainText(session?.titre)||`Séance ${sessionIndex+1}`
@@ -153,13 +209,17 @@ async function editOccurrence(id){
  const o=state.occurrences.find(x=>x.id===id);if(!o)return;
  let sessions=[];
  try{sessions=await getCahierSessions(o.class_name)}catch(err){notify(`Impossible de lire le cahier de ${o.class_name} : ${err.message}`,true)}
- const linked=sessions.find(x=>x.uid===o.cahier_planning_uid);
+ const meta=window.PlanningKinds.read(o.notes);
+ const linked=meta.kind==='cours'?sessions.find(x=>x.uid===o.cahier_planning_uid):null;
+ const kindOptions=window.PlanningKinds.types.map(t=>`<option value="${esc(t.value)}" ${t.value===meta.kind?'selected':''}>${esc(t.icon+' '+t.label)}</option>`).join('');
  const linkOptions=[`<option value="">— Aucune séance associée —</option>`,...sessions.map(x=>`<option value="${esc(x.uid)}" ${x.uid===o.cahier_planning_uid?'selected':''}>${esc(x.chapterTitle)} · ${esc(x.sessionTitle)}</option>`)].join('');
- openModal('Modifier la séance',`<form id="occForm"><div class="planning-form-grid"><div class="planning-field"><label>Date</label><input class="planning-input" type="date" name="session_date" value="${esc(o.session_date)}" required></div><div class="planning-field"><label>Classe</label><select class="planning-select" name="class_name">${CLASSES.map(c=>`<option ${c===o.class_name?'selected':''}>${c}</option>`).join('')}</select></div><div class="planning-field"><label>Début</label><input class="planning-input" type="time" name="start_time" value="${esc(o.start_time.slice(0,5))}" required></div><div class="planning-field"><label>Fin</label><input class="planning-input" type="time" name="end_time" value="${esc(o.end_time.slice(0,5))}" required></div><div class="planning-field"><label>État</label><select class="planning-select" name="status">${['planned','completed','postponed','cancelled'].map(s=>`<option value="${s}" ${s===o.status?'selected':''}>${statusLabel(s)}</option>`).join('')}</select></div><div class="planning-field full"><label>Associer à une séance du cahier (${esc(o.class_name)})</label><select class="planning-select" name="cahier_planning_uid">${linkOptions}</select><small class="planning-muted">Le lien utilise l’identifiant stable de la séance : un déplacement dans le planning ne le supprime pas.</small><a id="openLinkedSession" class="planning-btn" style="display:inline-block;width:max-content;margin-top:7px;${linked?'':'opacity:.55;pointer-events:none'}" href="${linked?`prof.html?classe=${encodeURIComponent(o.class_name)}&planning_uid=${encodeURIComponent(linked.uid)}`:'#'}">${linked?'Ouvrir la séance associée':'Aucune séance associée'}</a></div><div class="planning-field full"><label>Notes</label><textarea class="planning-textarea" name="notes">${esc(o.notes||'')}</textarea></div></div><div class="planning-footer"><button type="button" class="planning-btn" id="occCancel">Fermer</button><button class="planning-btn primary">Enregistrer</button></div></form>`);
+ openModal('Modifier la séance',`<form id="occForm"><div class="planning-form-grid"><div class="planning-field"><label>Date</label><input class="planning-input" type="date" name="session_date" value="${esc(o.session_date)}" required></div><div class="planning-field"><label>Classe</label><select class="planning-select" name="class_name">${CLASSES.map(c=>`<option ${c===o.class_name?'selected':''}>${c}</option>`).join('')}</select></div><div class="planning-field"><label>Début</label><input class="planning-input" type="time" name="start_time" value="${esc(o.start_time.slice(0,5))}" required></div><div class="planning-field"><label>Fin</label><input class="planning-input" type="time" name="end_time" value="${esc(o.end_time.slice(0,5))}" required></div><div class="planning-field"><label>Type de créneau</label><select class="planning-select" name="kind">${kindOptions}</select></div><div class="planning-field"><label>État</label><select class="planning-select" name="status">${['planned','completed','postponed','cancelled'].map(s=>`<option value="${s}" ${s===o.status?'selected':''}>${statusLabel(s)}</option>`).join('')}</select></div><div class="planning-field full"><label>Associer à une séance du cahier (${esc(o.class_name)})</label><select class="planning-select" name="cahier_planning_uid">${linkOptions}</select><small class="planning-muted">Le lien utilise l’identifiant stable de la séance : un déplacement dans le planning ne le supprime pas.</small><a id="openLinkedSession" class="planning-btn" style="display:inline-block;width:max-content;margin-top:7px;${linked?'':'opacity:.55;pointer-events:none'}" href="${linked?`prof.html?classe=${encodeURIComponent(o.class_name)}&planning_uid=${encodeURIComponent(linked.uid)}`:'#'}">${linked?'Ouvrir la séance associée':'Aucune séance associée'}</a></div><div class="planning-field full"><label>Intitulé / notes (facultatif)</label><textarea class="planning-textarea" name="notes">${esc(meta.detail)}</textarea></div></div><div class="planning-footer"><button type="button" class="planning-btn" id="occCancel">Fermer</button><button class="planning-btn primary">Enregistrer</button></div></form>`);
  $('#occCancel').onclick=closeModal;
- $('#occForm').onsubmit=async e=>{e.preventDefault();const f=new FormData(e.currentTarget);try{await query('planning_session_occurrences','update',{session_date:f.get('session_date'),class_name:f.get('class_name'),start_time:f.get('start_time'),end_time:f.get('end_time'),status:f.get('status'),notes:f.get('notes'),cahier_planning_uid:f.get('cahier_planning_uid')||null,is_modified:true},[['id','eq',id],['owner_id','eq',state.user.id]]);closeModal();await loadPeriod();render();notify('Séance mise à jour.')}catch(err){notify(err.message,true)}};
- const refreshOpenLink=()=>{const uid=$('#occForm [name="cahier_planning_uid"]')?.value||'';const cls=$('#occForm [name="class_name"]')?.value||'';const a=$('#openLinkedSession');if(!a)return;const valid=!!uid;a.href=valid?`prof.html?classe=${encodeURIComponent(cls)}&planning_uid=${encodeURIComponent(uid)}`:'#';a.textContent=valid?'Ouvrir la séance associée':'Aucune séance associée';a.style.opacity=valid?'1':'.55';a.style.pointerEvents=valid?'auto':'none';};
+ $('#occForm').onsubmit=async e=>{e.preventDefault();const f=new FormData(e.currentTarget);try{const kind=String(f.get('kind')||'cours');await query('planning_session_occurrences','update',{session_date:f.get('session_date'),class_name:f.get('class_name'),start_time:f.get('start_time'),end_time:f.get('end_time'),status:f.get('status'),notes:window.PlanningKinds.write(kind,f.get('notes')),cahier_planning_uid:kind==='cours'?(f.get('cahier_planning_uid')||null):null,is_modified:true},[['id','eq',id],['owner_id','eq',state.user.id]]);closeModal();await loadPeriod();render();notify('Séance mise à jour.')}catch(err){notify(err.message,true)}};
+ const refreshOpenLink=()=>{const uid=$('#occForm [name="cahier_planning_uid"]')?.value||'';const cls=$('#occForm [name="class_name"]')?.value||'';const a=$('#openLinkedSession');if(!a)return;const active=$('#occForm [name="kind"]')?.value==='cours';const sessionSelect=$('#occForm [name="cahier_planning_uid"]');if(sessionSelect)sessionSelect.disabled=!active;const valid=!!uid&&active;a.href=valid?`prof.html?classe=${encodeURIComponent(cls)}&planning_uid=${encodeURIComponent(uid)}`:'#';a.textContent=valid?'Ouvrir la séance associée':'Aucune séance associée';a.style.opacity=valid?'1':'.55';a.style.pointerEvents=valid?'auto':'none';};
  $('#occForm [name="cahier_planning_uid"]').addEventListener('change',refreshOpenLink);
+ $('#occForm [name="kind"]').addEventListener('change',refreshOpenLink);
+ refreshOpenLink();
  $('#occForm [name="class_name"]').addEventListener('change',async e=>{try{const list=await getCahierSessions(e.target.value);const label=$('#occForm .planning-field.full label');if(label)label.textContent=`Associer à une séance du cahier (${e.target.value})`;const select=$('#occForm [name="cahier_planning_uid"]');select.innerHTML=`<option value="">— Aucune séance associée —</option>`+list.map(x=>`<option value="${esc(x.uid)}">${esc(x.chapterTitle)} · ${esc(x.sessionTitle)}</option>`).join('');refreshOpenLink();}catch(err){notify(`Impossible de lire le cahier : ${err.message}`,true)}});
 }
 const SCHOOL_HOLIDAYS=[
@@ -258,8 +318,172 @@ async function generateOccurrences(){
   await loadPeriod();render();notify(`${count} occurrences générées. Les semaines A/B et les vacances ont été prises en compte.`);
  }catch(e){notify(e.message||'Génération impossible.',true)}
 }
+
+/* Associations en série : aperçu obligatoire et écritures conditionnelles. */
+function planningBulkSignature(plan){
+ return plan.items.map(x=>[x.id,x.uid,x.session_date,x.start_time,x.end_time,x.status,x.originalNotes??'<null>'].join('|')).join('\n');
+}
+async function openPlanningBulk(){
+ if(!state.period||!state.occurrences.length)return notify('Aucune séance de planning générée à associer.',true);
+ if(!window.PlanningBatch||!window.PlanningKinds)return notify('Les modules du planning sont incomplets : actualise la page.',true);
+ const options=CLASSES.map(c=>'<option value="'+esc(c)+'">'+esc(c)+'</option>').join('');
+ openModal('Associer les séances en série',
+  '<p class="planning-muted">La correspondance automatique est <strong>indicative</strong>. Pour chaque créneau, tu peux choisir une séance du cahier, une évaluation, une intervention, une sortie/voyage scolaire, une absence ou rien. Aucune écriture avant validation explicite.</p>'
+  +'<form id="planningBulkForm" class="planning-form-grid">'
+  +'<div class="planning-field"><label for="bulkClass">Classe</label><select id="bulkClass" class="planning-select" name="class_name" required>'+options+'</select></div>'
+  +'<div class="planning-field"><label for="bulkStart">À partir du</label><input id="bulkStart" class="planning-input" type="date" name="from_date" value="'+esc(iso(state.weekStart))+'" required></div>'
+  +'<div class="planning-field"><label for="bulkEnd">Jusqu’au</label><input id="bulkEnd" class="planning-input" type="date" name="to_date" value="'+esc(state.period.end_date)+'" required></div>'
+  +'<div class="planning-field"><label for="bulkSession">Séance de départ (facultatif)</label><select id="bulkSession" class="planning-select" name="first_uid"><option value="">Première séance non encore associée</option></select></div>'
+  +'<div class="planning-field full"><small class="planning-muted">Suggestion initiale : une séance différente par créneau. Tu pourras la répéter, choisir un autre type de créneau ou laisser le cours sans association. Maximum 40 lignes par prévisualisation.</small></div>'
+  +'<div class="planning-field full"><button class="planning-btn primary" type="submit">🔎 Prévisualiser les associations</button></div>'
+  +'</form>'
+  +'<div id="planningBulkPreview" aria-live="polite"></div>'
+  +'<div class="planning-footer"><button type="button" class="planning-btn" id="planningBulkCancel">Fermer sans enregistrer</button>'
+  +'<button type="button" class="planning-btn primary" id="planningBulkApply" hidden>💾 Confirmer les associations</button></div>',
+  true);
+ const form=$('#planningBulkForm'),preview=$('#planningBulkPreview'),save=$('#planningBulkApply');
+ let proposed=null;
+ const reset=()=>{proposed=null;preview.innerHTML='';save.hidden=true};
+ preview.addEventListener('change',e=>{
+  const select=e.target.closest('.planning-bulk-choice');
+  if(!select||!proposed)return;
+  const entry=proposed.items.find(x=>String(x.id)===select.dataset.occId);
+  if(!entry)return;
+  const selected=proposed.availableSessions.find(session=>session.uid===select.value);
+  if(select.value.startsWith('kind:')){
+   const kind=select.value.slice(5);
+   if(!window.PlanningKinds.types.some(t=>t.value===kind&&kind!=='cours')){
+    notify('Type de créneau inconnu : refais la prévisualisation.',true);reset();return;
+   }
+   entry.kind=kind;entry.uid='';entry.chapterTitle='';entry.sessionTitle='';
+  }else{
+   if(select.value&&!selected){notify('Séance inconnue : refais la prévisualisation.',true);reset();return;}
+   entry.kind='cours';
+   entry.uid=selected?.uid||'';
+   entry.chapterTitle=selected?.chapterTitle||'';
+   entry.sessionTitle=selected?.sessionTitle||'';
+  }
+  const detail=preview.querySelector('.planning-bulk-detail[data-occ-id="'+entry.id+'"]');
+  if(detail)detail.hidden=entry.kind==='cours';
+  updateSelectedCount();
+ });
+ preview.addEventListener('input',e=>{
+  const input=e.target.closest('.planning-bulk-detail');
+  if(!input||!proposed)return;
+  const entry=proposed.items.find(x=>String(x.id)===input.dataset.occId);
+  if(entry)entry.detail=input.value;
+ });
+ const updateSelectedCount=()=>{
+  const count=proposed?.items.filter(x=>x.uid||x.kind!=='cours').length||0;
+  const label=preview.querySelector('#planningBulkSelectedCount');
+  if(label)label.textContent=count+' créneau(x) sélectionné(s).';
+  save.hidden=count===0;
+ };
+ const fillSessions=async()=>{
+  const select=form.elements.first_uid;
+  select.disabled=true;
+  try{
+   const all=await getCahierSessions(form.elements.class_name.value);
+   select.innerHTML='<option value="">Première séance non encore associée</option>'
+    +all.map(s=>'<option value="'+esc(s.uid)+'">'+esc(s.chapterTitle+' — '+s.sessionTitle)+'</option>').join('');
+  }catch(e){select.innerHTML='<option value="">Cahier non disponible</option>';notify('Lecture des séances impossible : '+e.message,true)}
+  finally{select.disabled=false}
+ };
+ form.addEventListener('input',reset);
+ form.addEventListener('change',e=>{reset();if(e.target.name==='class_name')fillSessions()});
+ $('#planningBulkCancel').onclick=closeModal;
+ form.addEventListener('submit',async e=>{
+  e.preventDefault();reset();
+  const values=new FormData(form),className=String(values.get('class_name')||'');
+  const fromDate=String(values.get('from_date')||''),toDate=String(values.get('to_date')||'');
+  try{
+   if(!state.period||fromDate<state.period.start_date||toDate>state.period.end_date)
+    throw new Error('Choisis des dates comprises dans la période scolaire du planning.');
+   const sessions=await getCahierSessions(className);
+   const proposal=window.PlanningBatch.plan({
+    occurrences:state.occurrences,sessions,className,fromDate,toDate,
+    firstUid:String(values.get('first_uid')||''),limit:40
+   });
+   proposed={...proposal,periodId:state.period.id,ownerId:state.user.id,
+    baseSignature:planningBulkSignature(proposal),availableSessions:sessions};
+   const sessionOptions=(chosen)=>'<option value="">— Ne pas associer ce créneau —</option>'
+    +window.PlanningKinds.types.filter(t=>t.value!=='cours').map(t=>'<option value="kind:'+esc(t.value)+'">'+esc(t.icon+' '+t.label)+'</option>').join('')
+    +sessions.map(session=>'<option value="'+esc(session.uid)+'"'
+    +(session.uid===chosen?' selected':'')+'>'+esc(session.chapterTitle+' — '+session.sessionTitle)+'</option>').join('');
+   const rows=proposal.items.map(x=>'<tr><td>'+esc(x.session_date)+'</td><td>'
+    +esc(x.start_time.slice(0,5))+'–'+esc(x.end_time.slice(0,5))+'</td><td>'
+    +'<select class="planning-select planning-bulk-choice" data-occ-id="'+esc(x.id)+'"'
+    +' aria-label="Séance associée au cours du '+esc(x.session_date)+'">'
+    +sessionOptions(x.uid)+'</select>'
+    +'<input class="planning-input planning-bulk-detail" data-occ-id="'+esc(x.id)+'" type="text" maxlength="200" placeholder="Intitulé facultatif (ex. contrôle chapitre 2)" value="'+esc(x.originalNotes||'')+'" hidden></td></tr>').join('');
+   preview.innerHTML='<h3>Proposition pour '+esc(className)+'</h3>'
+    +'<p><strong id="planningBulkSelectedCount">'+proposal.items.filter(x=>x.uid).length+' créneau(x) sélectionné(s).</strong> '
+    +proposal.stats.existing+' créneau(x) déjà associés, '
+    +proposal.stats.modified+' créneau(x) modifiés manuellement ignorés. '
+    +proposal.stats.cancelled+' cours annulés ou reportés ignorés, '
+    +proposal.stats.exceptions+' créneau(x) particuliers ignorés.</p>'
+    +(rows?'<div class="planning-bulk-table"><table><thead><tr><th>Date</th><th>Horaire</th><th>Séance à associer (modifiable)</th></tr></thead><tbody>'+rows+'</tbody></table></div>':
+      '<p class="planning-muted">Aucun créneau libre compatible ou aucune séance du cahier restante sur cette période.</p>')
+    +'<p class="planning-muted"><strong>Important :</strong> la répartition automatique est une suggestion. Choisis une séance, une évaluation, une intervention, une sortie ou une absence. Tu peux répéter une séance ou laisser un créneau vide. Les liens existants et les horaires restent inchangés.</p>';
+   updateSelectedCount();
+  }catch(err){notify('Prévisualisation impossible : '+err.message,true)}
+ });
+ save.onclick=async()=>{
+  const selected=proposed?.items.filter(item=>item.uid||item.kind!=='cours')||[];
+  if(!proposed||state.busy||!selected.length)return;
+  if(!confirm('Confirmer les '+selected.length+' créneau(x) sélectionné(s) pour '+proposed.className+' ? Vérifie les séances, les évaluations et les absences. Cette opération modifiera le planning Supabase.'))return;
+  state.busy=true;save.disabled=true;
+  let completed=0;
+  try{
+   // Recharger et revérifier l’aperçu avant toute écriture.
+   await loadPeriod();
+   if(!state.period||state.period.id!==proposed.periodId||state.user.id!==proposed.ownerId)
+    throw new Error('La période ou la session a changé. Refais la prévisualisation.');
+   const sessions=await getCahierSessions(proposed.className);
+   const now=window.PlanningBatch.plan({
+    occurrences:state.occurrences,sessions,className:proposed.className,
+    fromDate:proposed.fromDate,toDate:proposed.toDate,
+    firstUid:proposed.firstUid,limit:proposed.limit
+   });
+   if(planningBulkSignature(now)!==proposed.baseSignature)
+    throw new Error('Le planning ou les séances ont changé depuis l’aperçu. Ferme la fenêtre et recommence.');
+   const knownUids=new Set(sessions.map(session=>session.uid));
+   if(selected.some(item=>item.uid&&!knownUids.has(item.uid)))
+    throw new Error('Une séance sélectionnée a disparu du cahier : aucune sauvegarde lancée.');
+   for(const item of selected){
+    // Protection contre un changement entre deux clics/onglets : condition
+    // SQL sur l’état de la ligne + refus si déjà associée.
+    const payload=item.kind==='cours'
+      ?{cahier_planning_uid:item.uid,is_modified:true}
+      :{cahier_planning_uid:null,notes:window.PlanningKinds.write(item.kind,item.detail),is_modified:true};
+    let request=client().from('planning_session_occurrences')
+      .update(payload)
+      .eq('id',item.id).eq('owner_id',state.user.id)
+      .eq('period_id',proposed.periodId).eq('class_name',proposed.className)
+      .eq('session_date',item.session_date)
+      .eq('start_time',item.start_time).eq('end_time',item.end_time)
+      .eq('status',item.status).eq('is_modified',false)
+      .is('cahier_planning_uid',null);
+    request=item.originalNotes===null?request.is('notes',null):request.eq('notes',item.originalNotes);
+    const {data,error}=await request.select('id');
+    if(error)throw new Error('Créneau '+item.session_date+' : '+error.message);
+    if(!Array.isArray(data)||data.length!==1)
+      throw new Error('Le créneau du '+item.session_date+' a changé ou n’est plus accessible. Association refusée.');
+    completed++;
+   }
+   await loadPeriod();render();closeModal();
+   notify(completed+' association(s) enregistrée(s) et vérifiée(s) pour '+proposed.className+'.');
+  }catch(err){
+   try{await loadPeriod();render()}catch(_){}
+   notify('Association interrompue : '+completed+' sur '+selected.length+' enregistrée(s). '+err.message,true);
+   reset();
+  }finally{state.busy=false;save.disabled=false}
+ };
+ await fillSessions();
+}
+
 async function addEvent(){
- openModal('Ajouter un événement',`<form id="eventForm"><div class="planning-form-grid"><div class="planning-field full"><label>Intitulé</label><input class="planning-input" name="title" required maxlength="180" placeholder="Conseil de classe, réunion…"></div><div class="planning-field"><label>Début</label><input class="planning-input" type="datetime-local" name="start_at" required></div><div class="planning-field"><label>Fin</label><input class="planning-input" type="datetime-local" name="end_at" required></div><div class="planning-field"><label>Type</label><select class="planning-select" name="event_type"><option>meeting</option><option>outing</option><option>training</option><option>other</option></select></div><div class="planning-field"><label>Classe (facultatif)</label><select class="planning-select" name="class_name"><option value="">Toutes</option>${CLASSES.map(c=>`<option>${c}</option>`).join('')}</select></div><div class="planning-field full"><label>Description</label><textarea class="planning-textarea" name="description"></textarea></div></div><div class="planning-footer"><button type="button" class="planning-btn" id="eventCancel">Annuler</button><button class="planning-btn primary">Créer l’événement</button></div></form>`);
+ openModal('Ajouter un événement',`<form id="eventForm"><div class="planning-form-grid"><div class="planning-field full"><label>Intitulé</label><input class="planning-input" name="title" required maxlength="180" placeholder="Conseil de classe, réunion…"></div><div class="planning-field"><label>Début</label><input class="planning-input" type="datetime-local" name="start_at" required></div><div class="planning-field"><label>Fin</label><input class="planning-input" type="datetime-local" name="end_at" required></div><div class="planning-field"><label>Type</label><select class="planning-select" name="event_type"><option value="meeting">Conseil de classe / réunion</option><option value="outing">Sortie ou voyage</option><option value="training">Formation</option><option value="other">Autre</option></select></div><div class="planning-field"><label>Classe (facultatif)</label><select class="planning-select" name="class_name"><option value="">Toutes</option>${CLASSES.map(c=>`<option>${c}</option>`).join('')}</select></div><div class="planning-field full"><label>Description</label><textarea class="planning-textarea" name="description"></textarea></div></div><div class="planning-footer"><button type="button" class="planning-btn" id="eventCancel">Annuler</button><button class="planning-btn primary">Créer l’événement</button></div></form>`);
  $('#eventCancel').onclick=closeModal;
  $('#eventForm').onsubmit=async e=>{e.preventDefault();const f=new FormData(e.currentTarget);if(f.get('end_at')<=f.get('start_at'))return notify('La fin doit être après le début.',true);try{await query('planning_events','insert',{owner_id:state.user.id,period_id:state.period?.id||null,title:f.get('title'),description:f.get('description'),event_type:f.get('event_type'),start_at:new Date(f.get('start_at')).toISOString(),end_at:new Date(f.get('end_at')).toISOString(),status:'upcoming',class_name:f.get('class_name')||null,all_day:false});closeModal();await loadPeriod();render();notify('Événement ajouté.')}catch(err){notify(err.message,true)}};
 }
@@ -275,7 +499,10 @@ function bind(){
  $('#planningPattern').onchange=e=>{state.weekPattern=e.target.value;render()};
  $$('.planning-tabs button').forEach(b=>b.onclick=()=>{state.tab=b.dataset.tab;render()});
  window.addEventListener('pagehide',savePlanningNav);window.addEventListener('scroll',()=>{clearTimeout(window.__planningNavTimer);window.__planningNavTimer=setTimeout(savePlanningNav,250)},{passive:true});
+ $('#planningEvents').addEventListener('click',e=>{const button=e.target.closest('[data-event-week]');if(button)showEventInWeek(button.dataset.eventWeek)});
  $('#planningAddEvent').onclick=addEvent;
+ const weekAddEvent=$('#planningWeekAddEvent');if(weekAddEvent)weekAddEvent.onclick=addEvent;
+ $('#planningBulkLink').onclick=openPlanningBulk;
  $('#planningRefresh').onclick=async()=>{try{await loadPeriod();render();notify('Planning actualisé.')}catch(e){notify(e.message,true)}};
  $('#planningModalClose').onclick=closeModal;
  $('#planningModal').addEventListener('click',e=>{if(e.target.id==='planningModal')closeModal()});
