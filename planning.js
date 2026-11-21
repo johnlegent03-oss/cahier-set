@@ -405,7 +405,7 @@ async function openPlanningBulk(){
     // SQL sur l’état de la ligne + refus si déjà associée.
     const payload=item.kind==='cours'
       ?{cahier_planning_uid:item.uid,is_modified:true}
-      :{cahier_planning_uid:null,notes:window.PlanningKinds.write(item.kind,item.detail||item.originalNotes||''),is_modified:true};
+      :{cahier_planning_uid:null,notes:window.PlanningKinds.write(item.kind,item.detail),is_modified:true};
     let request=client().from('planning_session_occurrences')
       .update(payload)
       .eq('id',item.id).eq('owner_id',state.user.id)
