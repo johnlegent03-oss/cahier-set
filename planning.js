@@ -108,9 +108,35 @@ function render(){
  $('#planningSettingsView').hidden=state.tab!=='settings';
  renderGrid();renderEvents();renderSettings();savePlanningNav();
 }
+/* Projection des événements intégrée : la grille fonctionne même si planning-calendar-events.js manque. */
+function planningWeekEvents(events,weekStart,days=5){
+ if(window.PlanningCalendarEvents&&typeof window.PlanningCalendarEvents.weekCells==='function')
+  return window.PlanningCalendarEvents.weekCells(events,weekStart,days);
+ const timed=[],allDay=[];
+ const base=new Date(weekStart);
+ if(!Number.isFinite(base.getTime()))return {timed,allDay};
+ base.setHours(0,0,0,0);
+ const hm=d=>String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');
+ for(let i=0;i<days;i++){
+  const begin=new Date(base);begin.setDate(begin.getDate()+i);
+  const finish=new Date(begin);finish.setDate(finish.getDate()+1);
+  for(const e of events||[]){
+   const start=new Date(e.start_at),end=new Date(e.end_at);
+   if(!Number.isFinite(start.getTime())||!Number.isFinite(end.getTime())||end<=start||start>=finish||end<=begin)continue;
+   const from=new Date(Math.max(start.getTime(),begin.getTime()));
+   const to=new Date(Math.min(end.getTime(),finish.getTime()));
+   const projected={id:e.id,day:iso(begin),title:e.title||'Événement',
+    description:e.description||'',class_name:e.class_name||'',event_type:e.event_type||'other',
+    status:e.status||'',from:hm(from),to:to.getTime()===finish.getTime()?'24:00':hm(to)};
+   if(e.all_day)allDay.push(projected);else timed.push(projected);
+  }
+ }
+ timed.sort((a,b)=>a.day.localeCompare(b.day)||a.from.localeCompare(b.from)||a.to.localeCompare(b.to));
+ return {timed,allDay};
+}
 function renderGrid(){
  const pattern=state.weekPattern||weekPatternFor(state.weekStart);const occ=visibleOccurrences();
- const events=typeof window!=='undefined'&&window.PlanningCalendarEvents?.weekCells?window.PlanningCalendarEvents.weekCells(state.events||[],state.weekStart,5):{timed:[],allDay:[]};
+ const events=planningWeekEvents(state.events||[],state.weekStart,5);
  const head=DAYS.map((d,i)=>`<th>${d}<br><span>${plusDays(state.weekStart,i).toLocaleDateString('fr-FR',{day:'2-digit',month:'2-digit'})}</span></th>`).join('');
  const setupMessage=!state.period
   ?'Aucune année scolaire configurée. Ouvre l’onglet Paramètres pour créer la période.'
@@ -475,7 +501,7 @@ function bind(){
  window.addEventListener('pagehide',savePlanningNav);window.addEventListener('scroll',()=>{clearTimeout(window.__planningNavTimer);window.__planningNavTimer=setTimeout(savePlanningNav,250)},{passive:true});
  $('#planningEvents').addEventListener('click',e=>{const button=e.target.closest('[data-event-week]');if(button)showEventInWeek(button.dataset.eventWeek)});
  $('#planningAddEvent').onclick=addEvent;
- $('#planningWeekAddEvent').onclick=addEvent;
+ const weekAddEvent=$('#planningWeekAddEvent');if(weekAddEvent)weekAddEvent.onclick=addEvent;
  $('#planningBulkLink').onclick=openPlanningBulk;
  $('#planningRefresh').onclick=async()=>{try{await loadPeriod();render();notify('Planning actualisé.')}catch(e){notify(e.message,true)}};
  $('#planningModalClose').onclick=closeModal;
