@@ -666,15 +666,87 @@ function clearLocalChapterBackup(index){try{if(classe&&index>=0)localStorage.rem
 function recoverLocalChapterBackup(index){
   try{
     if(!classe||!currentClassData||index<0)return;
-    const key=localBackupKey(classe,index),raw=localStorage.getItem(key);if(!raw)return;
-    const backup=JSON.parse(raw);if(backup.classe!==classe||backup.index!==index||!backup.chapter)return;
-    const online=normalizeChapter(currentClassData.contenu.chapitres[index]);
-    const local=normalizeChapter(backup.chapter);
+    const key=localBackupKey(classe,index),raw=localStorage.getItem(key);
+    if(!raw)return;
+    const backup=JSON.parse(raw);
+    if(backup.classe!==classe||backup.index!==index||!backup.chapter)return;
+    const online=normalizeChapter(JSON.parse(JSON.stringify(currentClassData.contenu.chapitres[index])));
+    const local=normalizeChapter(JSON.parse(JSON.stringify(backup.chapter)));
     if(JSON.stringify(online)===JSON.stringify(local)){localStorage.removeItem(key);return;}
+
+    // La version en ligne reste chargée. Une récupération ne doit jamais
+    // remplacer silencieusement un chapitre, ni effacer la copie avant succès.
     const when=backup.savedAt?new Date(backup.savedAt).toLocaleString("fr-FR"):"date inconnue";
-    if(confirm(`Une copie locale de ce chapitre, datée du ${when}, diffère de la version en ligne.\n\nVeux-tu restaurer cette copie locale ?\n\nChoisis « Annuler » pour conserver la version en ligne et supprimer la copie locale.`)){
-      currentClassData.contenu.chapitres[index]=local;localStorage.removeItem(key);
-    }else localStorage.removeItem(key);
+    const changedKeys=[...new Set([...Object.keys(online),...Object.keys(local)])]
+      .filter(name=>JSON.stringify(online[name])!==JSON.stringify(local[name]));
+    const names={titre:"Titre",germoir:"Germoir à idées",problematique:"Problématique",vocabulaire:"Vocabulaire",seances:"Séances",schema:"Schéma-bilan",germoirPdf:"PDF du germoir",schemaPdf:"PDF du schéma-bilan",memoPdf:"Fiche de mémorisation",evaluationPdf:"Évaluation"};
+    const valuePreview=value=>{
+      const printed=typeof value==="string"?stripHtml(value):JSON.stringify(value??null,null,2);
+      const readable=printed&&printed.trim()?printed.trim():"(aucun texte lisible ou image)";
+      return esc(readable.slice(0,1800))+(readable.length>1800?"\n… (aperçu limité : télécharge la copie pour tout conserver)":"");
+    };
+    const comparison=changedKeys.map(name=>
+      '<div style="border-top:1px solid #ddd;padding:12px 0;">'
+      +'<strong>'+esc(names[name]||name)+'</strong>'
+      +'<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;margin-top:8px;">'
+      +'<div><b>Version en ligne</b><pre style="white-space:pre-wrap;overflow-wrap:anywhere;max-height:180px;overflow:auto;">'+valuePreview(online[name])+'</pre></div>'
+      +'<div><b>Copie locale</b><pre style="white-space:pre-wrap;overflow-wrap:anywhere;max-height:180px;overflow:auto;">'+valuePreview(local[name])+'</pre></div>'
+      +'</div></div>').join("");
+    const existing=document.getElementById("svtLocalRecovery");
+    if(existing)existing.remove();
+    const overlay=document.createElement("div");
+    overlay.id="svtLocalRecovery";
+    overlay.setAttribute("role","dialog");
+    overlay.setAttribute("aria-modal","true");
+    overlay.setAttribute("aria-labelledby","svtLocalRecoveryTitle");
+    overlay.style.cssText="position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,.65);overflow:auto;padding:28px 14px;box-sizing:border-box;";
+    overlay.innerHTML=
+      '<section style="background:#fff;color:#192331;max-width:980px;margin:auto;padding:24px;border-radius:14px;box-shadow:0 12px 50px #1118;">'
+      +'<h2 id="svtLocalRecoveryTitle">⚠️ Une copie locale différente existe</h2>'
+      +'<p>Une copie de ce chapitre datant du <strong>'+esc(when)+'</strong> a été retrouvée. <strong>La version en ligne est conservée par défaut.</strong></p>'
+      +'<p>Restaurer la copie locale remplacera le chapitre entier lors de son prochain enregistrement. Compare les différences ou télécharge une sauvegarde avant de décider.</p>'
+      +'<div style="display:flex;gap:10px;flex-wrap:wrap;margin:16px 0;">'
+      +'<button type="button" id="svtCompareCopies">🔎 Comparer les versions</button>'
+      +'<button type="button" id="svtDownloadCopy">⬇ Télécharger la copie locale (.json)</button>'
+      +'</div>'
+      +'<div id="svtBackupComparison" hidden style="max-height:45vh;overflow:auto;border:1px solid #ddd;border-radius:8px;padding:12px;margin-bottom:16px;">'
+      +(comparison||'<p>Les différences portent sur la structure du chapitre.</p>')
+      +'</div>'
+      +'<div style="display:flex;gap:12px;flex-wrap:wrap;justify-content:flex-end;">'
+      +'<button type="button" id="svtKeepOnline">Conserver la version en ligne</button>'
+      +'<button type="button" id="svtRestoreBackup" style="background:#8f2525;color:white;">Restaurer la copie locale</button>'
+      +'</div></section>';
+    document.body.appendChild(overlay);
+    overlay.querySelector("#svtCompareCopies").addEventListener("click",()=>{
+      const detail=overlay.querySelector("#svtBackupComparison");
+      detail.hidden=!detail.hidden;
+    });
+    overlay.querySelector("#svtDownloadCopy").addEventListener("click",()=>{
+      const blob=new Blob([JSON.stringify(backup,null,2)],{type:"application/json"});
+      const url=URL.createObjectURL(blob),link=document.createElement("a");
+      link.href=url;
+      link.download="copie-locale-"+String(classe).replace(/[^a-z0-9_-]/gi,"-")+"-chapitre-"+(index+1)+".json";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(()=>URL.revokeObjectURL(url),1000);
+    });
+    overlay.querySelector("#svtKeepOnline").addEventListener("click",()=>{
+      if(!confirm("Conserver la version en ligne et supprimer cette copie locale non enregistrée ? Tu peux d’abord la télécharger."))return;
+      localStorage.removeItem(key);
+      overlay.remove();
+    });
+    overlay.querySelector("#svtRestoreBackup").addEventListener("click",()=>{
+      if(!confirm("La copie locale remplacera le chapitre entier lors du prochain enregistrement, et les modifications en ligne seront perdues. Confirmer la restauration dans l’éditeur ?"))return;
+      currentClassData.contenu.chapitres[index]=local;
+      overlay.remove();
+      editChapter(index,true);
+      hasUnsavedChanges=true;
+      setSaveStatus("saving","Copie locale chargée, NON enregistrée. Vérifie et clique sur Enregistrer.");
+      // Ne pas supprimer le backup : seul saveChapter / runAutosave
+      // après un succès serveur sont autorisés à le supprimer.
+    });
+    overlay.querySelector("#svtCompareCopies").focus();
   }catch(e){console.warn("Récupération de la copie locale impossible :",e);}
 }
   function requireTeacher(){
@@ -2049,11 +2121,11 @@ async function newChapter(){
   try{if(!currentClassData)currentClassData=await loadClass(classe);currentClassData.contenu.chapitres.push(normalizeChapter({titre:"Nouveau chapitre",problematique:"",germoir:"",seances:[]}));currentClassData.id=await saveClass(classe,currentClassData.contenu,currentClassData.id);const i=currentClassData.contenu.chapitres.length-1;currentChapterIndex=i;saveNav();editChapter(i)}
   catch(e){alert("Impossible d'ajouter le chapitre : "+e.message)}
 }
-function editChapter(i){
+function editChapter(i,skipLocalRecovery=false){
   try{
     if(!currentClassData||!Array.isArray(currentClassData.contenu?.chapitres)){showError("Le cahier n'est pas chargé.");return}
     if(i<0||i>=currentClassData.contenu.chapitres.length){showError("Ce chapitre est introuvable.");return}
-    recoverLocalChapterBackup(i);const ch=normalizeChapter(currentClassData.contenu.chapitres[i]);currentClassData.contenu.chapitres[i]=ch;currentChapterIndex=i;saveNav();
+    const ch=normalizeChapter(currentClassData.contenu.chapitres[i]);currentClassData.contenu.chapitres[i]=ch;currentChapterIndex=i;saveNav();
     content.innerHTML=`<div class="row" style="justify-content:space-between;align-items:center"><div class="row"><button type="button" onclick="chapters()">← Tous les chapitres</button><button type="button" onclick="openNiveau('${niveau}')">← ${niveau}</button><button type="button" onclick="home()">🏠 Accueil</button></div></div><section class="hero teacher" style="margin-top:14px"><span class="eyebrow">Chapitre ${i+1}</span><h2>✏️ Modifier le chapitre</h2>
       <div class="editbox"><label>🌱 Germoir à idées</label>${richToolbar("chGermoir")}<div id="chGermoir" class="rich-editor" contenteditable="true" data-placeholder="Écris ici les idées à faire émerger…">${ch.germoir||""}</div>${pdfField("le Germoir à idées","germoirPdf",i,ch.germoirPdf)}
       <label>Titre du chapitre</label>${richToolbar("chTitre")}<div id="chTitre" class="rich-editor" contenteditable="true" data-placeholder="Titre du chapitre">${ch.titre||""}</div>
@@ -2063,6 +2135,7 @@ function editChapter(i){
       <div id="sessions">${ch.seances.map((s,n)=>sessionEditor(s,n)).join("")}</div><button type="button" class="entry-add" onclick="addSession(${i})">＋ Ajouter une séance</button>
       <div class="editbox"><label>🧠 Schéma-bilan du chapitre</label><p class="muted">Tu peux importer directement une image PNG, JPG ou WEBP, sans devoir la convertir en PDF.</p><div class="row"><button type="button" onclick="uploadSchemaImage(${i})">🖼️ Importer une image du schéma-bilan</button>${ch.schema?`<button type="button" class="danger" onclick="removeSchemaImage(${i})">Retirer l’image / le contenu</button>`:""}</div>${ch.schema?`<div class="schema-image-preview rich-output">${ch.schema}</div>`:""}<span id="schemaImageStatus" class="status"></span>${pdfField("le schéma-bilan","schemaPdf",i,ch.schemaPdf)}<label>📝 Fiche de mémorisation</label>${pdfField("la fiche de mémorisation","memoPdf",i,ch.memoPdf)}<label>✅ Évaluation de fin de chapitre</label>${pdfField("l'évaluation de fin de chapitre","evaluationPdf",i,ch.evaluationPdf)}</div>
       <div class="row"><button class="primary" onclick="saveChapter(${i})">💾 Enregistrer</button><button type="button" onclick="previewStudentChapter(${i})">👁️ Aperçu élève</button><button type="button" onclick="duplicateChapter(${i})">Dupliquer le chapitre</button><button class="danger" onclick="deleteChapter(${i})">🗑️ Supprimer le chapitre</button><span id="saveStatus" class="status save-indicator"></span></div></section>`;
+    if(!skipLocalRecovery)recoverLocalChapterBackup(i);
   }catch(e){showError(e.message)}
 }
 async function duplicateChapter(i){
