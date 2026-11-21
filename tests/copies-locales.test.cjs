@@ -98,7 +98,7 @@ test('restaurer sans confirmation ne modifie pas le chapitre',()=>{
 test('restauration confirmée : pas de sauvegarde serveur implicite et copie retenue',()=>{
   const x=setup();
   x.overlay.querySelector('#svtRestoreBackup').click();
-  assert.deepEqual(x.ctx.currentClassData.contenu.chapitres[0],x.local);
+  assert.equal(JSON.stringify(x.ctx.currentClassData.contenu.chapitres[0]),JSON.stringify(x.local));
   assert.equal(x.store.has('backup'),true,'Ne supprimer la copie qu’après sauvegarde serveur réussie');
   assert.equal(x.ctx.hasUnsavedChanges,true);
   assert.deepEqual(x.actions.edit,{index:0,skip:true});
