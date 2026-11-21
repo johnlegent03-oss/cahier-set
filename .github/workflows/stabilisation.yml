@@ -18,5 +18,6 @@ jobs:
         run: |
           node --check evaluations.js
           node --check behavior-supabase.js
+          node --check atelier-mise-en-page.js
       - name: Tester les règles de calcul et les chargements
         run: node --test tests/*.test.cjs
