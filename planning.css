@@ -50,3 +50,11 @@ body.planning-page{margin:0;background:#f5f2e5;color:var(--pl-ink);font-family:I
 .planning-dialog-head h2{margin:0;font:700 22px Georgia,serif}
 .planning-footer{display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap;margin-top:16px}
 @media(max-width:650px){.planning-shell{padding:14px 10px 35px}.planning-panel{padding:12px}.planning-form-grid{grid-template-columns:1fr}.planning-field.full{grid-column:auto}.planning-top{align-items:flex-start}}
+
+/* Répartition en série : aperçu lisible sur Mac et mobile. */
+.planning-bulk-actions{display:flex;justify-content:flex-end;margin-bottom:12px}
+.planning-dialog.is-wide{width:min(960px,100%)}
+.planning-bulk-table{max-height:42vh;overflow:auto;border:1px solid var(--pl-line);border-radius:9px;margin:12px 0}
+.planning-bulk-table table{width:100%;border-collapse:collapse;font-size:13px}
+.planning-bulk-table th,.planning-bulk-table td{border-bottom:1px solid var(--pl-line);padding:9px;text-align:left;vertical-align:top}
+.planning-bulk-table th{position:sticky;top:0;background:#edf2e5}
