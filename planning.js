@@ -18,12 +18,37 @@ function notify(msg,error=false){const el=$('#planningMessage');el.textContent=m
 function hideMessage(){$('#planningMessage').hidden=true}
 function client(){if(!window.sb)throw new Error('Client Supabase absent : vérifie le chargement de config.js et du client Supabase.');return window.sb}
 async function query(table,method='select',payload=null,filters=[]){
+ const applyFilters=q=>{
+  filters.forEach(([k,op,v])=>{q=op==='eq'?q.eq(k,v):op==='gte'?q.gte(k,v):op==='lte'?q.lte(k,v):q});
+  return q;
+ };
+ if(method==='select'){
+  // Pagination avec ordre stable : une année de planning peut contenir
+  // bien plus de 1 000 séances, limite habituelle de l'API Supabase.
+  const rows=[],pageSize=500;
+  for(let offset=0;;offset+=pageSize){
+   const q=applyFilters(client().from(table).select('*'))
+    .order('id',{ascending:true})
+    .range(offset,offset+pageSize-1);
+   const {data,error}=await q;
+   if(error)throw error;
+   const page=data||[];
+   rows.push(...page);
+   if(page.length<pageSize)break;
+  }
+  return rows;
+ }
  let q=client().from(table);
  if(method==='insert')q=q.insert(payload).select('*');
- else if(method==='update')q=q.update(payload);
- else q=q.select('*');
- filters.forEach(([k,op,v])=>{q=op==='eq'?q.eq(k,v):op==='gte'?q.gte(k,v):op==='lte'?q.lte(k,v):q});
- const {data,error}=await q;if(error)throw error;return data||[];
+ else if(method==='update')q=q.update(payload).select('id');
+ else throw new Error('Méthode de planning inconnue : '+method);
+ q=applyFilters(q);
+ const {data,error}=await q;
+ if(error)throw error;
+ if(method==='update'&&!(data||[]).length){
+  throw new Error('Enregistrement non confirmé. La séance est introuvable ou la modification a été refusée ; actualise le planning.');
+ }
+ return data||[];
 }
 async function init(){
  document.body.classList.add('planning-page');
@@ -31,14 +56,22 @@ async function init(){
   const {data:{session},error}=await client().auth.getSession();if(error)throw error;
   if(!session?.user)throw new Error('Session professeur absente. Connecte-toi depuis l’espace professeur.');
   state.user=session.user;
-  await loadPeriod();restorePlanningNav();if(!state.weekPattern)state.weekPattern=weekPatternFor(state.weekStart);render();if(Number.isFinite(state._restoreScroll))requestAnimationFrame(()=>{window.scrollTo({top:state._restoreScroll,left:0,behavior:'auto'});savePlanningNav();delete state._restoreScroll;});
+  await loadPeriod();restorePlanningNav();
+  // Ne pas masquer les étapes de configuration derrière un planning vide.
+  if(!state.period||!state.slots.length||!state.occurrences.length)state.tab='settings';
+  if(!state.weekPattern)state.weekPattern=weekPatternFor(state.weekStart);
+  render();if(Number.isFinite(state._restoreScroll))requestAnimationFrame(()=>{window.scrollTo({top:state._restoreScroll,left:0,behavior:'auto'});savePlanningNav();delete state._restoreScroll;});
  }catch(e){notify(e.message||'Impossible de charger le Planning.',true)}
 }
 async function loadPeriod(){
  const rows=await query('planning_periods','select',null,[['owner_id','eq',state.user.id]]);
  const today=iso(new Date());
  state.period=rows.find(p=>p.start_date<=today&&p.end_date>=today)||rows.sort((a,b)=>b.start_date.localeCompare(a.start_date))[0]||null;
- if(!state.period){notify('Aucune période de planning n’est configurée. La création de la période annuelle doit être faite avant de générer les cours.');return}
+ if(!state.period){
+  state.slots=[];state.occurrences=[];state.events=[];state.cahierSessionsByUid={};
+  state.tab='settings';
+  notify('Aucune période de planning n’est configurée. Ouvre les paramètres pour créer l’année scolaire, puis les créneaux et les séances.');return
+ }
  const [slots,occ,events]=await Promise.all([
   query('planning_slots','select',null,[['owner_id','eq',state.user.id],['period_id','eq',state.period.id]]),
   query('planning_session_occurrences','select',null,[['owner_id','eq',state.user.id],['period_id','eq',state.period.id]]),
@@ -77,6 +110,17 @@ function render(){
 }
 function renderGrid(){
  const pattern=state.weekPattern||weekPatternFor(state.weekStart);const occ=visibleOccurrences(),head=DAYS.map((d,i)=>`<th>${d}<br><span>${plusDays(state.weekStart,i).toLocaleDateString('fr-FR',{day:'2-digit',month:'2-digit'})}</span></th>`).join('');
+ const setupMessage=!state.period
+  ?'Aucune année scolaire configurée. Ouvre l’onglet Paramètres pour créer la période.'
+  :!state.slots.length
+   ?'Aucun créneau enregistré. Ouvre l’onglet Paramètres pour initialiser ton emploi du temps.'
+   :!state.occurrences.length
+    ?'Les créneaux existent, mais les séances ne sont pas encore générées. Ouvre l’onglet Paramètres puis clique sur Générer les cours de l’année.'
+    :'';
+ if(setupMessage){
+  $('#planningGrid').innerHTML=`<thead><tr><th>Horaire</th>${head}</tr></thead><tbody><tr><td colspan="6" class="planning-empty">${setupMessage}</td></tr></tbody>`;
+  return;
+ }
  const timeSet=new Set(state.slots.filter(s=>s.week_pattern==='AB'||s.week_pattern===pattern).map(s=>`${s.start_time.slice(0,5)}|${s.end_time.slice(0,5)}`));occ.forEach(o=>timeSet.add(`${o.start_time.slice(0,5)}|${o.end_time.slice(0,5)}`));const times=[...timeSet].sort();
  const rows=times.map(t=>{const [a,b]=t.split('|');return `<tr><td>${a}<br>– ${b}</td>${DAYS.map((_,i)=>{const day=plusDays(state.weekStart,i);const items=occ.filter(o=>o.session_date===iso(day)&&o.start_time.slice(0,5)===a&&o.end_time.slice(0,5)===b);return `<td>${items.map(o=>{const linked=state.cahierSessionsByUid[o.cahier_planning_uid];const href=linked?`prof.html?classe=${encodeURIComponent(o.class_name)}&planning_uid=${encodeURIComponent(o.cahier_planning_uid)}`:'';return `<div class="planning-course-wrap"><button class="planning-course" data-occ="${esc(o.id)}" style="--course-color:${colorFor(o.class_name)}">${esc(o.class_name||o.title||'Événement')}<small>${esc(o.start_time.slice(0,5))}–${esc(o.end_time.slice(0,5))} · ${statusLabel(o.status)}</small>${linked?`<small class="planning-linked-title">${esc(linked.chapterTitle)} — ${esc(linked.sessionTitle)}</small>`:''}</button>${linked?`<a class="planning-open-session" href="${href}" title="Ouvrir la séance du cahier">↗ Cahier</a>`:''}</div>`}).join('')||'<span class="planning-empty">—</span>'}</td>`}).join('')}</tr>`}).join('');
  $('#planningGrid').innerHTML=`<thead><tr><th>Horaire</th>${head}</tr></thead><tbody>${rows||'<tr><td colspan="6">Aucun créneau pour cette semaine.</td></tr>'}</tbody>`;
