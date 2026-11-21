@@ -109,26 +109,32 @@ function render(){
  renderGrid();renderEvents();renderSettings();savePlanningNav();
 }
 function renderGrid(){
- const pattern=state.weekPattern||weekPatternFor(state.weekStart);const occ=visibleOccurrences(),head=DAYS.map((d,i)=>`<th>${d}<br><span>${plusDays(state.weekStart,i).toLocaleDateString('fr-FR',{day:'2-digit',month:'2-digit'})}</span></th>`).join('');
+ const pattern=state.weekPattern||weekPatternFor(state.weekStart);const occ=visibleOccurrences();
+ const events=typeof window!=='undefined'&&window.PlanningCalendarEvents?.weekCells?window.PlanningCalendarEvents.weekCells(state.events||[],state.weekStart,5):{timed:[],allDay:[]};
+ const head=DAYS.map((d,i)=>`<th>${d}<br><span>${plusDays(state.weekStart,i).toLocaleDateString('fr-FR',{day:'2-digit',month:'2-digit'})}</span></th>`).join('');
  const setupMessage=!state.period
   ?'Aucune année scolaire configurée. Ouvre l’onglet Paramètres pour créer la période.'
   :!state.slots.length
    ?'Aucun créneau enregistré. Ouvre l’onglet Paramètres pour initialiser ton emploi du temps.'
-   :!state.occurrences.length
+   :!state.occurrences.length&&!events.timed.length&&!events.allDay.length
     ?'Les créneaux existent, mais les séances ne sont pas encore générées. Ouvre l’onglet Paramètres puis clique sur Générer les cours de l’année.'
     :'';
  if(setupMessage){
   $('#planningGrid').innerHTML=`<thead><tr><th>Horaire</th>${head}</tr></thead><tbody><tr><td colspan="6" class="planning-empty">${setupMessage}</td></tr></tbody>`;
   return;
  }
- const timeSet=new Set(state.slots.filter(s=>s.week_pattern==='AB'||s.week_pattern===pattern).map(s=>`${s.start_time.slice(0,5)}|${s.end_time.slice(0,5)}`));occ.forEach(o=>timeSet.add(`${o.start_time.slice(0,5)}|${o.end_time.slice(0,5)}`));const times=[...timeSet].sort();
+ const timeSet=new Set(state.slots.filter(s=>s.week_pattern==='AB'||s.week_pattern===pattern).map(s=>`${s.start_time.slice(0,5)}|${s.end_time.slice(0,5)}`));occ.forEach(o=>timeSet.add(`${o.start_time.slice(0,5)}|${o.end_time.slice(0,5)}`));
+ events.timed.forEach(e=>timeSet.add(`${e.from}|${e.to}`));
+ const times=[...timeSet].sort();
+ const eventHtml=e=>'<div class="planning-week-event"><strong>'+esc(e.title)+'</strong><small>'+esc(e.from)+'–'+esc(e.to)+(e.class_name?' · '+esc(e.class_name):'')+'</small>'+(e.description?'<small>'+esc(e.description)+'</small>':'')+'</div>';
+ const allDayRow=events.allDay.length?'<tr><td>Toute la journée</td>'+DAYS.map((_,i)=>{const day=iso(plusDays(state.weekStart,i));return '<td>'+events.allDay.filter(e=>e.day===day).map(eventHtml).join('')+'</td>'}).join('')+'</tr>':'';
  const rows=times.map(t=>{const [a,b]=t.split('|');return `<tr><td>${a}<br>– ${b}</td>${DAYS.map((_,i)=>{const day=plusDays(state.weekStart,i);const items=occ.filter(o=>o.session_date===iso(day)&&o.start_time.slice(0,5)===a&&o.end_time.slice(0,5)===b);return `<td>${items.map(o=>{const meta=window.PlanningKinds?.read(o.notes)||{kind:'cours',detail:''};
   const kind=window.PlanningKinds?.descriptor(meta.kind);
   const special=meta.kind!=='cours';
   const kindText=special?'<small class="planning-special-title">'+esc(kind.icon+' '+kind.label)
    +(meta.detail.trim()?' — '+esc(meta.detail.trim().split(/\r?\n/)[0].slice(0,95)):'')+'</small>':'';
-  const linked=special?null:state.cahierSessionsByUid[o.cahier_planning_uid];const href=linked?`prof.html?classe=${encodeURIComponent(o.class_name)}&planning_uid=${encodeURIComponent(o.cahier_planning_uid)}`:'';return `<div class="planning-course-wrap"><button class="planning-course" data-occ="${esc(o.id)}" style="--course-color:${colorFor(o.class_name)}">${esc(o.class_name||o.title||'Événement')}<small>${esc(o.start_time.slice(0,5))}–${esc(o.end_time.slice(0,5))} · ${statusLabel(o.status)}</small>${kindText}${linked?`<small class="planning-linked-title">${esc(linked.chapterTitle)} — ${esc(linked.sessionTitle)}</small>`:''}</button>${linked?`<a class="planning-open-session" href="${href}" title="Ouvrir la séance du cahier">↗ Cahier</a>`:''}</div>`}).join('')||'<span class="planning-empty">—</span>'}</td>`}).join('')}</tr>`}).join('');
- $('#planningGrid').innerHTML=`<thead><tr><th>Horaire</th>${head}</tr></thead><tbody>${rows||'<tr><td colspan="6">Aucun créneau pour cette semaine.</td></tr>'}</tbody>`;
+  const linked=special?null:state.cahierSessionsByUid[o.cahier_planning_uid];const href=linked?`prof.html?classe=${encodeURIComponent(o.class_name)}&planning_uid=${encodeURIComponent(o.cahier_planning_uid)}`:'';return `<div class="planning-course-wrap"><button class="planning-course" data-occ="${esc(o.id)}" style="--course-color:${colorFor(o.class_name)}">${esc(o.class_name||o.title||'Événement')}<small>${esc(o.start_time.slice(0,5))}–${esc(o.end_time.slice(0,5))} · ${statusLabel(o.status)}</small>${kindText}${linked?`<small class="planning-linked-title">${esc(linked.chapterTitle)} — ${esc(linked.sessionTitle)}</small>`:''}</button>${linked?`<a class="planning-open-session" href="${href}" title="Ouvrir la séance du cahier">↗ Cahier</a>`:''}</div>`}).join('')+events.timed.filter(e=>e.day===iso(day)&&e.from===a&&e.to===b).map(eventHtml).join('')||'<span class="planning-empty">—</span>'}</td>`}).join('')}</tr>`}).join('');
+ $('#planningGrid').innerHTML=`<thead><tr><th>Horaire</th>${head}</tr></thead><tbody>${allDayRow}${rows||(!allDayRow?'<tr><td colspan="6">Aucun créneau pour cette semaine.</td></tr>':'')}</tbody>`;
  $$('#planningGrid [data-occ]').forEach(b=>b.addEventListener('click',()=>editOccurrence(b.dataset.occ)));
 }
 function colorFor(c){const i=CLASSES.indexOf(c);return ['#71966a','#8ba96b','#5d927d','#a2a66a','#7297a5','#b28c63','#8c9b71','#a48a78','#7d91a8','#9b8ba7'][Math.max(0,i)]}
@@ -433,7 +439,7 @@ async function openPlanningBulk(){
 }
 
 async function addEvent(){
- openModal('Ajouter un événement',`<form id="eventForm"><div class="planning-form-grid"><div class="planning-field full"><label>Intitulé</label><input class="planning-input" name="title" required maxlength="180" placeholder="Conseil de classe, réunion…"></div><div class="planning-field"><label>Début</label><input class="planning-input" type="datetime-local" name="start_at" required></div><div class="planning-field"><label>Fin</label><input class="planning-input" type="datetime-local" name="end_at" required></div><div class="planning-field"><label>Type</label><select class="planning-select" name="event_type"><option>meeting</option><option>outing</option><option>training</option><option>other</option></select></div><div class="planning-field"><label>Classe (facultatif)</label><select class="planning-select" name="class_name"><option value="">Toutes</option>${CLASSES.map(c=>`<option>${c}</option>`).join('')}</select></div><div class="planning-field full"><label>Description</label><textarea class="planning-textarea" name="description"></textarea></div></div><div class="planning-footer"><button type="button" class="planning-btn" id="eventCancel">Annuler</button><button class="planning-btn primary">Créer l’événement</button></div></form>`);
+ openModal('Ajouter un événement',`<form id="eventForm"><div class="planning-form-grid"><div class="planning-field full"><label>Intitulé</label><input class="planning-input" name="title" required maxlength="180" placeholder="Conseil de classe, réunion…"></div><div class="planning-field"><label>Début</label><input class="planning-input" type="datetime-local" name="start_at" required></div><div class="planning-field"><label>Fin</label><input class="planning-input" type="datetime-local" name="end_at" required></div><div class="planning-field"><label>Type</label><select class="planning-select" name="event_type"><option value="meeting">Conseil de classe / réunion</option><option value="outing">Sortie ou voyage</option><option value="training">Formation</option><option value="other">Autre</option></select></div><div class="planning-field"><label>Classe (facultatif)</label><select class="planning-select" name="class_name"><option value="">Toutes</option>${CLASSES.map(c=>`<option>${c}</option>`).join('')}</select></div><div class="planning-field full"><label>Description</label><textarea class="planning-textarea" name="description"></textarea></div></div><div class="planning-footer"><button type="button" class="planning-btn" id="eventCancel">Annuler</button><button class="planning-btn primary">Créer l’événement</button></div></form>`);
  $('#eventCancel').onclick=closeModal;
  $('#eventForm').onsubmit=async e=>{e.preventDefault();const f=new FormData(e.currentTarget);if(f.get('end_at')<=f.get('start_at'))return notify('La fin doit être après le début.',true);try{await query('planning_events','insert',{owner_id:state.user.id,period_id:state.period?.id||null,title:f.get('title'),description:f.get('description'),event_type:f.get('event_type'),start_at:new Date(f.get('start_at')).toISOString(),end_at:new Date(f.get('end_at')).toISOString(),status:'upcoming',class_name:f.get('class_name')||null,all_day:false});closeModal();await loadPeriod();render();notify('Événement ajouté.')}catch(err){notify(err.message,true)}};
 }
@@ -450,6 +456,7 @@ function bind(){
  $$('.planning-tabs button').forEach(b=>b.onclick=()=>{state.tab=b.dataset.tab;render()});
  window.addEventListener('pagehide',savePlanningNav);window.addEventListener('scroll',()=>{clearTimeout(window.__planningNavTimer);window.__planningNavTimer=setTimeout(savePlanningNav,250)},{passive:true});
  $('#planningAddEvent').onclick=addEvent;
+ $('#planningWeekAddEvent').onclick=addEvent;
  $('#planningBulkLink').onclick=openPlanningBulk;
  $('#planningRefresh').onclick=async()=>{try{await loadPeriod();render();notify('Planning actualisé.')}catch(e){notify(e.message,true)}};
  $('#planningModalClose').onclick=closeModal;
