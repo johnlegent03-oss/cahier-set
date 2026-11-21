@@ -13,7 +13,7 @@
 </header>
 <div id="planningMessage" class="planning-alert" role="status" hidden></div>
 <nav class="planning-tabs" aria-label="Vues du planning">
- <button data-tab="planning" aria-selected="true">Ma semaine</button><button data-tab="events" aria-selected="false">Événements</button><button data-tab="settings" aria-selected="false">Période et données</button>
+ <button data-tab="planning" aria-selected="true">Ma semaine</button><button data-tab="events" aria-selected="false">Événements</button><button data-tab="followup" aria-selected="false">Suivi pédagogique</button><button data-tab="settings" aria-selected="false">Période et données</button>
 </nav>
 <section id="planningWeekView" class="planning-panel">
  <div class="planning-toolbar">
@@ -28,6 +28,27 @@
  <div class="planning-toolbar"><h2>Événements personnels</h2><button class="planning-btn primary" id="planningAddEvent">＋ Ajouter un événement</button></div>
  <div id="planningEvents" class="planning-cards"></div>
 </section>
+<section id="planningFollowupView" class="planning-panel" hidden>
+ <div class="planning-toolbar">
+  <div><h2>Suivi pédagogique</h2><p class="planning-muted">Bilan calculé depuis les créneaux déjà enregistrés, sans nouvelle saisie.</p></div>
+  <div class="planning-controls">
+   <label for="planningFollowupClass" class="planning-muted">Classe</label>
+   <select id="planningFollowupClass" class="planning-select"><option value="">Toutes les classes</option></select>
+   <label for="planningFollowupFilter" class="planning-muted">Afficher</label>
+   <select id="planningFollowupFilter" class="planning-select">
+    <option value="missing">Sans séance associée</option>
+    <option value="toConfirm">À confirmer</option>
+    <option value="upcoming">À venir</option>
+    <option value="completed">Effectués</option>
+    <option value="all">Tous les créneaux</option>
+   </select>
+  </div>
+ </div>
+ <p class="planning-muted">Un cours passé n'est <strong>pas</strong> automatiquement considéré comme effectué : seul l'état « Effectué » le confirme. Les évaluations, interventions et déplacements ne sont pas considérés comme des séances manquantes.</p>
+ <div id="planningFollowupSummary" class="planning-followup-summary"></div>
+ <div id="planningFollowupList" class="planning-followup-list" aria-live="polite"></div>
+ <div id="planningFollowupSessions" class="planning-followup-sessions" aria-live="polite"></div>
+</section>
 <section id="planningSettingsView" class="planning-panel" hidden><h2>Période scolaire</h2><div id="planningSettings"></div></section>
 </main>
 <div class="planning-modal" id="planningModal" hidden>
@@ -40,8 +61,9 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>window.sb = window.sb || supabase.createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY,{auth:{persistSession:true,autoRefreshToken:true,storage:window.sessionStorage}});</script>
 <script src="planning-calendar-events.js?v=1"></script>
+<script src="planning-followup.js?v=1"></script>
 <script src="planning-types.js?v=1"></script>
 <script src="planning-associations.js?v=1"></script>
-<script src="planning.js?v=9"></script>
+<script src="planning.js?v=10"></script>
 <script src="site-identite.js?v=1" defer></script>
 </body></html>
