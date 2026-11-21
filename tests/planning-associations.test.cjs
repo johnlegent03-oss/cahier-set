@@ -23,7 +23,7 @@ test('classe filtrée, dates et créneaux classés chronologiquement',()=>{
  assert.deepEqual(p.items.map(i=>i.uid),['uid-1','uid-2','uid-3']);
 });
 test('un lien préexistant est conservé, sa séance n’est pas réattribuée',()=>{
- const occ=[row('1','2026-11-23',{class_name:'6e1'}),row('2','2026-11-24','6e1',{cahier_planning_uid:'uid-2'}),
+ const occ=[row('1','2026-11-23'),row('2','2026-11-24','6e1',{cahier_planning_uid:'uid-2'}),
   row('3','2026-11-25')];
  const p=plan(options(occ));
  assert.deepEqual(p.items.map(i=>i.id),['1','3']);
@@ -51,7 +51,7 @@ test('le choix de la séance de départ est respecté',()=>{
  assert.deepEqual(p.items.map(i=>i.uid),['uid-4','uid-5']);
 });
 test('la limite empêche une répartition massive non visualisée',()=>{
- const occ=Array.from({length:80},(_,i)=>row('o'+i,'2026-11-23',{start_time:String(8+Math.floor(i/10)).padStart(2,'0')+':00:00'}));
+ const occ=Array.from({length:80},(_,i)=>row('o'+i,'2026-11-23','6e1',{start_time:String(8+Math.floor(i/10)).padStart(2,'0')+':00:00'}));
  // dates identiques : la limite s’applique aux propositions, pas à la base.
  const p=plan(options(occ,Array.from({length:80},(_,i)=>session(i+1)),{limit:40}));
  assert.equal(p.items.length,40);
