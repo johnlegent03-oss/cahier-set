@@ -43,7 +43,14 @@ const {chromium}=require('playwright-core');
      async single(){return {data:structuredClone(remote),error:null}}
     };
     sb={
-     from(table){if(table!=='Cahier')throw Error('Table inattendue : '+table);return query},
+     from(table){
+       if(table==='Cahier')return query;
+       if(table==='atelier_documents')return {
+        select(){return this},eq(){return this},
+        async maybeSingle(){return {data:{classe:'6e1',cahier_id:42,chapitre_index:0,seance_index:0},error:null}}
+       };
+       throw Error('Table inattendue : '+table);
+      },
      async rpc(name,args){
       calls.push({name,args});
       if(name!=='svt_cahier_cas_v1')throw Error('RPC inattendue');
