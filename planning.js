@@ -6,7 +6,7 @@ const $$ = (s,root=document) => [...root.querySelectorAll(s)];
 const CLASSES = ['6e1','6e2','6e3','6e4','6e5','5e1','5e3','5e5','3e2','3e3'];
 const DAYS = ['Lundi','Mardi','Mercredi','Jeudi','Vendredi'];
 const state = {user:null,period:null,slots:[],occurrences:[],events:[],cahierSessionsByUid:{},weekStart:mondayOf(new Date()),weekPattern:'',view:'week',tab:'planning',busy:false,
- followupClass:'',followupFilter:'missing',followupSessions:null,followupLoadedClass:'',followupLoading:false,followupError:'',followupRequest:0};
+ followupClass:'',followupFilter:'missing',followupSessions:null,followupLoadedClass:'',followupLoading:false,followupError:'',followupRequest:0,quickDoneBusy:false};
 const NAV_KEY='svt.planning.navigation.v1';
 function savePlanningNav(){if(!state.user)return;try{localStorage.setItem(NAV_KEY+':'+state.user.id,JSON.stringify({weekStart:iso(state.weekStart),tab:state.tab,weekPattern:state.weekPattern,scrollY:window.scrollY||0}));}catch(e){}}
 function restorePlanningNav(){if(!state.user)return;try{const saved=JSON.parse(localStorage.getItem(NAV_KEY+':'+state.user.id)||'null');if(!saved)return;if(saved.weekStart&&/^\d{4}-\d{2}-\d{2}$/.test(saved.weekStart))state.weekStart=mondayOf(dateFrom(saved.weekStart));if(['planning','events','settings','followup'].includes(saved.tab))state.tab=saved.tab;if(['A','B'].includes(saved.weekPattern))state.weekPattern=saved.weekPattern;state._restoreScroll=Math.max(0,Number(saved.scrollY)||0);}catch(e){}}
@@ -20,7 +20,7 @@ function hideMessage(){$('#planningMessage').hidden=true}
 function client(){if(!window.sb)throw new Error('Client Supabase absent : vérifie le chargement de config.js et du client Supabase.');return window.sb}
 async function query(table,method='select',payload=null,filters=[]){
  const applyFilters=q=>{
-  filters.forEach(([k,op,v])=>{q=op==='eq'?q.eq(k,v):op==='gte'?q.gte(k,v):op==='lte'?q.lte(k,v):q});
+  filters.forEach(([k,op,v])=>{q=op==='eq'?q.eq(k,v):op==='gte'?q.gte(k,v):op==='lte'?q.lte(k,v):op==='is'?q.is(k,v):q});
   return q;
  };
  if(method==='select'){
@@ -169,9 +169,10 @@ function renderGrid(){
   const special=meta.kind!=='cours';
   const kindText=special?'<small class="planning-special-title">'+esc(kind.icon+' '+kind.label)
    +(meta.detail.trim()?' — '+esc(meta.detail.trim().split(/\r?\n/)[0].slice(0,95)):'')+'</small>':'';
-  const linked=special?null:state.cahierSessionsByUid[o.cahier_planning_uid];const href=linked?`prof.html?classe=${encodeURIComponent(o.class_name)}&planning_uid=${encodeURIComponent(o.cahier_planning_uid)}`:'';return `<div class="planning-course-wrap"><button class="planning-course" data-occ="${esc(o.id)}" style="--course-color:${colorFor(o.class_name)}">${esc(o.class_name||o.title||'Événement')}<small>${esc(o.start_time.slice(0,5))}–${esc(o.end_time.slice(0,5))} · ${statusLabel(o.status)}</small>${kindText}${linked?`<small class="planning-linked-title">${esc(linked.chapterTitle)} — ${esc(linked.sessionTitle)}</small>`:''}</button>${linked?`<a class="planning-open-session" href="${href}" title="Ouvrir la séance du cahier">↗ Cahier</a>`:''}</div>`}).join('')+events.timed.filter(e=>e.day===iso(day)&&e.from===a&&e.to===b).map(eventHtml).join('')||'<span class="planning-empty">—</span>'}</td>`}).join('')}</tr>`}).join('');
+  const linked=special?null:state.cahierSessionsByUid[o.cahier_planning_uid];const href=linked?`prof.html?classe=${encodeURIComponent(o.class_name)}&planning_uid=${encodeURIComponent(o.cahier_planning_uid)}`:'';const quickDone=window.PlanningCompletion?.eligible(o,iso(new Date()))?'<button type="button" class="planning-quick-done" data-quick-done="'+esc(o.id)+'" title="Confirmer ce cours comme effectué">✓ Effectué</button>':'';return `<div class="planning-course-wrap"><button class="planning-course" data-occ="${esc(o.id)}" style="--course-color:${colorFor(o.class_name)}">${esc(o.class_name||o.title||'Événement')}<small>${esc(o.start_time.slice(0,5))}–${esc(o.end_time.slice(0,5))} · ${statusLabel(o.status)}</small>${kindText}${linked?`<small class="planning-linked-title">${esc(linked.chapterTitle)} — ${esc(linked.sessionTitle)}</small>`:''}</button>${linked?`<a class="planning-open-session" href="${href}" title="Ouvrir la séance du cahier">↗ Cahier</a>`:''}${quickDone}</div>`}).join('')+events.timed.filter(e=>e.day===iso(day)&&e.from===a&&e.to===b).map(eventHtml).join('')||'<span class="planning-empty">—</span>'}</td>`}).join('')}</tr>`}).join('');
  $('#planningGrid').innerHTML=`<thead><tr><th>Horaire</th>${head}</tr></thead><tbody>${allDayRow}${rows||(!allDayRow?'<tr><td colspan="6">Aucun créneau pour cette semaine.</td></tr>':'')}</tbody>`;
  $$('#planningGrid [data-occ]').forEach(b=>b.addEventListener('click',()=>editOccurrence(b.dataset.occ)));
+ $$('#planningGrid [data-quick-done]').forEach(b=>b.addEventListener('click',()=>openQuickCompletion(b.dataset.quickDone)));
 }
 function colorFor(c){const i=CLASSES.indexOf(c);return ['#71966a','#8ba96b','#5d927d','#a2a66a','#7297a5','#b28c63','#8c9b71','#a48a78','#7d91a8','#9b8ba7'][Math.max(0,i)]}
 function statusLabel(s){return ({planned:'À venir',completed:'Effectué',postponed:'Reporté',cancelled:'Annulé'})[s]||s}
@@ -244,7 +245,10 @@ function renderFollowup(){
    const classAndDate=esc(o.class_name)+' · '+esc(o.session_date)+' · '+esc(o.start_time)+'–'+esc(o.end_time);
    return '<article class="planning-followup-row"><div><strong>'+esc(headline)+'</strong>'+
     '<p class="planning-muted">'+classAndDate+' · '+esc(stageNames[o.stage]||o.stage)+'</p></div>'+
-    '<button class="planning-btn" type="button" data-followup-occ="'+esc(o.id)+'">Voir le créneau</button></article>';
+    '<div class="planning-followup-actions">'+
+    (window.PlanningCompletion?.eligible(o,iso(new Date()))?
+     '<button class="planning-btn planning-quick-done" type="button" data-quick-done="'+esc(o.id)+'">✓ Effectué</button>':'')+
+    '<button class="planning-btn" type="button" data-followup-occ="'+esc(o.id)+'">Voir le créneau</button></div></article>';
   }).join('')+'</div>':'<p class="planning-muted">Aucun créneau pour ce filtre.</p>');
  $('#planningFollowupList').innerHTML=list;
  const sessionsNode=$('#planningFollowupSessions');
@@ -302,6 +306,51 @@ async function getCahierSessions(className){
  })).filter(x=>x.uid));
 }
 function plainText(value){const el=document.createElement('div');el.innerHTML=String(value??'');return (el.textContent||el.innerText||'').trim()}
+/* Phase 8 : confirmation explicite du seul état, pas de modification du cahier. */
+function openQuickCompletion(id){
+ if(state.quickDoneBusy)return;
+ const course=state.occurrences.find(o=>String(o.id)===String(id));
+ if(!window.PlanningCompletion?.eligible(course,iso(new Date()))){
+  notify('Seul un cours prévu, aujourd’hui ou dans le passé, peut être marqué comme effectué.',true);
+  return;
+ }
+ if(!state.user?.id||!state.period?.id)return notify('La période ou le compte professeur est indisponible.',true);
+ const label=course.class_name+' · '+course.session_date+' · '+String(course.start_time).slice(0,5)+'–'+String(course.end_time).slice(0,5);
+ openModal('Confirmer le cours effectué',
+  '<p>Marquer ce cours comme <strong>Effectué</strong> ?</p>'+
+  '<p class="planning-muted">'+esc(label)+'</p>'+
+  '<p class="planning-muted">Seul son état sera modifié. La séance associée, les notes, les horaires et la classe resteront inchangés.</p>'+
+  '<div class="planning-footer">'+
+  '<button class="planning-btn" type="button" id="quickDoneCancel">Annuler</button>'+
+  '<button class="planning-btn primary" type="button" id="quickDoneConfirm">✓ Confirmer effectué</button></div>');
+ $('#quickDoneCancel').onclick=closeModal;
+ $('#quickDoneConfirm').onclick=async()=>{
+  if(state.quickDoneBusy)return;
+  if(!window.PlanningCompletion.eligible(course,iso(new Date()))){
+   closeModal();notify('Ce créneau ne peut plus être confirmé depuis cet écran.',true);return;
+  }
+  state.quickDoneBusy=true;
+  const submit=$('#quickDoneConfirm'),cancel=$('#quickDoneCancel');
+  submit.disabled=true;cancel.disabled=true;submit.textContent='Enregistrement…';
+  try{
+   const conditions=window.PlanningCompletion.conditions(course,state.user.id,state.period.id,iso(new Date()));
+   await query('planning_session_occurrences','update',{status:'completed'},conditions);
+  }catch(error){
+   state.quickDoneBusy=false;
+   submit.disabled=false;cancel.disabled=false;submit.textContent='✓ Confirmer effectué';
+   notify('Cours non confirmé : '+(error.message||'Une erreur a empêché la sauvegarde.'),true);
+   return;
+  }
+  closeModal();
+  try{
+   await loadPeriod();
+   render();
+   notify('Cours marqué « Effectué » et sauvegardé.');
+  }catch(error){
+   notify('État « Effectué » enregistré, mais le rechargement a échoué : '+(error.message||'réessaie Actualiser.'),true);
+  }finally{state.quickDoneBusy=false;}
+ };
+}
 async function editOccurrence(id){
  const o=state.occurrences.find(x=>x.id===id);if(!o)return;
  let sessions=[];
@@ -600,7 +649,10 @@ function bind(){
  $('#planningFollowupClass').addEventListener('change',e=>{state.followupClass=e.target.value;loadFollowupCahier(state.followupClass)});
  $('#planningFollowupFilter').addEventListener('change',e=>{state.followupFilter=e.target.value;renderFollowup()});
  $('#planningFollowupSummary').addEventListener('click',e=>{const item=e.target.closest('[data-followup-filter]');if(!item)return;state.followupFilter=item.dataset.followupFilter;renderFollowup()});
- $('#planningFollowupList').addEventListener('click',e=>{const item=e.target.closest('[data-followup-occ]');if(item)editOccurrence(item.dataset.followupOcc)});
+ $('#planningFollowupList').addEventListener('click',e=>{
+  const done=e.target.closest('[data-quick-done]');if(done){openQuickCompletion(done.dataset.quickDone);return;}
+  const item=e.target.closest('[data-followup-occ]');if(item)editOccurrence(item.dataset.followupOcc);
+ });
  $('#planningAddEvent').onclick=addEvent;
  const weekAddEvent=$('#planningWeekAddEvent');if(weekAddEvent)weekAddEvent.onclick=addEvent;
  $('#planningBulkLink').onclick=openPlanningBulk;
