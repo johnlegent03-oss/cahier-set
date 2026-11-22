@@ -89,6 +89,22 @@ const {chromium}=require('playwright-core');
     assert.equal(cloud.afterCopy.newId,'nouveau-document');
     assert.equal(cloud.afterCopy.newVersion,true);
     assert.equal(cloud.afterCopy.dataRetained,true);
-    console.log('OK : sauvegarde de secours locale, restauration, conflit Supabase et sauvegarde en copie.');
+    const multiTab=await tab.evaluate(()=>{
+      const before=localStorage.getItem(KEY);
+      const external=JSON.stringify({project:{title:'Version autre onglet'},timestamp:999});
+      localStorage.setItem(KEY,external);
+      const saved=persistNow();
+      const untouched=localStorage.getItem(KEY)===external;
+      const conflict=localDraftConflict;
+      const warning=$('localStatus').textContent.includes('Autre onglet');
+      // Rétablir l'environnement de test sans persister le document factice.
+      localStorage.setItem(KEY,before);
+      localDraftConflict=false;
+      lastSavedRaw=before;
+      return {saved,untouched,conflict,warning};
+    });
+    assert.deepEqual(multiTab,{saved:false,untouched:true,conflict:true,warning:true},
+      'deux onglets ne doivent pas se réécrire silencieusement');
+    console.log('OK : récupération locale, version cloud et protection du brouillon entre onglets.');
   }finally{await browser.close()}
 })().catch(error=>{console.error(error);process.exitCode=1});
