@@ -29,7 +29,7 @@ test('le changement de page ne déplace que le défilement de l’éditeur',()=>
   };
   scrollStageToPage(id=>id==='stage'?stage:null,2);
   assert.equal(selector,'.sheet[data-page="2"]');
-  assert.deepEqual(target,{top:738,behavior:'smooth'});
+  assert.deepEqual(target,{top:738,behavior:'auto'});
   assert.ok(!source.includes("scrollIntoView({behavior:'smooth',block:'start'})"),
     'le défilement global a été réintroduit');
 });
@@ -66,4 +66,15 @@ test('les gestes immobiles ne créent pas de faux états dans l’historique',()
 
 test('Ctrl/Cmd + S sauvegarde le brouillon sur l’appareil',()=>{
   assert.ok(source.includes("e.key.toLowerCase()==='s'){e.preventDefault();persistNow();return}"));
+});
+
+test('les miniatures A4 sont construites à la demande sans perdre le défilement',()=>{
+  assert.ok(source.includes("thumbnailObserver=new IntersectionObserver("),
+    'l’observateur de visibilité des miniatures doit être présent');
+  assert.ok(source.includes("root:host,rootMargin:'180px'"),
+    'les miniatures proches de la zone visible doivent être anticipées');
+  assert.ok(source.includes("if(thumbnailObserver)thumbnailObserver.observe(frame);"),
+    'les miniatures ne doivent pas toutes être clonées immédiatement');
+  assert.ok(source.includes("const priorLeft=host.scrollLeft,priorTop=host.scrollTop;"));
+  assert.ok(source.includes("host.scrollLeft=priorLeft;host.scrollTop=priorTop;"));
 });
