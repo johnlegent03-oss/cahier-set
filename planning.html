@@ -47,6 +47,13 @@
  </div>
  <p class="planning-muted">Un cours passé n'est <strong>pas</strong> automatiquement considéré comme effectué : seul l'état « Effectué » le confirme. Les évaluations, interventions et déplacements ne sont pas considérés comme des séances manquantes.</p>
  <div id="planningFollowupSummary" class="planning-followup-summary"></div>
+ <section class="planning-remarks-panel" aria-labelledby="planningRemarksHeading">
+  <div class="planning-remarks-head"><div><h3 id="planningRemarksHeading">📝 Remarques de comportement</h3>
+   <p class="planning-muted">Année scolaire · la classe choisie ci-dessus s’applique également à ces compteurs. Les mots envoyés ne sont pas recomptés.</p></div>
+   <button type="button" id="planningRemarksRefresh" class="planning-btn">Actualiser les remarques</button>
+  </div>
+  <div id="planningRemarksSummary" aria-live="polite"><p class="planning-muted">Ouvre le suivi pour charger les remarques.</p></div>
+ </section>
  <div id="planningFollowupList" class="planning-followup-list" aria-live="polite"></div>
  <div id="planningFollowupSessions" class="planning-followup-sessions" aria-live="polite"></div>
 </section>
@@ -63,9 +70,10 @@
 <script>window.sb = window.sb || supabase.createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY,{auth:{persistSession:true,autoRefreshToken:true,storage:window.sessionStorage}});</script>
 <script src="planning-calendar-events.js?v=1"></script>
 <script src="planning-followup.js?v=1"></script>
+<script src="planning-remarks.js?v=1"></script>
 <script src="planning-completion.js?v=1"></script>
 <script src="planning-types.js?v=1"></script>
 <script src="planning-associations.js?v=1"></script>
-<script src="planning.js?v=11"></script>
+<script src="planning.js?v=12"></script>
 <script src="site-identite.js?v=1" defer></script>
 </body></html>
