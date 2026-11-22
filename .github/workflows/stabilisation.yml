@@ -66,4 +66,6 @@ jobs:
       - name: Utiliser les moteurs Firefox et WebKit de l'image Playwright
         run: npm install --no-save --ignore-scripts playwright-core@1.56.1
       - name: Tester l'atelier dans Firefox et WebKit
+        env:
+          HOME: /root
         run: node tests/atelier-multinavigateurs-browser.cjs
