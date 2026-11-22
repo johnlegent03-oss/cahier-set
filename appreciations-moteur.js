@@ -222,10 +222,11 @@
   const fields=[...document.querySelectorAll('.class-appreciation'),...document.querySelectorAll('#generatedAppreciation')];
   fields.forEach(field=>{
    const id=field.dataset.studentId||(field.id==='generatedAppreciation'?studentTrackingStudentId:'');if(!id||field.parentElement.querySelector('[data-cycle-choice]'))return;
-   const label=document.createElement('label');label.style.cssText='display:flex;gap:7px;align-items:center;margin:7px 0;font-weight:normal';
+   const label=document.createElement('label');label.className='appreciation-option';
    const check=document.createElement('input');check.type='checkbox';check.dataset.cycleChoice=String(id);check.checked=explicitFlag(id);
    check.addEventListener('change',()=>{try{localStorage.setItem(flagKey(id),check.checked?'1':'0');}catch(error){check.checked=!check.checked;alert('Impossible de mémoriser le choix sur ce navigateur.');}});
-   label.append(check,document.createTextNode('Mentionner que les difficultés ne permettent pas d’évaluer les compétences du cycle'));
+   const wording=document.createElement('span');wording.textContent='Mentionner que les difficultés ne permettent pas d’évaluer les compétences du cycle';
+   label.append(check,wording);
    field.insertAdjacentElement('beforebegin',label);
   });
  }
