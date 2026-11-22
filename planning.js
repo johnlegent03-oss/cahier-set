@@ -594,7 +594,7 @@ function bind(){
  $('#planningNext').onclick=()=>{state.weekStart=plusDays(state.weekStart,7);state.weekPattern=weekPatternFor(state.weekStart);render()};
  $('#planningToday').onclick=()=>{state.weekStart=mondayOf(new Date());state.weekPattern=weekPatternFor(state.weekStart);render()};
  $('#planningPattern').onchange=e=>{state.weekPattern=e.target.value;render()};
- $('.planning-tabs button').forEach(b=>b.onclick=()=>{state.tab=b.dataset.tab;render();if(state.tab==='followup'&&state.followupClass&&state.followupLoadedClass!==state.followupClass&&!state.followupLoading)loadFollowupCahier(state.followupClass)});
+ $$('.planning-tabs button').forEach(b=>b.onclick=()=>{state.tab=b.dataset.tab;render();if(state.tab==='followup'&&state.followupClass&&state.followupLoadedClass!==state.followupClass&&!state.followupLoading)loadFollowupCahier(state.followupClass)});
  window.addEventListener('pagehide',savePlanningNav);window.addEventListener('scroll',()=>{clearTimeout(window.__planningNavTimer);window.__planningNavTimer=setTimeout(savePlanningNav,250)},{passive:true});
  $('#planningEvents').addEventListener('click',e=>{const button=e.target.closest('[data-event-week]');if(button)showEventInWeek(button.dataset.eventWeek)});
  $('#planningFollowupClass').addEventListener('change',e=>{state.followupClass=e.target.value;loadFollowupCahier(state.followupClass)});
