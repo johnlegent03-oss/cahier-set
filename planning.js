@@ -384,7 +384,7 @@ async function loadRemarks(){
  }
 }
 function renderSettings(){
- $('#planningSettings').innerHTML=state.period?`<div class="planning-cards"><article class="planning-card"><strong>${esc(state.period.name)}</strong><p>${state.period.start_date} → ${state.period.end_date}</p><p class="planning-muted">${state.slots.length} créneaux récurrents · ${state.occurrences.length} séances générées</p></article><article class="planning-card"><strong>Alternance A/B</strong><p>Référence semaine A : ${esc(state.period.week_a_reference_date)}</p><p class="planning-muted">Les vacances ne décalent pas l’alternance.</p></article></div>${state.slots.length===0?`<div class="planning-card planning-settings-actions"><h3>Initialiser ton emploi du temps</h3><p>Enregistre les 26 créneaux récurrents communiqués, avec les alternances A/B et les classes correspondantes. Aucune séance ne sera encore générée.</p><button class="planning-btn primary" id="planningInitSlots">Enregistrer mes 26 créneaux</button></div>`:`<div class="planning-card planning-settings-actions"><h3>Génération des cours</h3><p>Génère les occurrences à partir des créneaux récurrents enregistrés. Les vacances scolaires de la zone B sont exclues.</p><button class="planning-btn primary" id="planningGenerate">Générer les cours de l’année</button></div>`}`:`<div class="planning-card"><h3>Créer la période 2026–2027</h3><p>Académie d’Amiens · zone B · du 1er septembre 2026 au 3 juillet 2027.</p><form id="periodForm" class="planning-form-grid"><div class="planning-field full"><label>Nom de la période</label><input class="planning-input" name="name" value="Année scolaire 2026-2027" required></div><div class="planning-field"><label>Début</label><input class="planning-input" type="date" name="start_date" value="2026-09-01" required></div><div class="planning-field"><label>Fin</label><input class="planning-input" type="date" name="end_date" value="2027-07-03" required></div><div class="planning-field"><label>Référence de la semaine A</label><input class="planning-input" type="date" name="week_a_reference_date" value="2026-08-31" required></div><div class="planning-field full"><p class="planning-muted">Vacances intégrées automatiquement : Toussaint, Noël, hiver et printemps (zone B), ainsi que le vendredi 7 mai 2027.</p></div><div class="planning-field full"><button class="planning-btn primary">Créer la période</button></div></form></div>`;
+ $('#planningSettings').innerHTML=state.period?`<div class="planning-cards"><article class="planning-card"><strong>${esc(state.period.name)}</strong><p>${state.period.start_date} → ${state.period.end_date}</p><p class="planning-muted">${state.slots.length} créneaux récurrents · ${state.occurrences.length} séances générées</p></article><article class="planning-card"><strong>Alternance A/B</strong><p>Référence semaine A : ${esc(state.period.week_a_reference_date)}</p><p class="planning-muted">Les vacances ne décalent pas l’alternance.</p></article></div>${state.slots.length===0?`<div class="planning-card planning-settings-actions"><h3>Initialiser ton emploi du temps</h3><p>Enregistre les 28 créneaux récurrents communiqués, avec les alternances A/B et les classes correspondantes. Aucune séance ne sera encore générée.</p><button class="planning-btn primary" id="planningInitSlots">Enregistrer mes 28 créneaux</button></div>`:`<div class="planning-card planning-settings-actions"><h3>Génération des cours</h3><p>Génère les occurrences à partir des créneaux récurrents enregistrés. Les vacances scolaires de la zone B sont exclues.</p><button class="planning-btn primary" id="planningGenerate">Générer les cours de l’année</button></div>`}`:`<div class="planning-card"><h3>Créer la période 2026–2027</h3><p>Académie d’Amiens · zone B · du 1er septembre 2026 au 3 juillet 2027.</p><form id="periodForm" class="planning-form-grid"><div class="planning-field full"><label>Nom de la période</label><input class="planning-input" name="name" value="Année scolaire 2026-2027" required></div><div class="planning-field"><label>Début</label><input class="planning-input" type="date" name="start_date" value="2026-09-01" required></div><div class="planning-field"><label>Fin</label><input class="planning-input" type="date" name="end_date" value="2027-07-03" required></div><div class="planning-field"><label>Référence de la semaine A</label><input class="planning-input" type="date" name="week_a_reference_date" value="2026-08-31" required></div><div class="planning-field full"><p class="planning-muted">Vacances intégrées automatiquement : Toussaint, Noël, hiver et printemps (zone B), ainsi que le vendredi 7 mai 2027.</p></div><div class="planning-field full"><button class="planning-btn primary">Créer la période</button></div></form></div>`;
 }
 function openModal(title,body,wide=false){
  $(".planning-dialog").classList.toggle("is-wide",wide);$('#planningDialogTitle').textContent=title;$('#planningDialogBody').innerHTML=body;$('#planningModal').hidden=false}
@@ -476,12 +476,14 @@ const SCHOOL_HOLIDAYS=[
 
 const DEFAULT_SLOTS = [
  // Lundi
- [1,'13:40','15:35','6e4','AB'],
+ [1,'13:40','14:40','6e4','AB'],
+  [1,'14:40','15:35','6e4','AB'],
  [1,'15:50','16:45','6e5','B'],
  // Mardi
  [2,'09:25','10:20','5e1','B'],
  [2,'10:40','11:30','6e2','AB'],
- [2,'13:45','15:35','6e1','AB'],
+ [2,'13:45','14:40','6e1','AB'],
+  [2,'14:40','15:35','6e1','AB'],
  [2,'15:50','16:45','6e3','A'],
  [2,'15:50','16:45','6e5','B'],
  // Mercredi
@@ -515,8 +517,8 @@ async function initializeDefaultSlots(){
   valid_from:state.period.start_date,valid_until:null,is_active:true
  }));
  const saved=await query('planning_slots','insert',rows);
- if(saved.length!==26)throw new Error(`Seulement ${saved.length} créneaux sur 26 ont été retournés. Vérifie les données avant toute génération.`);
- await loadPeriod();render();notify('Les 26 créneaux de ton emploi du temps ont été enregistrés. Vérifie-les avant de générer les cours.');
+ if(saved.length!==28)throw new Error(`Seulement ${saved.length} créneaux sur 28 ont été retournés. Vérifie les données avant toute génération.`);
+ await loadPeriod();render();notify('Les 28 créneaux de ton emploi du temps ont été enregistrés. Vérifie-les avant de générer les cours.');
 }
 function isSchoolHoliday(day,holidays){
  const d=iso(day);
@@ -535,7 +537,7 @@ async function createPeriod(form){
 }
 async function generateOccurrences(){
  if(!state.period)return;
- if(!state.slots.length)return notify('Aucun créneau récurrent trouvé dans planning_slots. Il faut d’abord enregistrer les 26 créneaux de ton emploi du temps.',true);
+ if(!state.slots.length)return notify('Aucun créneau récurrent trouvé dans planning_slots. Il faut d’abord enregistrer les 28 créneaux de ton emploi du temps.',true);
  const p=state.period,holidays=Array.isArray(p.holidays)?p.holidays:SCHOOL_HOLIDAYS;
  const existing=new Set(state.occurrences.map(o=>o.generation_key));
  const toCreate=[];
