@@ -118,3 +118,18 @@ body.planning-page{margin:0;background:#f5f2e5;color:var(--pl-ink);font-family:I
 .planning-remarks-counter{border:1px solid var(--pl-line);background:#fffefa;border-radius:10px;padding:11px 12px;display:flex;flex-direction:column;gap:5px}
 .planning-remarks-counter strong{font-size:23px;color:#365841;font-weight:800}
 .planning-remarks-counter span{font-size:12px;color:#5f725c;font-weight:650}
+
+
+/* Phase 10 : plages de dates et journal des remarques. */
+.planning-remarks-date-controls{display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap;margin:15px 0 4px}
+.planning-remarks-date-controls label{display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:700;color:#47644d}
+.planning-remarks-date-controls input{max-width:180px;min-height:37px;box-sizing:border-box}
+.planning-remarks-date-controls .planning-btn{margin-bottom:1px}
+.planning-remarks-history{margin-top:16px}
+.planning-remarks-history h4{font-size:15px;font-weight:750;margin:0 0 7px;color:#365841}
+.planning-remarks-days{display:flex;flex-direction:column;gap:7px;margin-top:12px}
+.planning-remarks-day{border:1px solid var(--pl-line);border-radius:9px;padding:10px 13px;background:#fffefa;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.planning-remarks-day strong{font-size:13px;color:#2c4934}
+.planning-remarks-day p{font-size:12px;margin:5px 0 0;max-width:690px}
+.planning-remarks-day button{flex-shrink:0}
+@media(max-width:650px){.planning-remarks-day button{width:100%}.planning-remarks-date-controls label{flex:1;min-width:130px}.planning-remarks-date-controls input{width:100%}}

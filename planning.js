@@ -6,7 +6,7 @@ const $$ = (s,root=document) => [...root.querySelectorAll(s)];
 const CLASSES = ['6e1','6e2','6e3','6e4','6e5','5e1','5e3','5e5','3e2','3e3'];
 const DAYS = ['Lundi','Mardi','Mercredi','Jeudi','Vendredi'];
 const state = {user:null,period:null,slots:[],occurrences:[],events:[],cahierSessionsByUid:{},weekStart:mondayOf(new Date()),weekPattern:'',view:'week',tab:'planning',busy:false,
- followupClass:'',followupFilter:'missing',followupSessions:null,followupLoadedClass:'',followupLoading:false,followupError:'',followupRequest:0,quickDoneBusy:false,remarksRows:null,remarksLoading:false,remarksError:'',remarksRequest:0};
+ followupClass:'',followupFilter:'missing',followupSessions:null,followupLoadedClass:'',followupLoading:false,followupError:'',followupRequest:0,quickDoneBusy:false,remarksRows:null,remarksLoading:false,remarksError:'',remarksRequest:0,remarksFrom:'',remarksTo:''};
 const NAV_KEY='svt.planning.navigation.v1';
 function savePlanningNav(){if(!state.user)return;try{localStorage.setItem(NAV_KEY+':'+state.user.id,JSON.stringify({weekStart:iso(state.weekStart),tab:state.tab,weekPattern:state.weekPattern,scrollY:window.scrollY||0}));}catch(e){}}
 function restorePlanningNav(){if(!state.user)return;try{const saved=JSON.parse(localStorage.getItem(NAV_KEY+':'+state.user.id)||'null');if(!saved)return;if(saved.weekStart&&/^\d{4}-\d{2}-\d{2}$/.test(saved.weekStart))state.weekStart=mondayOf(dateFrom(saved.weekStart));if(['planning','events','settings','followup'].includes(saved.tab))state.tab=saved.tab;if(['A','B'].includes(saved.weekPattern))state.weekPattern=saved.weekPattern;state._restoreScroll=Math.max(0,Number(saved.scrollY)||0);}catch(e){}}
@@ -296,28 +296,35 @@ async function loadFollowupCahier(className){
 /* Phase 9 : lecture des remarques, sans noms d’élèves ni écriture. */
 function renderRemarks(){
  const box=$('#planningRemarksSummary');
- if(!box)return;
- if(!window.PlanningRemarks){
-  box.innerHTML='<p class="planning-muted">Module de remarques indisponible : vérifie les fichiers de la phase 9.</p>';
-  return;
+ const history=$('#planningRemarksHistory');
+ if(!box||!history)return;
+ const from=state.remarksFrom||state.period?.start_date||'';
+ const to=state.remarksTo||state.period?.end_date||'';
+ const fromInput=$('#planningRemarksFrom'),toInput=$('#planningRemarksTo');
+ for(const input of [fromInput,toInput]){
+  if(!input)continue;
+  input.min=state.period?.start_date||'';
+  input.max=state.period?.end_date||'';
  }
- if(state.remarksLoading){
-  box.innerHTML='<p class="planning-muted">Chargement des remarques depuis le suivi comportemental…</p>';
-  return;
+ if(fromInput)fromInput.value=from;
+ if(toInput)toInput.value=to;
+ function message(msg){
+  box.innerHTML='<p class="planning-muted">'+esc(msg)+'</p>';
+  history.innerHTML='';
  }
- if(state.remarksError){
-  box.innerHTML='<p class="planning-muted">Remarques indisponibles : '+esc(state.remarksError)+'. Réessaie avec « Actualiser les remarques ».</p>';
-  return;
+ if(!window.PlanningRemarks?.summarize||!window.PlanningRemarks?.byDate){
+  message('Module de remarques indisponible : vérifie les fichiers de la phase 10.');return;
  }
- if(!Array.isArray(state.remarksRows)){
-  box.innerHTML='<p class="planning-muted">Remarques non encore chargées.</p>';
-  return;
+ if(state.remarksLoading){message('Chargement des remarques depuis le suivi comportemental…');return;}
+ if(state.remarksError){message('Remarques indisponibles : '+state.remarksError+'. Réessaie avec « Actualiser les remarques ».');return;}
+ if(!Array.isArray(state.remarksRows)){message('Remarques non encore chargées.');return;}
+ if(from>to){message('La date de début doit précéder la date de fin.');return;}
+ if(from<(state.period?.start_date||'')||to>(state.period?.end_date||'')){
+  message('Choisis des dates comprises dans l’année scolaire.');return;
  }
  const allowed=[...new Set([...CLASSES,...state.occurrences.map(o=>o.class_name).filter(Boolean)])];
- const c=window.PlanningRemarks.summarize(state.remarksRows,{
-  className:state.followupClass,classes:allowed,
-  fromDate:state.period?.start_date||'',toDate:state.period?.end_date||''
- });
+ const options={className:state.followupClass,classes:allowed,fromDate:from,toDate:to};
+ const c=window.PlanningRemarks.summarize(state.remarksRows,options);
  const stats=[
   [c.total,'Remarques négatives'],
   [c.bavardage,'Bavardages'],
@@ -328,6 +335,24 @@ function renderRemarks(){
  ];
  box.innerHTML='<div class="planning-remarks-counters">'+stats.map(([count,label])=>
   '<div class="planning-remarks-counter"><strong>'+count+'</strong><span>'+esc(label)+'</span></div>').join('')+'</div>';
+ const rows=window.PlanningRemarks.byDate(state.remarksRows,options);
+ const max=60,visible=rows.slice(0,max);
+ history.innerHTML='<h4>Remarques par date</h4>'+
+  '<p class="planning-muted">'+rows.length+' journée(s)-classe avec observations du '+esc(from)+' au '+esc(to)+
+  (rows.length>max?' · '+max+' plus récentes affichées':'')+'.</p>'+
+  (visible.length?'<div class="planning-remarks-days">'+visible.map(item=>{
+   const day=dateFrom(item.date).toLocaleDateString('fr-FR',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
+   const entries=[
+    [item.counts.bavardage,'bavardage(s)'],
+    [item.counts.materiel,'oubli(s) de matériel'],
+    [item.counts.travail,'travail non fait'],
+    [item.counts.autres,'autre(s) remarque(s)'],
+    [item.counts.participation,'participation(s) positive(s)']
+   ].filter(([n])=>n>0).map(([n,label])=>n+' '+label);
+   return '<article class="planning-remarks-day"><div><strong>'+esc(day)+' · '+esc(item.classe)+'</strong>'+
+    '<p class="planning-muted">'+esc(entries.join(' · '))+'</p></div>'+
+    '<button class="planning-btn" type="button" data-remarks-week="'+esc(item.date)+'">Voir cette semaine</button></article>';
+  }).join('')+'</div>':'<p class="planning-muted">Aucune remarque ni participation enregistrée pour cette classe et ces dates.</p>');
 }
 async function loadRemarks(){
  if(!state.user||!state.period||state.remarksLoading)return;
@@ -335,13 +360,13 @@ async function loadRemarks(){
  state.remarksRows=null;state.remarksError='';state.remarksLoading=true;
  renderRemarks();
  try{
-  const from=state.period.start_date,to=state.period.end_date;
+  const {from,toExclusive}=window.PlanningRemarks.utcFetchBounds(state.period.start_date,state.period.end_date);
   const rows=[],pageSize=500;
   for(let offset=0;;offset+=pageSize){
    const {data,error}=await client().from('StudentBehaviorEvents')
     .select('id,classe,type,date')
-    .gte('date',from+'T00:00:00')
-    .lte('date',to+'T23:59:59.999')
+    .gte('date',from)
+    .lt('date',toExclusive)
     .order('id',{ascending:true})
     .range(offset,offset+pageSize-1);
    if(error)throw error;
@@ -723,6 +748,27 @@ function bind(){
  $('#planningFollowupClass').addEventListener('change',e=>{state.followupClass=e.target.value;loadFollowupCahier(state.followupClass)});
  $('#planningFollowupFilter').addEventListener('change',e=>{state.followupFilter=e.target.value;renderFollowup()});
  $('#planningRemarksRefresh').addEventListener('click',()=>{void loadRemarks()});
+ $('#planningRemarksFrom').addEventListener('change',e=>{state.remarksFrom=e.target.value;renderRemarks()});
+ $('#planningRemarksTo').addEventListener('change',e=>{state.remarksTo=e.target.value;renderRemarks()});
+ $('#planningRemarksYear').addEventListener('click',()=>{
+  state.remarksFrom='';state.remarksTo='';renderRemarks();
+ });
+ $('#planningRemarksWeek').addEventListener('click',()=>{
+  const from=iso(state.weekStart),to=iso(plusDays(state.weekStart,6));
+  state.remarksFrom=from<state.period.start_date?state.period.start_date:from;
+  state.remarksTo=to>state.period.end_date?state.period.end_date:to;
+  renderRemarks();
+ });
+ $('#planningRemarksHistory').addEventListener('click',e=>{
+  const btn=e.target.closest('[data-remarks-week]');
+  if(!btn)return;
+  const date=btn.dataset.remarksWeek;
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(date))return;
+  state.weekStart=mondayOf(dateFrom(date));
+  state.weekPattern=weekPatternFor(state.weekStart);
+  state.tab='planning';
+  render();
+ });
  $('#planningFollowupSummary').addEventListener('click',e=>{const item=e.target.closest('[data-followup-filter]');if(!item)return;state.followupFilter=item.dataset.followupFilter;renderFollowup()});
  $('#planningFollowupList').addEventListener('click',e=>{
   const done=e.target.closest('[data-quick-done]');if(done){openQuickCompletion(done.dataset.quickDone);return;}
