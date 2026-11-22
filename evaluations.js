@@ -375,6 +375,7 @@ function updateClassAverageInView(){
     if(!Number.isFinite(value)||average===null){cell.textContent="—";return;}
     cell.textContent=value>average+0.05?"🟢 Au-dessus":value<average-0.05?"🔴 En dessous":"⚪ Dans la moyenne";
   });
+  updateClassQuarterReport();
 }
 let studentsCache=[];
 let competenciesCache=[];
@@ -1949,6 +1950,86 @@ function exportClassAppreciationsCSV(){
   document.body.appendChild(a);a.click();a.remove();
   setTimeout(()=>URL.revokeObjectURL(url),1500);
 }
+// Bilan du trimestre : lecture seule, mêmes notes et mêmes règles d'exclusion que le suivi.
+function classQuarterBand(score){
+  if(!Number.isFinite(score)||score<0||score>20)return null;
+  if(score>=16)return "high";
+  if(score>=10)return "middle";
+  if(score>=5)return "low";
+  return "veryLow";
+}
+function classQuarterReportData(rows){
+  const bins={high:0,middle:0,low:0,veryLow:0};
+  const mastery={TBM:0,MS:0,MF:0,MI:0};
+  let evaluated=0;
+  const names=new Set();
+  (rows||[]).forEach(student=>{
+    if(!classAverageStudentIncluded(student.id))return;
+    const avg=studentTrackingScienceAverageDetails(student.evaluations,student.qcu||[],classTrackingClass).final;
+    const bucket=classQuarterBand(avg);
+    if(bucket){bins[bucket]++;evaluated++;}
+    // Une compétence n'est comptée qu'une fois par élève : dernière maîtrise connue du trimestre.
+    const latest=new Map();
+    (student.competencies||[]).forEach(item=>{
+      const code=String(item.mastery?.code||"").toUpperCase();
+      if(!Object.hasOwn(mastery,code))return;
+      const name=String(item.competence||"Compétence non renseignée").trim();
+      latest.set(name,code);
+    });
+    latest.forEach((code,name)=>{mastery[code]++;names.add(name);});
+  });
+  const events=(behaviorEventsCache||[]).filter(e=>
+    (!classTrackingClass||String(e.classe||"").trim()===String(classTrackingClass).trim()) &&
+    (classTrackingPeriod==="year"||trackingPeriodMatch(e.date,classTrackingPeriod))
+  );
+  const messages=events.filter(e=>String(e.type||"").startsWith("message_envoye_")).length;
+  const remarks=events.filter(e=>{
+    const type=String(e.type||"");
+    return type&&!type.startsWith("message_envoye_")&&!type.startsWith("mention_envoyee_")&&
+      type!=="participation"&&type!=="effort_progres";
+  }).length;
+  const masteryTotal=Object.values(mastery).reduce((sum,n)=>sum+n,0);
+  return {bins,evaluated,withoutScore:Math.max(0,(behaviorStudentsCache||[]).filter(st=>
+      (!classTrackingClass||String(st.classe||"").trim()===String(classTrackingClass).trim())&&
+      classAverageStudentIncluded(st.id)).length-evaluated),
+    mastery,masteryTotal,masteryRate:masteryTotal?100*(mastery.TBM+mastery.MS)/masteryTotal:null,
+    competenceCount:names.size,remarks,messages};
+}
+function classQuarterReportHTML(rows){
+  const d=classQuarterReportData(rows);
+  const label=({year:"Bilan annuel",t1:"Bilan du trimestre 1",t2:"Bilan du trimestre 2",t3:"Bilan du trimestre 3"})[classTrackingPeriod]||"Bilan de la période";
+  const bands=[
+    ["high","16 à 20 /20"],
+    ["middle","10 à 15,99 /20"],
+    ["low","5 à 9,99 /20"],
+    ["veryLow","Moins de 5 /20"]
+  ];
+  const tile=(number,title,description="")=>'<div class="tracking-stat" style="padding:14px 12px;min-width:0"><strong>'+number+'</strong><span>'+title+'</span>'+(description?'<small class="small-note">'+description+'</small>':"")+'</div>';
+  const percent=n=>d.masteryTotal?((100*n/d.masteryTotal).toFixed(1).replace(".",",")+" %"):"—";
+  const masteryLabels=[["TBM","Très bonne maîtrise"],["MS","Maîtrise satisfaisante"],["MF","Maîtrise fragile"],["MI","Maîtrise insuffisante"]];
+  return '<h3 style="margin:0 0 6px">📊 '+label+' — résultats et suivi</h3>'+
+    '<p class="small-note" style="margin:0 0 14px">Résultats calculés avec les moyennes réellement retenues, QCU compris selon les règles habituelles. Les élèves exclus du calcul de la moyenne de classe ne figurent pas dans la répartition des notes ni des maîtrises.</p>'+
+    '<h4 style="margin:12px 0 7px">Répartition des moyennes des élèves</h4>'+
+    '<div class="tracking-summary" style="grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:10px;margin-top:8px">'+
+    bands.map(([key,title])=>tile(d.bins[key],title,d.evaluated?(100*d.bins[key]/d.evaluated).toFixed(1).replace(".",",")+" % des "+d.evaluated+" évalués":"Aucune moyenne")).join("")+
+    '</div>'+
+    '<p class="small-note" style="margin:9px 0 18px">Moins de 10 /20 : <strong>'+(d.bins.low+d.bins.veryLow)+'</strong> élève(s), dont <strong>'+d.bins.veryLow+'</strong> sous 5 /20. Sans moyenne : '+d.withoutScore+' élève(s) inclus dans la classe.</p>'+
+    '<h4 style="margin:10px 0 8px">Maîtrise globale des compétences évaluées</h4>'+
+    '<div class="tracking-summary" style="grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:10px;margin-top:8px">'+
+    masteryLabels.map(([code,title])=>tile(d.mastery[code],title,percent(d.mastery[code]))).join("")+
+    '</div>'+
+    '<p class="small-note" style="margin:9px 0 18px">Maîtrises satisfaisantes (TBM + MS) : <strong>'+(d.masteryRate===null?"—":d.masteryRate.toFixed(1).replace(".",",")+" %")+'</strong> · '+d.competenceCount+' compétence(s) distincte(s) · '+d.masteryTotal+' résultat(s) de maîtrise. Dernière maîtrise du trimestre par élève et par compétence.</p>'+
+    '<h4 style="margin:12px 0 8px">Observations et communications</h4>'+
+    '<div class="tracking-summary" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-top:8px">'+
+    tile(d.remarks,"Remarques enregistrées")+tile(d.messages,"Mots envoyés")+
+    '</div>'+
+    '<p class="small-note" style="margin:9px 0 0">Les remarques excluent les participations positives et les traces de messages. Les mots envoyés sont comptés uniquement lorsqu’une trace d’envoi est enregistrée, sans compter les mentions positives.</p>';
+}
+function updateClassQuarterReport(){
+  const target=document.getElementById("class-quarter-report");
+  if(target)target.innerHTML=classQuarterReportHTML(classTrackingRows());
+}
+
 // Onglets du suivi de classe : présentation uniquement, sans modifier les calculs.
 let classTrackingActiveTab = "bilan";
 function setClassTrackingTab(tab){
@@ -1993,6 +2074,12 @@ function installClassTrackingTabs(){
   summarySection.style.marginTop="14px";
   summarySection.appendChild(summary);
   bilanPanel.appendChild(summarySection);
+  const report=document.createElement("section");
+  report.id="class-quarter-report";
+  report.className="hero";
+  report.style.marginTop="14px";
+  report.innerHTML=classQuarterReportHTML(classTrackingRows());
+  bilanPanel.appendChild(report);
   bilanPanel.appendChild(general);
   elevesPanel.appendChild(details);
   if(legend)elevesPanel.appendChild(legend);
