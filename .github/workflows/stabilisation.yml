@@ -36,6 +36,8 @@ jobs:
         run: npm install --no-save --ignore-scripts playwright-core@1.56.1
       - name: Vérifier deux feuilles A4 en portrait et paysage
         run: node tests/atelier-print-browser.cjs
+      - name: Vérifier édition et ajustement des textes et tableaux
+        run: node tests/atelier-edition-browser.cjs
       - name: Conserver les PDF d'essai pour contrôle visuel
         if: always()
         uses: actions/upload-artifact@v4
