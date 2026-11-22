@@ -56,14 +56,14 @@ jobs:
   compatibilite_multinavigateurs:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    container:
+      image: mcr.microsoft.com/playwright:v1.56.1-noble
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - name: Installer les moteurs Firefox et WebKit
-        run: |
-          npm install --no-save --ignore-scripts playwright-core@1.56.1
-          node node_modules/playwright-core/cli.js install --with-deps firefox webkit
+      - name: Utiliser les moteurs Firefox et WebKit de l'image Playwright
+        run: npm install --no-save --ignore-scripts playwright-core@1.56.1
       - name: Tester l'atelier dans Firefox et WebKit
         run: node tests/atelier-multinavigateurs-browser.cjs
