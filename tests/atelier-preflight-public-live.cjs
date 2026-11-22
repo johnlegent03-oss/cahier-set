@@ -50,7 +50,7 @@ const phantomId='00000000-0000-4000-8000-000000000000';
  // Présence publique de TEST : le résultat ne contient que la classe,
  // ni noms d'élèves, ni contenu des cahiers, ni document.
  const classesUrl=new URL('/rest/v1/Cahier',url);
- classesUrl.searchParams.set('select','classe');
+ classesUrl.searchParams.set('select','classe,contenu');
  classesUrl.searchParams.set('classe','eq.TEST');
  classesUrl.searchParams.set('limit','1');
  const classResponse=await fetch(classesUrl,{
@@ -67,4 +67,18 @@ const phantomId='00000000-0000-4000-8000-000000000000';
  console.log(publicTest?
   'OK : la classe TEST est visible via la lecture publique du cahier.':
   'À vérifier : aucune classe TEST visible publiquement (absente ou filtrée par RLS).');
+ // Lire uniquement la structure pédagogique de TEST, jamais les autres classes.
+ // Les textes, les titres de séance, les liens et les identifiants ne sont
+ // ni affichés ni conservés dans les artefacts de CI.
+ if(publicTest){
+  let cahier=classes.find(row=>row?.classe==='TEST')?.contenu;
+  if(typeof cahier==='string')cahier=JSON.parse(cahier);
+  const chapters=Array.isArray(cahier)?cahier:Array.isArray(cahier?.chapitres)?cahier.chapitres:[];
+  const sessions=chapters.reduce((total,ch)=>{
+    const seances=Array.isArray(ch?.seances)?ch.seances:Array.isArray(ch?.sessions)?ch.sessions:[];
+    return total+seances.length;
+  },0);
+  console.log('Préparation TEST : '+chapters.length+' chapitre(s), '+sessions+' séance(s) visibles.');
+  if(sessions===0)console.log('À préparer : ajouter une séance au cahier TEST avant la recette de publication.');
+ }
 })().catch(error=>{console.error('Échec du contrôle public : '+error.message);process.exitCode=1});
