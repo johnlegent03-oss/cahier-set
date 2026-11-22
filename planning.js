@@ -148,6 +148,32 @@ function planningWeekEvents(events,weekStart,days=5){
  timed.sort((a,b)=>a.day.localeCompare(b.day)||a.from.localeCompare(b.from)||a.to.localeCompare(b.to));
  return {timed,allDay};
 }
+// Supprime les cellules vides créées dans un cours long par les horaires d'autres jours.
+function fillContinuingCells(times){
+ const table=$('#planningGrid');
+ const rows=Array.from(table.tBodies[0]?.rows||[]);
+ const cells=rows.map(row=>Array.from(row.cells).slice(1));
+ for(let day=0;day<DAYS.length;day++){
+  for(let i=0;i<times.length;i++){
+   const cell=cells[i]?.[day];
+   if(!cell||!cell.isConnected||!cell.querySelector('.planning-course,.planning-week-event'))continue;
+   const end=times[i].split('|')[1];
+   let span=1;
+   for(let j=i+1;j<times.length;j++){
+    const [start,finish]=times[j].split('|');
+    if(start>=end||finish>end)break;
+    const following=cells[j]?.[day];
+    if(!following||!following.isConnected||following.querySelector('.planning-course,.planning-week-event'))break;
+    following.remove();span++;
+   }
+   if(span>1){
+    cell.rowSpan=span;
+    cell.classList.add('planning-spanning-cell');
+    cell.style.setProperty('--planning-span-rows',String(span));
+   }
+  }
+ }
+}
 function renderGrid(){
  const pattern=state.weekPattern||weekPatternFor(state.weekStart);const occ=visibleOccurrences();
  const events=planningWeekEvents(state.events||[],state.weekStart,5);
@@ -175,7 +201,8 @@ function renderGrid(){
    +(meta.detail.trim()?' — '+esc(meta.detail.trim().split(/\r?\n/)[0].slice(0,95)):'')+'</small>':'';
   const linked=special?null:state.cahierSessionsByUid[o.cahier_planning_uid];const href=linked?`prof.html?classe=${encodeURIComponent(o.class_name)}&planning_uid=${encodeURIComponent(o.cahier_planning_uid)}`:'';const quickDone=window.PlanningCompletion?.eligible(o,iso(new Date()))?'<button type="button" class="planning-quick-done" data-quick-done="'+esc(o.id)+'" title="Confirmer ce cours comme effectué">✓ Effectué</button>':'';return `<div class="planning-course-wrap"><button class="planning-course" data-occ="${esc(o.id)}" style="--course-color:${colorFor(o.class_name)}">${esc(o.class_name||o.title||'Événement')}<small>${esc(o.start_time.slice(0,5))}–${esc(o.end_time.slice(0,5))} · ${statusLabel(o.status)}</small>${kindText}${linked?`<small class="planning-linked-title">${esc(linked.chapterTitle)} — ${esc(linked.sessionTitle)}</small>`:''}</button>${linked?`<a class="planning-open-session" href="${href}" title="Ouvrir la séance du cahier">↗ Cahier</a>`:''}${quickDone}</div>`}).join('')+events.timed.filter(e=>e.day===iso(day)&&e.from===a&&e.to===b).map(eventHtml).join('')||'<span class="planning-empty">—</span>'}</td>`}).join('')}</tr>`}).join('');
  $('#planningGrid').innerHTML=`<thead><tr><th>Horaire</th>${head}</tr></thead><tbody>${allDayRow}${rows||(!allDayRow?'<tr><td colspan="6">Aucun créneau pour cette semaine.</td></tr>':'')}</tbody>`;
- $$('#planningGrid [data-occ]').forEach(b=>b.addEventListener('click',()=>editOccurrence(b.dataset.occ)));
+ fillContinuingCells(times);
+ $('#planningGrid [data-occ]').forEach(b=>b.addEventListener('click',()=>editOccurrence(b.dataset.occ)));
  $$('#planningGrid [data-quick-done]').forEach(b=>b.addEventListener('click',()=>openQuickCompletion(b.dataset.quickDone)));
 }
 function colorFor(c){const i=CLASSES.indexOf(c);return ['#71966a','#8ba96b','#5d927d','#a2a66a','#7297a5','#b28c63','#8c9b71','#a48a78','#7d91a8','#9b8ba7'][Math.max(0,i)]}
