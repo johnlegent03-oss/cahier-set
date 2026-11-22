@@ -23,3 +23,16 @@ jobs:
           done
       - name: Tester les règles de calcul et les chargements
         run: node --test tests/*.test.cjs
+
+  impression_chromium:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Préparer le contrôle PDF dans Chrome
+        run: npm install --no-save --ignore-scripts playwright-core@1.56.1
+      - name: Vérifier deux feuilles A4 en portrait et paysage
+        run: node tests/atelier-print-browser.cjs
