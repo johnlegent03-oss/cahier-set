@@ -131,6 +131,7 @@ test('rendu réel : l’onglet affiche ses compteurs et les cours non liés',()=
  const ctx={
   state,CLASSES:['6e2'],window:{PlanningFollowup:require('../planning-followup.js')},
   $:id=>elements[id]||null,iso:()=> '2026-11-22',
+  renderRemarks:()=>{},
   esc:v=>String(v??'').replace(/[&<>]/g,s=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[s]))
  };
  vm.createContext(ctx);vm.runInContext(source.slice(start,end),ctx);
