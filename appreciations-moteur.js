@@ -10,11 +10,13 @@
   const seed=String(d.seed||'')+'|'+attempt,avg=number(d.average);
   const level=avg===null?null:avg>=18?'excellent':avg>=16?'très bon':avg>=12?'bon':avg>=10?'correct':avg>=6?'fragile':'inquiétant';
   const name=String(d.name||'').trim();
-  let opening=name?`Les résultats de ${name} ne permettent pas encore d’établir un bilan suffisamment précis.`:'Les résultats disponibles ne permettent pas encore d’établir un bilan suffisamment précis.';
+  // Élision devant les voyelles, y compris accentuées et ligaturées.
+  const deName=name?(/^[aeiouyàâäæéèêëîïôöœùûüÿ]/i.test(name)?'d’'+name:'de '+name):'';
+  let opening=name?`Les résultats ${deName} ne permettent pas encore d’établir un bilan suffisamment précis.`:'Les résultats disponibles ne permettent pas encore d’établir un bilan suffisamment précis.';
   if(level){
    if(level==='inquiétant')opening=name?`${name} obtient des résultats très insuffisants ce trimestre.`:'Les résultats obtenus ce trimestre sont très insuffisants.';
    else {
-    const options=name?{excellent:[`${name} réalise un excellent trimestre, avec des résultats très satisfaisants.`,`${name} présente un excellent bilan ce trimestre.`], 'très bon': [`${name} réalise un très bon trimestre.`,`Le travail de ${name} aboutit à un bilan particulièrement satisfaisant.`], bon:[`${name} réalise un bon trimestre dans l’ensemble.`,`Le bilan de ${name} est satisfaisant.`], correct:[`Les résultats de ${name} sont convenables, mais peuvent encore progresser.`,`Le bilan de ${name} est correct, même si certains acquis restent à consolider.`], fragile:[`Le bilan de ${name} reste fragile ce trimestre.`,`Les résultats de ${name} demeurent fragiles.`]}:{excellent:['Un excellent trimestre, marqué par des résultats très satisfaisants.','Le bilan de ce trimestre est excellent.'], 'très bon':['Un très bon trimestre, avec des résultats particulièrement satisfaisants.','Le travail réalisé ce trimestre aboutit à un très bon bilan.'], bon:['Un bon trimestre dans l’ensemble.','Le bilan de ce trimestre est satisfaisant.'], correct:['Les résultats sont convenables, mais peuvent encore progresser.','Le bilan est correct, même si certains acquis restent à consolider.'], fragile:['Le bilan de ce trimestre reste fragile.','Les résultats demeurent fragiles ce trimestre.']};
+    const options=name?{excellent:[`${name} réalise un excellent trimestre, avec des résultats très satisfaisants.`,`${name} présente un excellent bilan ce trimestre.`], 'très bon': [`${name} réalise un très bon trimestre.`,`Le travail ${deName} aboutit à un bilan particulièrement satisfaisant.`], bon:[`${name} réalise un bon trimestre dans l’ensemble.`,`Le bilan ${deName} est satisfaisant.`], correct:[`Les résultats ${deName} sont convenables, mais peuvent encore progresser.`,`Le bilan ${deName} est correct, même si certains acquis restent à consolider.`], fragile:[`Le bilan ${deName} reste fragile ce trimestre.`,`Les résultats ${deName} demeurent fragiles.`]}:{excellent:['Un excellent trimestre, marqué par des résultats très satisfaisants.','Le bilan de ce trimestre est excellent.'], 'très bon':['Un très bon trimestre, avec des résultats particulièrement satisfaisants.','Le travail réalisé ce trimestre aboutit à un très bon bilan.'], bon:['Un bon trimestre dans l’ensemble.','Le bilan de ce trimestre est satisfaisant.'], correct:['Les résultats sont convenables, mais peuvent encore progresser.','Le bilan est correct, même si certains acquis restent à consolider.'], fragile:['Le bilan de ce trimestre reste fragile.','Les résultats demeurent fragiles ce trimestre.']};
     opening=select(seed,'opening',options[level]||[name?`${name} présente un bilan qui reste à préciser.`:'Le bilan de ce trimestre reste à préciser.']);
    }
   }
@@ -24,7 +26,9 @@
   const singleHigh=avg!==null&&avg>=16&&values.length>1&&weak===1;
   let mastery;
   if(d.cycleNotAssessable)mastery='Les difficultés ne permettent pas d’évaluer les compétences du cycle.';
-  else if(!values.length)mastery='';
+  else if(!values.length)mastery=avg!==null
+   ?'Les compétences ne sont pas encore suffisamment renseignées pour établir un bilan détaillé.'
+   :'';
   else if(singleHigh)mastery='Les compétences sont globalement maîtrisées.';
   else if(values.every(x=>x>=3.5))mastery='L’ensemble des compétences évaluées est très bien maîtrisé.';
   else if(mean>=2.7&&!weak)mastery='Les compétences évaluées sont globalement bien maîtrisées.';
@@ -105,21 +109,48 @@
   else if(weak)advice=select(seed,'advice',['Un entraînement régulier permettra de consolider les acquis encore fragiles.','La reprise des exercices corrigés et un travail régulier aideront à mieux mobiliser les notions étudiées.']);
   else if(qcu!==null&&qcu<10)advice='Des révisions régulières et espacées sont nécessaires pour mieux mémoriser les connaissances.';
   else if(avg===null&&!values.length)advice='Les prochaines évaluations permettront de mieux apprécier les acquis.';
-  else advice=avg!==null&&avg>=16?'Ce très bon bilan témoigne d’un travail de qualité, à poursuivre.':'';
-  let parts=select(seed,'order',[false,true])
+  else advice=avg!==null&&avg>=16
+   ?'Ce très bon bilan témoigne d’un travail de qualité, à poursuivre.'
+   :'La poursuite d’un travail régulier permettra de consolider les acquis.';
+  const parts=select(seed,'order',[false,true])
    ?[opening,behaviorSentence,mastery,domainSentence,accommodationNote,advice]
    :[opening,mastery,domainSentence,accommodationNote,behaviorSentence,advice];
   const pack=a=>a.filter(Boolean).join(' ');
-  if(pack(parts).length<=400)return pack(parts);
-  // Aucun indicateur « effort » n'est utilisé : il n'est pas renseigné dans le suivi comportemental.
-  // Si l'appréciation dépasse 400 caractères, on compacte les éléments réellement disponibles.
-  const shortIntro=level?(level==='inquiétant'?(name?`${name} : résultats très insuffisants.`:'Résultats très insuffisants.'):(name?`${name} : bilan ${level}.`:`Bilan ${level}.`)):(name?`${name} : bilan encore incomplet.`:'Bilan encore incomplet.');
-  const shortAdvice=singleHigh?'Ce très bon bilan est à poursuivre.':d.cycleNotAssessable?'Les apprentissages sont à poursuivre avec un accompagnement adapté.':weak?'Un entraînement régulier aidera à consolider les acquis.':advice;
-  const short=pack([shortIntro,mastery,compactDomainSentence||domainSentence,accommodationNote,compactBehaviorSentence,shortAdvice]);
-  if(short.length<=400)return short;
-  const result=pack([shortIntro,compactDomainSentence||domainSentence,accommodationNote,compactBehaviorSentence,shortAdvice]);
-  if(result.length<=400)return result;
-  return pack([compactDomainSentence||domainSentence,accommodationNote,compactBehaviorSentence,shortAdvice]);
+  const full=pack(parts);
+  if(full.length<=400)return full;
+
+  // Si le texte est long, condenser les commentaires sans jamais transformer
+  // l'appréciation en « Prénom : bilan bon » ou couper une phrase au milieu.
+  // Maintenir l'introduction complète et un conseil rédigé.
+  const conciseDomain=compactDomainSentence||domainSentence;
+  const conciseAdvice=singleHigh?'Ce très bon bilan est à poursuivre.'
+   :d.cycleNotAssessable?'Poursuivre les apprentissages avec un accompagnement adapté.'
+   :weak?'Un entraînement régulier aidera à consolider les acquis.'
+   :qcu!==null&&qcu<10?'Des révisions régulières aideront à mémoriser les connaissances.'
+   :'Un travail régulier permettra de poursuivre les progrès.';
+  const choices=[
+   [opening,mastery,conciseDomain,accommodationNote,compactBehaviorSentence,conciseAdvice],
+   [opening,mastery,accommodationNote,compactBehaviorSentence,conciseAdvice],
+   [opening,mastery,conciseDomain,accommodationNote,conciseAdvice],
+   [opening,mastery,accommodationNote,conciseAdvice],
+   [opening,conciseDomain,compactBehaviorSentence,conciseAdvice],
+   [opening,mastery,conciseAdvice],
+   [opening,conciseAdvice]
+  ];
+  for(const candidate of choices){
+   const result=pack(candidate);
+   if(result.length<=400)return result;
+  }
+  // Cas extrême de prénom ou de libellés très longs : texte sans prénom,
+  // sans tronquer ni produire un résumé télégraphique.
+  const anonymousOpening=avg===null
+   ?'Les résultats disponibles ne permettent pas encore d’établir un bilan précis.'
+   :level==='inquiétant'?'Les résultats de ce trimestre sont très insuffisants.'
+   :level==='fragile'?'Le trimestre reste fragile.'
+   :level==='correct'?'Les résultats du trimestre sont corrects.'
+   :level==='bon'?'Les résultats du trimestre sont satisfaisants.'
+   :'Les résultats du trimestre sont très satisfaisants.';
+  return pack([anonymousOpening,conciseAdvice]);
  }
  svtAppCompose=function(data){
   let best=build(data,0),least=Infinity;
