@@ -320,6 +320,7 @@ function openQuickCompletion(id){
   '<p>Marquer ce cours comme <strong>Effectué</strong> ?</p>'+
   '<p class="planning-muted">'+esc(label)+'</p>'+
   '<p class="planning-muted">Seul son état sera modifié. La séance associée, les notes, les horaires et la classe resteront inchangés.</p>'+
+  '<p class="planning-alert planning-error" id="quickDoneError" role="alert" hidden></p>'+
   '<div class="planning-footer">'+
   '<button class="planning-btn" type="button" id="quickDoneCancel">Annuler</button>'+
   '<button class="planning-btn primary" type="button" id="quickDoneConfirm">✓ Confirmer effectué</button></div>');
@@ -338,7 +339,9 @@ function openQuickCompletion(id){
   }catch(error){
    state.quickDoneBusy=false;
    submit.disabled=false;cancel.disabled=false;submit.textContent='✓ Confirmer effectué';
-   notify('Cours non confirmé : '+(error.message||'Une erreur a empêché la sauvegarde.'),true);
+   const msg='Cours non confirmé : '+(error.message||'Une erreur a empêché la sauvegarde.');
+   const feedback=$('#quickDoneError');if(feedback){feedback.textContent=msg;feedback.hidden=false;}
+   notify(msg,true);
    return;
   }
   closeModal();
