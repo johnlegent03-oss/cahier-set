@@ -110,7 +110,13 @@ function render(){
  $('#planningEventsView').hidden=state.tab!=='events';
  $('#planningSettingsView').hidden=state.tab!=='settings';
  $('#planningFollowupView').hidden=state.tab!=='followup';
- renderGrid();renderEvents();renderSettings();if(state.tab==='followup')renderFollowup();savePlanningNav();
+ renderGrid();renderEvents();renderSettings();
+ if(state.tab==='followup'){
+  renderFollowup();
+  if(state.followupClass&&!state.followupLoading&&!state.followupError&&state.followupLoadedClass!==state.followupClass)
+   void loadFollowupCahier(state.followupClass);
+ }
+ savePlanningNav();
 }
 /* Projection des événements intégrée : la grille fonctionne même si planning-calendar-events.js manque. */
 function planningWeekEvents(events,weekStart,days=5){
