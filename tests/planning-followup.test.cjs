@@ -142,3 +142,47 @@ test('rendu réel : l’onglet affiche ses compteurs et les cours non liés',()=
  assert.doesNotMatch(elements['#planningFollowupList'].innerHTML,/data-followup-occ="four"/);
  assert.match(elements['#planningFollowupSessions'].innerHTML,/Choisis une classe/);
 });
+
+
+test('démarrage de la page : tous les onglets sont branchés avant le chargement des données',()=>{
+ const vm=require('node:vm');
+ const source=fs.readFileSync(path.join(__dirname,'..','planning.js'),'utf8');
+ const start=source.indexOf('function bind(){');
+ const end=source.lastIndexOf('})();');
+ assert.ok(start>0&&end>start);
+ const tabButtons=[
+  {dataset:{tab:'planning'},onclick:null},
+  {dataset:{tab:'events'},onclick:null},
+  {dataset:{tab:'followup'},onclick:null},
+  {dataset:{tab:'settings'},onclick:null}
+ ];
+ const nodes=new Map();
+ const one=selector=>{
+  if(!nodes.has(selector))nodes.set(selector,{onclick:null,addEventListener(){}});
+  return nodes.get(selector);
+ };
+ const state={tab:'planning',followupClass:'',followupLoadedClass:'',followupLoading:false};
+ let initCalls=0,renderCalls=0;
+ const context={state};
+ // Un bouton simple (querySelector) n'a pas .forEach : une régression
+ // dans le sélecteur empêche bind(), puis init(), de s'exécuter.
+ context.$=one;
+ context.$$=selector=>selector==='.planning-tabs button'?tabButtons:[];
+ context.document={addEventListener:(event,handler)=>{if(event==='DOMContentLoaded')handler();}};
+ context.window={addEventListener(){}};
+ context.init=()=>{initCalls++};
+ context.render=()=>{renderCalls++};
+ context.savePlanningNav=()=>{};
+ context.addEvent=()=>{};
+ context.openPlanningBulk=()=>{};
+ context.closeModal=()=>{};
+ context.loadFollowupCahier=()=>{};
+ vm.createContext(context);
+ vm.runInContext(source.slice(start,end),context);
+ assert.equal(initCalls,1,'L’initialisation doit être déclenchée');
+ assert.ok(tabButtons.every(button=>typeof button.onclick==='function'),
+  'Chaque onglet doit réagir au clic');
+ tabButtons[2].onclick();
+ assert.equal(state.tab,'followup');
+ assert.equal(renderCalls,1);
+});
