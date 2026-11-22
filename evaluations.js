@@ -2025,6 +2025,88 @@ function classQuarterReportHTML(rows){
     '</div>'+
     '<p class="small-note" style="margin:9px 0 0">Les remarques excluent les participations positives et les traces de messages. Les mots envoyés sont comptés uniquement lorsqu’une trace d’envoi est enregistrée, sans compter les mentions positives.</p>';
 }
+// Export A4 autonome : ne passe pas par l'overlay d'impression des grilles.
+function exportClassQuarterReportPDF(){
+  // Ouvrir la fenêtre dès le clic pour éviter le blocage des popups.
+  const popup=window.open("about:blank","_blank");
+  if(!popup){alert("Le navigateur a bloqué l'export PDF. Autorise les fenêtres surgissantes pour ce site.");return;}
+  try{
+    const rows=classTrackingRows();
+    const d=classQuarterReportData(rows);
+    const eligible=rows.filter(s=>classAverageStudentIncluded(s.id));
+    const averages={all:[],experimental:[],theory:[]};
+    eligible.forEach(student=>{
+      const x=studentTrackingScienceAverageDetails(student.evaluations,student.qcu||[],classTrackingClass);
+      if(Number.isFinite(x.final))averages.all.push(x.final);
+      if(Number.isFinite(x.experimental))averages.experimental.push(x.experimental);
+      if(Number.isFinite(x.theory))averages.theory.push(x.theory);
+    });
+    const sixth=studentTrackingIsSixthGrade(classTrackingClass);
+    const roster=behaviorStudentsCache.filter(st=>!classTrackingClass||String(st.classe||"").trim()===String(classTrackingClass).trim());
+    const correctionCount=rows.reduce((sum,student)=>sum+student.evaluations.length,0);
+    const periodName=({year:"Année scolaire",t1:"Trimestre 1",t2:"Trimestre 2",t3:"Trimestre 3"})[classTrackingPeriod]||"Période sélectionnée";
+    const schoolYear=schoolYearStartYear();
+    const range=trackingPeriodRange(classTrackingPeriod);
+    const periodDates=range.start&&range.end?"Du "+range.start.toLocaleDateString("fr-FR")+" au "+range.end.toLocaleDateString("fr-FR"):"Du 1er septembre au 30 juin";
+    const className=classTrackingClass||"Toutes les classes";
+    const asText=value=>esc(String(value??""));
+    const percent=(n,total)=>total?(100*n/total).toFixed(1).replace(".",",")+" %":"—";
+    const bandRows=[
+      ["16 à 20 /20",d.bins.high],
+      ["10 à 15,99 /20",d.bins.middle],
+      ["5 à 9,99 /20",d.bins.low],
+      ["Moins de 5 /20",d.bins.veryLow]
+    ];
+    const masteryRows=[
+      ["Très bonne maîtrise (TBM)",d.mastery.TBM],
+      ["Maîtrise satisfaisante (MS)",d.mastery.MS],
+      ["Maîtrise fragile (MF)",d.mastery.MF],
+      ["Maîtrise insuffisante (MI)",d.mastery.MI]
+    ];
+    const tableRows=(items,total)=>items.map(([label,count])=>
+      "<tr><td>"+asText(label)+"</td><td class='num'>"+count+"</td><td class='num'>"+percent(count,total)+"</td></tr>"
+    ).join("");
+    const stat=(value,label)=>'<div class="stat"><strong>'+asText(value)+'</strong><span>'+asText(label)+'</span></div>';
+    const generalAppreciation=String(document.getElementById("general-class-appreciation")?.value||"").trim();
+    const title="Bilan "+className+" - "+periodName+" - "+schoolYear;
+    const html='<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'+
+      '<title>'+asText(title)+'</title><style>'+
+      '@page{size:A4 portrait;margin:12mm}*{box-sizing:border-box}html,body{margin:0;padding:0}body{font-family:Arial,Helvetica,sans-serif;color:#283b32;background:#fff;font-size:10pt;line-height:1.35}'+
+      '.toolbar{display:flex;align-items:center;justify-content:space-between;background:#edf3ec;padding:12px 15px;margin-bottom:15px;gap:10px}.toolbar button{border:0;border-radius:6px;background:#3c674b;color:white;padding:9px 14px;font-size:10pt;cursor:pointer}'+
+      'h1{font-family:Georgia,serif;color:#31573c;font-size:19pt;margin:0 0 4px}h2{font-family:Georgia,serif;color:#31573c;font-size:12pt;margin:14px 0 7px;padding-bottom:4px;border-bottom:1px solid #cbd8c6}'+
+      '.meta{color:#64746c;font-size:9pt;margin:0 0 12px}.stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px;margin:0 0 12px}.stat{background:#f2f6ef;border:1px solid #dbe5d8;border-radius:6px;padding:9px 6px;text-align:center;min-height:58px}.stat strong{font-size:14pt;color:#31573c;display:block;white-space:nowrap}.stat span{font-size:7.5pt;color:#56675c;display:block;margin-top:4px}'+
+      '.cols{display:grid;grid-template-columns:1fr 1fr;gap:15px;align-items:start}table{width:100%;border-collapse:collapse;margin:0 0 5px}th,td{border-bottom:1px solid #dce4d9;padding:6px 5px;text-align:left;font-size:9pt}th{background:#eaf1e8;color:#31573c}td.num,th.num{text-align:right;white-space:nowrap}tr{break-inside:avoid}'+
+      '.note{font-size:8pt;color:#69746e;margin:6px 0 10px}.foot{font-size:8pt;color:#68786d;border-top:1px solid #d5dfd2;margin-top:15px;padding-top:8px}.appreciation{background:#f7faf5;padding:9px 12px;border-left:3px solid #719275;white-space:pre-wrap;overflow-wrap:anywhere;font-size:9pt}'+
+      '@media print{.toolbar{display:none!important}h2,.stats,.cols,.appreciation{break-inside:avoid-page;page-break-inside:avoid}body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}'+
+      '</style></head><body>'+
+      '<div class="toolbar"><strong>Prévisualisation du bilan</strong><button type="button" onclick="window.print()">Imprimer / Enregistrer en PDF</button></div>'+
+      '<h1>Bilan trimestriel — '+asText(className)+'</h1>'+
+      '<p class="meta">'+asText(periodName)+' · '+asText(schoolYear+"-"+(schoolYear+1))+' · '+asText(periodDates)+'</p>'+
+      '<div class="stats">'+stat(formatAverage20(averages.all),"Moyenne générale /20")+
+      (sixth?stat(formatAverage20(averages.experimental),"Expérimentale /20")+stat(formatAverage20(averages.theory),"Théorie /20"):"")+
+      stat(roster.length,"Élèves inscrits")+stat(correctionCount,"Corrections")+'</div>'+
+      '<div class="cols"><section><h2>Répartition des résultats</h2>'+
+      '<table><thead><tr><th>Moyenne</th><th class="num">Élèves</th><th class="num">Part</th></tr></thead><tbody>'+
+      tableRows(bandRows,d.evaluated)+'</tbody></table>'+
+      '<p class="note"><strong>'+d.evaluated+'</strong> élève(s) avec moyenne · <strong>'+d.withoutScore+'</strong> sans moyenne · <strong>'+(d.bins.low+d.bins.veryLow)+'</strong> sous 10 /20, dont '+d.bins.veryLow+' sous 5 /20.</p></section>'+
+      '<section><h2>Maîtrise des compétences</h2>'+
+      '<table><thead><tr><th>Niveau</th><th class="num">Résultats</th><th class="num">Part</th></tr></thead><tbody>'+
+      tableRows(masteryRows,d.masteryTotal)+'</tbody></table>'+
+      '<p class="note"><strong>'+(d.masteryRate===null?"—":d.masteryRate.toFixed(1).replace(".",",")+" %")+'</strong> TBM ou MS · '+d.competenceCount+' compétence(s) distincte(s) · '+d.masteryTotal+' maîtrise(s) retenue(s).</p></section></div>'+
+      '<h2>Comportement et communications</h2>'+
+      '<div class="stats">'+stat(d.remarks,"Remarques enregistrées")+stat(d.messages,"Mots envoyés")+'</div>'+
+      (generalAppreciation?'<h2>Appréciation générale de la classe</h2><div class="appreciation">'+asText(generalAppreciation)+'</div>':"")+
+      '<p class="foot">Bilan généré depuis le suivi de classe. Notes calculées selon les règles du site, avec exclusion des élèves non comptabilisés dans la moyenne de classe. Maîtrise : dernière observation du trimestre par élève et compétence. Les mots envoyés sont distincts des remarques, et les mentions positives ne sont pas comptées parmi les mots.</p>'+
+      '<script>window.addEventListener("load",function(){window.focus();window.print();},{once:true});<\/script></body></html>';
+    popup.document.open();
+    popup.document.write(html);
+    popup.document.close();
+  }catch(e){
+    if(popup&&!popup.closed)popup.close();
+    alert("Impossible de générer le bilan PDF : "+(e?.message||e));
+  }
+}
+
 function updateClassQuarterReport(){
   const target=document.getElementById("class-quarter-report");
   if(target)target.innerHTML=classQuarterReportHTML(classTrackingRows());
@@ -2075,10 +2157,22 @@ function installClassTrackingTabs(){
   summarySection.appendChild(summary);
   bilanPanel.appendChild(summarySection);
   const report=document.createElement("section");
-  report.id="class-quarter-report";
   report.className="hero";
   report.style.marginTop="14px";
-  report.innerHTML=classQuarterReportHTML(classTrackingRows());
+  const actions=document.createElement("div");
+  actions.className="row";
+  actions.style.cssText="margin:0 0 12px;justify-content:flex-end";
+  const pdfButton=document.createElement("button");
+  pdfButton.type="button";
+  pdfButton.className="primary";
+  pdfButton.textContent="📄 Exporter le bilan en PDF";
+  pdfButton.addEventListener("click",exportClassQuarterReportPDF);
+  actions.appendChild(pdfButton);
+  report.appendChild(actions);
+  const reportBody=document.createElement("div");
+  reportBody.id="class-quarter-report";
+  reportBody.innerHTML=classQuarterReportHTML(classTrackingRows());
+  report.appendChild(reportBody);
   bilanPanel.appendChild(report);
   bilanPanel.appendChild(general);
   elevesPanel.appendChild(details);
