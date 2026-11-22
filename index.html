@@ -760,6 +760,17 @@ function sanitizeRichHtml(value){
       if(name==="open"&&el.tagName==="DETAILS")return;
       el.removeAttribute(attr.name);
     });
+    // Réappliquer ces attributs après le nettoyage : les attributs
+    // target/rel du lien d'origine peuvent être supprimés pendant la boucle.
+    if(el.tagName==="A"&&el.hasAttribute("href")){
+      const link=new URL(el.getAttribute("href"),location.href);
+      if(link.origin===location.origin&&link.hash&&!link.search){
+        el.removeAttribute("target");el.removeAttribute("rel");
+      }else{
+        el.setAttribute("target","_blank");
+        el.setAttribute("rel","noopener noreferrer");
+      }
+    }
   });
   return root.innerHTML;
 }

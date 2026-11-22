@@ -23,3 +23,60 @@ jobs:
           done
       - name: Tester les règles de calcul et les chargements
         run: node --test tests/*.test.cjs
+
+  impression_chromium:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Préparer le contrôle PDF dans Chrome
+        run: npm install --no-save --ignore-scripts playwright-core@1.56.1
+      - name: Vérifier deux feuilles A4 en portrait et paysage
+        run: node tests/atelier-print-browser.cjs
+      - name: Vérifier édition et ajustement des textes et tableaux
+        run: node tests/atelier-edition-browser.cjs
+      - name: Vérifier les copies de secours et conflits de sauvegarde
+        run: node tests/atelier-sauvegardes-browser.cjs
+      - name: Vérifier le lien cahier et la lecture élève
+        run: node tests/atelier-cahier-browser.cjs
+      - name: Vérifier sauvegarde et réouverture de la fiche complète
+        run: node tests/atelier-reouverture-browser.cjs
+      - name: Conserver les PDF d'essai pour contrôle visuel
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: atelier-pdf-exemples
+          path: test-artifacts/*.pdf
+          if-no-files-found: ignore
+          retention-days: 7
+
+  compatibilite_multinavigateurs:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    container:
+      image: mcr.microsoft.com/playwright:v1.56.1-noble
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Utiliser les moteurs Firefox et WebKit de l'image Playwright
+        run: npm install --no-save --ignore-scripts playwright-core@1.56.1
+      - name: Tester l'atelier dans Firefox et WebKit
+        env:
+          HOME: /root
+        run: node tests/atelier-multinavigateurs-browser.cjs
+
+  verification_lecture_publique:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Tester en lecture seule la RPC publiée et la classe TEST
+        run: node tests/atelier-preflight-public-live.cjs

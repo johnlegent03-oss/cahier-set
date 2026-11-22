@@ -34,15 +34,23 @@
   frame.srcdoc='<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="'+csp+'"><style>'+layoutCss+'</style></head><body>'+doc.body.innerHTML+'</body></html>';
   document.getElementById('title').textContent=title;document.title=title+' — SVT';
   const wrap=document.getElementById('sheet-wrap');wrap.hidden=false;status.hidden=true;
-  // Sur téléphone, on conserve la largeur A4 de la fiche puis on réduit
-  // visuellement l'iframe pour qu'elle tienne dans la largeur disponible.
+  // Respecter la largeur réellement enregistrée : 794 px en portrait et
+  // 1123 px en paysage. Le cadre contient aussi les 12 px de marges de lecture.
+  const paper=doc.querySelector('.paper.herbier-export');
+  const measuredWidth=Number.parseFloat(paper?.style.width||'');
+  const paperWidth=[794,1123].includes(Math.round(measuredWidth))?Math.round(measuredWidth):794;
+  const readingWidth=paperWidth+24;
   const resizeSheet=()=>{
    const mobile=window.matchMedia('(max-width: 700px)').matches;
-   if(!mobile){frame.style.width='100%';frame.style.height='100%';frame.style.transform='none';return;}
-   const pageWidth=794; // largeur CSS habituelle d'une page A4 à 96 dpi
-   const scale=Math.min(1,wrap.clientWidth/pageWidth);
-   frame.style.width=pageWidth+'px';
-   frame.style.height=(wrap.clientHeight/scale)+'px';
+   if(!mobile){
+    frame.style.width='100%';frame.style.height='100%';
+    frame.style.transform='none';
+    return;
+   }
+   const scale=Math.min(1,Math.max(0.1,(wrap.clientWidth-2)/readingWidth));
+   frame.style.width=readingWidth+'px';
+   frame.style.height=Math.ceil(wrap.clientHeight/scale)+'px';
+   frame.style.transformOrigin='top left';
    frame.style.transform='scale('+scale+')';
   };
   resizeSheet();window.addEventListener('resize',resizeSheet,{passive:true});
