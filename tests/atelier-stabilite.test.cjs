@@ -7,16 +7,16 @@ const vm=require('node:vm');
 const source=fs.readFileSync(path.join(__dirname,'..','atelier.html'),'utf8');
 
 test('tous les scripts intégrés à l’atelier restent syntaxiquement valides',()=>{
-  const scripts=[...source.matchAll(/<script\\b([^>]*)>([\\s\\S]*?)<\\/script>/gi)];
+  const scripts=[...source.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)];
   assert.ok(scripts.length>=2,'scripts intégrés introuvables');
   for(let i=0;i<scripts.length;i++){
-    if(/type=["']application\\/json/.test(scripts[i][1]))continue;
+    if(/type=["']application\/json/.test(scripts[i][1]))continue;
     assert.doesNotThrow(()=>new vm.Script(scripts[i][2],{filename:'atelier-inline-'+i+'.js'}));
   }
 });
 
 test('le changement de page ne déplace que le défilement de l’éditeur',()=>{
-  const m=source.match(/function scrollStageToPage\\(index\\)\\{([\\s\\S]*?)\\n\\}/);
+  const m=source.match(/function scrollStageToPage\(index\)\{([\s\S]*?)\n\}/);
   assert.ok(m,'fonction de navigation localisée absente');
   const scrollStageToPage=new Function('$','index',m[1]);
   let target=null,selector='';
@@ -59,9 +59,9 @@ test('la saisie crée une seule étape d’annulation par session, puis réarme 
 });
 
 test('les gestes immobiles ne créent pas de faux états dans l’historique',()=>{
-  assert.match(source,/if\\(control\\)\\{if\\(!mutable\\(\\)\\)return;finish\\(\\);let rotating=/);
-  assert.match(source,/if\\(!mutable\\(\\)\\)return;finish\\(\\);gesture=\\{type:'move'/);
-  assert.match(source,/if\\(Math\\.hypot\\([^;]+<6\\)return;g\\.dragStarted=true;checkpoint\\(\\)/);
+  assert.match(source,/if\(control\)\{if\(!mutable\(\)\)return;finish\(\);let rotating=/);
+  assert.match(source,/if\(!mutable\(\)\)return;finish\(\);gesture=\{type:'move'/);
+  assert.match(source,/if\(Math\.hypot\([^;]+<6\)return;g\.dragStarted=true;checkpoint\(\)/);
 });
 
 test('Ctrl/Cmd + S sauvegarde le brouillon sur l’appareil',()=>{
