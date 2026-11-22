@@ -1400,7 +1400,10 @@ async function saveCloud(copy=false){
     status('Préparation des images et enregistrement…');
     await uploadHerbierImages();
     if(!user||user.id!==owner)throw Error('La session a changé pendant l’enregistrement. Réessaie après connexion.');
-    const payload={user_id:owner,...context(),titre:project.title||'Document sans titre',
+    // Un document déjà publié doit garder sa classe/chapitre/séance :
+    // modifier ces champs lors d'une simple édition casserait ses anciens liens élèves.
+    // Pour rattacher la fiche ailleurs, créer une copie indépendante.
+    const payload={user_id:owner,...(id?{}:context()),titre:project.title||'Document sans titre',
       contenu_html:cloudHTML(),nb_pages:project.pages.length,document_type:project.documentType,
       is_graded:project.graded,coefficient:project.documentType==='evaluation'?1:.5,
       updated_at:new Date().toISOString()};
@@ -1474,6 +1477,22 @@ async function addToSession(){
     const cx=context(),code=atelierClassCode(cx.classe);
     if(!code||!cx.cahier_id||cx.chapitre_index===null||cx.seance_index===null)throw Error('Choisis une classe, un chapitre et une séance.');
     if(!confirm('Enregistrer la fiche et ajouter uniquement son lien à la séance ?'))return;
+    // Cette fiche peut déjà être publiée : un second rattachement ne doit pas
+    // modifier ses métadonnées ni rendre les anciens liens élèves indisponibles.
+    if(cloudId&&cloudOwner===user.id){
+      etape='vérification de l’affectation actuelle';
+      const {data:stored,error:storedError}=await sb.from('atelier_documents')
+        .select('classe,cahier_id,chapitre_index,seance_index')
+        .eq('id',cloudId).eq('user_id',user.id).maybeSingle();
+      if(storedError)throw storedError;
+      if(!stored)throw Error('Fiche enregistrée introuvable : ouvre de nouveau le document dans la banque.');
+      const sameIndex=(value,index)=>value==null?index==null:Number(value)===index;
+      if(stored.classe!==cx.classe||
+         String(stored.cahier_id||'')!==String(cx.cahier_id||'')||
+         !sameIndex(stored.chapitre_index,cx.chapitre_index)||
+         !sameIndex(stored.seance_index,cx.seance_index))
+        throw Error('Cette fiche est déjà affectée à une autre classe, un autre chapitre ou une autre séance. Pour protéger ses liens élèves, utilise « Enregistrer une copie » avant de l’ajouter ici.');
+    }
     etape='banque de documents';
     if(!await saveCloud(false))return;
     const id=String(cloudId||'');
