@@ -136,5 +136,5 @@ body.planning-page{margin:0;background:#f5f2e5;color:var(--pl-ink);font-family:I
 
 /* Les cours étendus sur plusieurs sous-créneaux occupent toute la hauteur. */
 .planning-grid td.planning-spanning-cell{background:#f7faf2}
-.planning-grid td.planning-spanning-cell>.planning-course-wrap:only-child{display:flex;flex-direction:column;min-height:calc(var(--planning-span-rows,1)*76px - 16px)}
+.planning-grid td.planning-spanning-cell>.planning-course-wrap:only-child{display:flex;flex-direction:column;min-height:var(--planning-span-height,60px)}
 .planning-grid td.planning-spanning-cell>.planning-course-wrap:only-child>.planning-course{flex:1}
