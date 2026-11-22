@@ -2082,6 +2082,103 @@ function exportPdfLink(labelText,url){
   const href=safeHttpUrl(url);if(!href)return "";
   return `<div class="cahier-pdf"><strong>📄 ${esc(labelText)}</strong><br><a href="${esc(href)}" target="_blank" rel="noopener noreferrer">Ouvrir le PDF associé</a></div>`;
 }
+function openCahierExportTab(title, contentHtml) {
+  // Ouverture synchrone depuis le clic : Firefox ne traite pas cela comme un popup différé.
+  const tab = window.open("", "_blank");
+  if (!tab) {
+    alert("Firefox a bloqué le nouvel onglet. Autorise les fenêtres surgissantes pour ce site, puis réessaie.");
+    return false;
+  }
+  const sourceLogo = document.querySelector(".brand .logo img");
+  const logo = sourceLogo?.src
+    ? `<img class="export-logo" src="${esc(sourceLogo.src)}" alt="Logo SVT">`
+    : "";
+  const css = `
+    :root{color-scheme:light;--forest:#34513a;--sage:#6f8966;--ivory:#fffdf5;--line:#d9e2cb}
+    *{box-sizing:border-box}
+    html{background:#f3f2e8}
+    body{margin:0;color:#344e39;background:#f3f2e8;font:14px/1.65 Arial,sans-serif}
+    .export-toolbar{position:sticky;top:0;z-index:5;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px max(20px,calc((100vw - 1000px)/2));background:#fffdf5;border-bottom:1px solid var(--line)}
+    .export-toolbar strong{font:700 16px Georgia,serif;color:var(--forest)}
+    .export-toolbar button{border:0;background:var(--forest);color:#fff;padding:10px 16px;border-radius:9px;cursor:pointer;font:700 13px Arial,sans-serif}
+    .export-container{max-width:950px;margin:26px auto 50px;padding:0 18px}
+    .print-page{background:var(--ivory);border:1px solid var(--line);border-radius:14px;margin:0 0 22px;padding:34px 42px;box-shadow:0 8px 24px #40593413;overflow-wrap:anywhere}
+    .print-page h1,.print-page h2,.print-page h3{font-family:Georgia,"Times New Roman",serif;line-height:1.22}
+    .print-page h1{font-size:29px;color:var(--forest);margin:10px 0 22px}
+    .print-page h2{font-size:21px;color:#466b46;margin:22px 0 10px}
+    .print-page h3{font-size:17px;color:#527249;margin:15px 0 8px}
+    .cahier-kicker{font:700 10px/1.6 Arial,sans-serif;letter-spacing:1.6px;text-transform:uppercase;color:#788a66}
+    .cahier-cover{min-height:500px;display:flex;flex-direction:column;justify-content:center;text-align:center;background:linear-gradient(130deg,#fffdf5,#e8eedc)}
+    .cahier-cover h1{font-size:44px}
+    .cahier-cover .subtitle{font:italic 19px Georgia,serif;color:#58724f}
+    .cahier-page section{margin:18px 0;border-top:1px solid #e1e7d8;padding-top:8px}
+    .cahier-page section:first-of-type{border:0}
+    .cahier-page .problem{border-left:4px solid #839b70;background:#eef2e2;padding:12px 14px;border-radius:0 8px 8px 0}
+    .session-print{border:1px solid #d8e2cf!important;background:#fafbf5;border-radius:10px;padding:14px 16px!important;margin:20px 0!important}
+    .session-print>h2{margin-top:3px}
+    .entry-print{border-top:1px solid #e2e9d8;padding:10px 0}
+    .date-print{color:#738768;font:700 11px Arial,sans-serif;margin:6px 0}
+    .cahier-pdf{border:1px dashed #b7cba9;background:#f4f7ee;padding:9px 12px;border-radius:8px;font-size:12px;margin:10px 0}
+    .cahier-pdf a{color:#315f48;text-decoration:underline;text-underline-offset:3px}
+    .rich-content{line-height:1.65;overflow-wrap:anywhere}
+    .rich-content p{margin:8px 0}
+    .rich-content img{display:block;max-width:100%;height:auto;object-fit:contain}
+    .rich-content table{width:100%;border-collapse:collapse;max-width:100%}
+    .rich-content th,.rich-content td{border:1px solid #c5d2bd;padding:7px;vertical-align:top}
+    .rich-content iframe,.rich-content video{max-width:100%}
+    .rich-content pre{white-space:pre-wrap;overflow-wrap:anywhere}
+    .cahier-footer{font:11px Arial,sans-serif;color:#788775;border-top:1px solid var(--line);padding-top:10px;margin-top:25px}
+    .export-brand{display:flex;align-items:center;gap:15px;justify-content:center;margin:0 0 20px}
+    .export-brand h1{margin:0}
+    .export-logo{width:48px;height:48px;object-fit:contain}
+    .print-page:not(.cahier-cover) .export-brand{justify-content:flex-start}
+    @media(max-width:650px){
+      .export-toolbar{padding:12px 15px}.export-toolbar strong{font-size:12px}
+      .print-page{padding:24px 17px}.cahier-cover h1{font-size:32px}
+    }
+    @page{size:A4 portrait;margin:14mm}
+    @media print{
+      html,body{background:#fff!important;margin:0;padding:0}
+      .export-toolbar{display:none!important}
+      .export-container{max-width:none;margin:0;padding:0}
+      .print-page{background:#fff!important;border:0;box-shadow:none;border-radius:0;margin:0;padding:0;overflow:visible;break-after:page;page-break-after:always}
+      .print-page:last-child{break-after:auto;page-break-after:auto}
+      .cahier-cover{min-height:240mm;background:#fff!important}
+      .session-print{background:#fff}
+      .print-page section{break-inside:auto}
+      .entry-print,.cahier-pdf,.date-print{break-inside:avoid;page-break-inside:avoid}
+      .rich-content img{max-height:240mm;break-inside:avoid;page-break-inside:avoid}
+      .rich-content table{table-layout:fixed}
+      .rich-content tr{break-inside:avoid}
+      .rich-content iframe,.rich-content video{display:none!important}
+      h1,h2,h3{break-after:avoid-page;page-break-after:avoid}
+      a{color:#34513a;text-decoration:underline}
+      body{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    }`;
+  const escapedTitle = esc(title);
+  const html = `<!doctype html><html lang="fr"><head><meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <base href="${esc(document.baseURI)}">
+    <title>${escapedTitle}</title><style>${css}</style></head>
+    <body>
+      <div class="export-toolbar"><strong>${escapedTitle}</strong>
+        <button type="button" onclick="window.print()">Imprimer / Enregistrer en PDF</button>
+      </div>
+      <main class="export-container">${contentHtml}</main>
+    </body></html>`;
+  try {
+    tab.document.open();
+    tab.document.write(html);
+    tab.document.close();
+    tab.opener = null;
+    tab.focus();
+    return true;
+  } catch (error) {
+    try { tab.close(); } catch (_) {}
+    alert("Impossible de créer l'aperçu du cahier : " + error.message);
+    return false;
+  }
+}
 function exportCahierPDF(){
   try{
     if(!currentClassData?.contenu?.chapitres?.length){
@@ -2114,7 +2211,7 @@ function exportCahierPDF(){
       pages+=body;
     });
     const intro=`<div class="print-page cahier-cover"><div class="cahier-kicker">Cahier numérique de SVT</div><h1>${esc(classe||"Classe")}</h1><p class="subtitle">Contenu du cahier exporté pour impression</p><p class="small-note">Les contenus textuels, activités, bilans et informations de séances sont regroupés dans l'ordre du cahier. Les PDF associés sont indiqués comme documents à ouvrir/imprimer séparément.</p></div>`;
-    printHtmlInCurrentWindow(`Cahier de SVT — ${classe||"Classe"}`,intro+pages,`\n      .cahier-cover{display:flex;flex-direction:column;justify-content:center;min-height:260mm;text-align:center}\n      .cahier-cover h1{font-size:34px!important;margin:15px 0!important}\n      .cahier-cover .subtitle{font-size:18px;margin:0 0 20px}\n      .cahier-kicker{font-size:11px;text-transform:uppercase;letter-spacing:.12em;color:#34796a;font-weight:800;margin-bottom:8px}\n      .cahier-page h1{font-size:25px!important;border-bottom:2px solid #333;padding-bottom:8px}\n      .cahier-page section{margin:12px 0 18px}\n      .cahier-page h2{font-size:17px!important;margin:13px 0 7px!important}\n      .cahier-page h3{font-size:14px!important;margin:10px 0 5px!important}\n      .rich-content{line-height:1.55}\n      .problem{border-left:4px solid #34796a;background:#f4faf7;padding:10px 12px}\n      .session-print{border:1px solid #d8e2de;border-radius:8px;padding:10px;margin:12px 0}\n      .entry-print{border-top:1px solid #e5ebe8;padding:7px 0}\n      .date-print{font-size:10px;color:#666;margin-bottom:4px}\n      .cahier-pdf{margin-top:7px;padding:7px 9px;border:1px dashed #9fbab0;background:#f7fbf9;font-size:10px}\n      .cahier-pdf a{color:#286456;text-decoration:underline}\n      .cahier-footer{margin-top:18px;padding-top:7px;border-top:1px solid #ccc;font-size:9px;color:#666}\n    `);
+     openCahierExportTab(`Cahier de SVT — ${classe||"Classe"}`,intro+pages);
   }catch(e){alert("Export du cahier impossible : "+e.message);}
 }
 async function newChapter(){
