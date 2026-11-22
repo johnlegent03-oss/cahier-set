@@ -104,3 +104,41 @@ test('l’interface propose la lecture seule et un accès volontaire à chaque c
  assert.match(js,/if\(item\)editOccurrence\(item\.dataset\.followupOcc\)/);
  assert.doesNotMatch(js.match(/function renderFollowup\(\)[\s\S]*?async function loadFollowupCahier/)[0],/\.update\(|\.insert\(|\.upsert\(/);
 });
+
+
+test('rendu réel : l’onglet affiche ses compteurs et les cours non liés',()=>{
+ const vm=require('node:vm');
+ const source=fs.readFileSync(path.join(__dirname,'..','planning.js'),'utf8');
+ const start=source.indexOf('function renderFollowup(){');
+ const end=source.indexOf('async function loadFollowupCahier(',start);
+ assert.ok(start>0&&end>start);
+ const elements={};
+ for(const id of ['planningFollowupView','planningFollowupClass','planningFollowupFilter',
+  'planningFollowupSummary','planningFollowupList','planningFollowupSessions']){
+  elements['#'+id]={innerHTML:'',textContent:'',value:''};
+ }
+ const state={
+  followupClass:'',followupFilter:'missing',followupLoadedClass:'',
+  followupSessions:null,followupLoading:false,followupError:'',
+  period:{start_date:'2026-09-01',end_date:'2027-07-03'},
+  occurrences:[
+   occ('one','2026-11-23','planned'),
+   occ('two','2026-11-17','completed',{cahier_planning_uid:'uid-1'}),
+   occ('three','2026-11-18','planned'),
+   occ('four','2026-11-19','completed',{notes:'[SVT:CRENEAU:v1:evaluation]\nContrôle'})
+  ],cahierSessionsByUid:{'uid-1':{chapterTitle:'Chapitre 1',sessionTitle:'Séance 1'}}
+ };
+ const ctx={
+  state,CLASSES:['6e2'],window:{PlanningFollowup:require('../planning-followup.js')},
+  $:id=>elements[id]||null,iso:()=> '2026-11-22',
+  esc:v=>String(v??'').replace(/[&<>]/g,s=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[s]))
+ };
+ vm.createContext(ctx);vm.runInContext(source.slice(start,end),ctx);
+ ctx.renderFollowup();
+ assert.match(elements['#planningFollowupSummary'].innerHTML,/Sans séance associée/);
+ assert.match(elements['#planningFollowupSummary'].innerHTML,/>2<\/strong>/);
+ assert.match(elements['#planningFollowupList'].innerHTML,/data-followup-occ="one"/);
+ assert.match(elements['#planningFollowupList'].innerHTML,/data-followup-occ="three"/);
+ assert.doesNotMatch(elements['#planningFollowupList'].innerHTML,/data-followup-occ="four"/);
+ assert.match(elements['#planningFollowupSessions'].innerHTML,/Choisis une classe/);
+});
