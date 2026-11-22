@@ -7493,7 +7493,7 @@ async function saveCorrection(evalId,correctionId,eleve,eleveId,next=false){
 }
 /* ==================== SUIVI PP — V62 ==================== */
 const PP_TABLES={events:"PP_Events",contacts:"PP_Contacts",amenagements:"PP_Amenagements",actions:"PP_Actions",conseils:"PP_Conseils",moyennes:"PP_Moyennes"};
-const PP_DISCIPLINES=[{nom:"Français",coef:3},{nom:"Mathématiques",coef:3},{nom:"Anglais",coef:2},{nom:"Histoire-Géographie",coef:2},{nom:"Arts plastiques",coef:1},{nom:"Éducation musicale",coef:1},{nom:"EPS",coef:2}];
+const PP_DISCIPLINES=[{nom:"Français",coef:3},{nom:"Mathématiques",coef:3},{nom:"Anglais",coef:3},{nom:"Histoire-Géographie",coef:2},{nom:"Arts plastiques",coef:1},{nom:"Éducation musicale",coef:1},{nom:"EPS",coef:2}];
 const PP_SCIENCES={pc:"Physique-Chimie",svt:"SVT",coef:2};
 let ppStudents=[],ppClass="6e3",ppStudentId="",ppPeriod="year";
 function ppName(s){return `${safe(s?.prenom)} ${safe(s?.nom)}`.trim()||"Élève"}
@@ -7783,9 +7783,10 @@ function ppWeightedAverage(grades){
     const v=by.get(d.nom);
     if(v!==null&&v!==undefined){total+=v*d.coef;coefTotal+=d.coef;}
   });
-  const pc=by.get(PP_SCIENCES.pc),svt=by.get(PP_SCIENCES.svt);
-  if(pc!==null&&pc!==undefined&&svt!==null&&svt!==undefined){
-    total+=((pc+svt)/2)*PP_SCIENCES.coef;coefTotal+=PP_SCIENCES.coef;
+  // École Directe : SVT et Physique-Chimie sont deux matières distinctes, coef. 2 chacune.
+  for(const subject of [PP_SCIENCES.pc,PP_SCIENCES.svt]){
+    const value=by.get(subject);
+    if(value!==null&&value!==undefined){total+=value*PP_SCIENCES.coef;coefTotal+=PP_SCIENCES.coef;}
   }
   return coefTotal?total/coefTotal:null;
 }
@@ -7821,8 +7822,8 @@ function ppGradesEditor(grades){
   const pcVal=ppNumericGrade(by.get("Physique-Chimie")?.moyenne);
   const svtVal=ppNumericGrade(by.get("SVT")?.moyenne);
   const scienceAvg=(pcVal!=null&&svtVal!=null)?((Number(pcVal)+Number(svtVal))/2):null;
-  const scienceHtml=`<div class="pp-sciences"><div class="pp-sciences-title"><div><strong>Sciences</strong> <span class="small-note">coef. 2 dans la moyenne générale</span></div><span class="small-note">PC + SVT regroupées</span></div><div class="pp-sciences-fields"><div class="pp-sciences-field"><label>Physique-Chimie <span class="small-note">coef. 2</span></label><input class="pp-grade" data-discipline="Physique-Chimie" type="number" min="0" max="20" step="0.01" value="${pcVal==null?"":esc(pcVal)}" placeholder="/20"></div><div class="pp-sciences-field"><label>SVT <span class="small-note">coef. 2</span></label><input class="pp-grade" data-discipline="SVT" type="number" min="0" max="20" step="0.01" value="${svtVal==null?"":esc(svtVal)}" placeholder="/20"></div></div><div class="pp-sciences-average">Moyenne Sciences : <output id="ppScienceAverage">${scienceAvg==null?"—":ppFormatGrade(scienceAvg)+" /20"}</output></div><div class="small-note" style="margin-top:6px">Les deux moyennes sont regroupées en une seule moyenne Sciences, qui compte coef. 2 dans la moyenne générale.</div></div>`;
-  return `<div class="pp-grades"><div class="small-note" style="margin-bottom:10px">Les coefficients sont appliqués automatiquement. Pour Sciences, saisis les moyennes École Directe de Physique-Chimie et de SVT.</div>${PP_DISCIPLINES.map(d=>{const r=by.get(d.nom)||{};return `<div class="pp-grade-row"><label>${esc(d.nom)} <span class="small-note">coef. ${d.coef}</span></label><input class="pp-grade" data-discipline="${esc(d.nom)}" type="number" min="0" max="20" step="0.01" value="${r.moyenne==null?"":esc(r.moyenne)}" placeholder="/20"></div>`}).join("")}${scienceHtml}</div>`;
+  const scienceHtml=`<div class="pp-sciences"><div class="pp-sciences-title"><div><strong>Sciences</strong> <span class="small-note">2 matières, coefficient 2 chacune</span></div><span class="small-note">Moyennes École Directe séparées</span></div><div class="pp-sciences-fields"><div class="pp-sciences-field"><label>Physique-Chimie <span class="small-note">coef. 2</span></label><input class="pp-grade" data-discipline="Physique-Chimie" type="number" min="0" max="20" step="0.01" value="${pcVal==null?"":esc(pcVal)}" placeholder="/20"></div><div class="pp-sciences-field"><label>SVT <span class="small-note">coef. 2</span></label><input class="pp-grade" data-discipline="SVT" type="number" min="0" max="20" step="0.01" value="${svtVal==null?"":esc(svtVal)}" placeholder="/20"></div></div><div class="pp-sciences-average">Moyenne Sciences : <output id="ppScienceAverage">${scienceAvg==null?"—":ppFormatGrade(scienceAvg)+" /20"}</output></div><div class="small-note" style="margin-top:6px">La SVT et la Physique-Chimie sont prises en compte séparément, chacune avec un coefficient 2 dans la moyenne générale.</div></div>`;
+  return `<div class="pp-grades"><div class="small-note" style="margin-bottom:10px">Les coefficients correspondent au bulletin École Directe fourni, avec anglais coefficient 3 et SVT / Physique-Chimie coefficient 2 chacune.</div>${PP_DISCIPLINES.map(d=>{const r=by.get(d.nom)||{};return `<div class="pp-grade-row"><label>${esc(d.nom)} <span class="small-note">coef. ${d.coef}</span></label><input class="pp-grade" data-discipline="${esc(d.nom)}" type="number" min="0" max="20" step="0.01" value="${r.moyenne==null?"":esc(r.moyenne)}" placeholder="/20"></div>`}).join("")}${scienceHtml}</div>`;
 }
 function ppCollectGrades(){
   const out=[];
@@ -8022,7 +8023,7 @@ function ppCouncilAcademicHtml(data,period){
     '<p class="small-note">Moyenne des moyennes générales pondérées des élèves disposant de résultats, sans assimiler une note manquante à 0.</p></div>'+
     '<button type="button" onclick="ppCouncilRefreshAcademic()">↻ Actualiser</button></div>'+
     report+tableDist+tableSubjects+alertTable+
-    '<p class="small-note" style="margin-top:12px">La moyenne est indicative si des disciplines manquent. Les sciences comptent comme un seul ensemble (coefficient 2), à condition de disposer des moyennes de SVT et Physique-Chimie.</p>'+
+    '<p class="small-note" style="margin-top:12px">La moyenne est indicative lorsque certaines disciplines ne sont pas renseignées. En accord avec le bulletin École Directe, la SVT et la Physique-Chimie comptent séparément, coefficient 2 chacune.</p>'+
     (data.duplicates?'<p class="small-note" role="alert">⚠️ '+data.duplicates+' doublon(s) élève-discipline ignoré(s).</p>':"")+
     (data.invalid?'<p class="small-note">'+data.invalid+' valeur(s) absente(s) ou invalide(s) écartée(s).</p>':"")+
     '<h4 style="margin-top:16px">Maîtrise des compétences</h4>'+
