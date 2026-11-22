@@ -7497,89 +7497,6 @@ const PP_DISCIPLINES=[{nom:"Français",coef:3},{nom:"Mathématiques",coef:3},{no
 const PP_SCIENCES={pc:"Physique-Chimie",svt:"SVT",coef:2};
 /* Niveaux de maîtrise distincts des moyennes, par discipline, élève et trimestre. */
 const PP_MASTERY_TABLE="PP_Maitrises";
-// Les graphiques de socle ne se déduisent jamais des notes ou des maîtrises par matière.
-const PP_SOCLE_TABLE="PP_Socle";
-const PP_SOCLE_COMPONENTS=[
-  ["1.a","Langue française à l’oral et à l’écrit"],
-  ["1.b","Langue étrangère ou régionale"],
-  ["1.c","Langages mathématiques, scientifiques et informatiques"],
-  ["1.d","Langages des arts et du corps"],
-  ["2","Méthodes et outils pour apprendre"],
-  ["3","Formation de la personne et du citoyen"],
-  ["4","Systèmes naturels et systèmes techniques"],
-  ["5","Représentations du monde et activité humaine"]
-];
-const PP_SOCLE_CATEGORIES=[
-  ["non_atteint","Non atteint","#e45b58"],
-  ["partiellement_atteint","Partiellement atteint","#e4b542"],
-  ["atteint","Atteint","#267cc8"],
-  ["depasse","Dépassé","#27a86b"]
-];
-async function ppLoadSocle(studentId,period){
-  const {data,error}=await sb.from(PP_SOCLE_TABLE).select("*")
-    .eq("eleve_id",String(studentId)).eq("periode",period).eq("created_by",String(user?.id||""));
-  if(error)throw new Error("Lecture des composantes du socle impossible : "+error.message);
-  return data||[];
-}
-function ppSocleEditor(rows=[]){
-  const by=new Map(rows.map(x=>[String(x.composante),x]));
-  return '<details class="pp-socle-editor"><summary><strong>Composantes du socle commun (ÉcoleDirecte)</strong> — saisir les pourcentages</summary>'+
-    '<p class="small-note">Renseigner les 4 pourcentages affichés dans ÉcoleDirecte pour chaque composante. Laisser les quatre champs vides si la composante n’est pas renseignée. Les arrondis à 99 % ou 101 % sont acceptés.</p>'+
-    '<div class="pp-socle-grid">'+PP_SOCLE_COMPONENTS.map(([code,title])=>{
-      const m=by.get(code)||{};
-      return '<div class="pp-socle-entry"><strong>'+esc(code)+' — '+esc(title)+'</strong><div class="pp-socle-fields">'+
-        PP_SOCLE_CATEGORIES.map(([key,label])=>{
-          const value=m[key];
-          return '<label>'+esc(label)+' (%)<input class="pp-socle-part" type="number" min="0" max="100" step="1" data-composante="'+esc(code)+'" data-categorie="'+key+'" value="'+(value==null?'':esc(value))+'" placeholder="—"></label>';
-        }).join('')+'</div></div>';
-    }).join('')+'</div></details>';
-}
-function ppCollectSocle(){
-  const out=[];
-  for(const [code] of PP_SOCLE_COMPONENTS){
-    const fields=[...document.querySelectorAll('.pp-socle-part')].filter(el=>el.dataset.composante===code);
-    if(!fields.length)continue;
-    const values=fields.map(el=>String(el.value).trim());
-    if(values.every(v=>v===""))continue;
-    if(values.some(v=>v===""))throw new Error("Renseigne les quatre pourcentages pour la composante "+code+".");
-    const numbers=values.map(Number);
-    if(numbers.some(n=>!Number.isInteger(n)||n<0||n>100))
-      throw new Error("Pourcentages invalides pour la composante "+code+".");
-    const total=numbers.reduce((a,b)=>a+b,0);
-    if(total<98||total>102)
-      throw new Error("Les pourcentages de "+code+" totalisent "+total+" %, au lieu d’environ 100 %.");
-    out.push({composante:code,non_atteint:numbers[0],partiellement_atteint:numbers[1],atteint:numbers[2],depasse:numbers[3]});
-  }
-  return out;
-}
-async function ppPersistSocle(student,period,values){
-  const old=await ppLoadSocle(student.id,period);
-  const by=new Map();
-  for(const row of old){
-    if(by.has(row.composante))throw new Error("Doublons de composante du socle "+row.composante+".");
-    by.set(row.composante,row);
-  }
-  const expected=new Map(values.map(x=>[x.composante,x]));
-  for(const [code,record] of expected){
-    const earlier=by.get(code);
-    const values={non_atteint:record.non_atteint,partiellement_atteint:record.partiellement_atteint,atteint:record.atteint,depasse:record.depasse};
-    if(earlier&&Object.keys(values).every(key=>Number(earlier[key])===values[key]))continue;
-    const q=earlier
-      ?sb.from(PP_SOCLE_TABLE).update({...values,updated_at:new Date().toISOString()}).eq("id",earlier.id)
-      :sb.from(PP_SOCLE_TABLE).insert({...values,created_by:user.id,eleve_id:String(student.id),classe:student.classe,periode:period,composante:code});
-    const {data,error}=await q.select("id");
-    if(error)throw new Error("Socle "+code+" : "+error.message);
-    if(!data?.length)throw new Error("Sauvegarde non confirmée pour le socle "+code);
-  }
-  for(const [code,record] of by){
-    if(expected.has(code)||!PP_SOCLE_COMPONENTS.some(x=>x[0]===code))continue;
-    const {data,error}=await sb.from(PP_SOCLE_TABLE).delete()
-      .eq("id",record.id).eq("eleve_id",String(student.id)).eq("periode",period).select("id");
-    if(error)throw new Error("Effacement du socle "+code+" : "+error.message);
-    if(!data?.length)throw new Error("Effacement non confirmé pour le socle "+code);
-  }
-}
-
 const PP_MASTERY_LEVELS=[
   ["TBM","Très bonne maîtrise"],
   ["MS","Maîtrise satisfaisante"],
@@ -7779,7 +7696,7 @@ function ppEventInSelectedPeriod(row,period=ppPeriod){
 function ppCurrentGradeFormSnapshot(){
   const body=document.getElementById("ppStudentBody");
   if(!body||!body.querySelector(".pp-grade"))return null;
-  const inputs=[...body.querySelectorAll(".pp-grade,.pp-mastery,.pp-socle-part")].map(input=>[input.className,input.dataset.discipline,input.value]);
+  const inputs=[...body.querySelectorAll(".pp-grade,.pp-mastery")].map(input=>[input.className,input.dataset.discipline,input.value]);
   return JSON.stringify(inputs);
 }
 function ppStudentHasUnsavedGrades(){
@@ -7864,8 +7781,8 @@ async function ppRenderStudent(tab="synthese"){
         :'<div class="pp-empty">Aucun point de vigilance pour cette période.</div>';
       // Le mode annuel n'a pas de moyenne trimestrielle unique à saisir.
       const gradePeriod=currentPeriod==="year"?null:currentPeriod.toUpperCase();
-      let grades=[],masteries=[],socle=[];
-      if(gradePeriod)[grades,masteries,socle]=await Promise.all([ppLoadGrades(studentId,gradePeriod),ppLoadMasteries(studentId,gradePeriod),ppLoadSocle(studentId,gradePeriod)]);
+      let grades=[],masteries=[];
+      if(gradePeriod)[grades,masteries]=await Promise.all([ppLoadGrades(studentId,gradePeriod),ppLoadMasteries(studentId,gradePeriod)]);
       if(request!==ppStudentRenderRequest||!target.isConnected||studentId!==String(ppStudentId))return;
       const manualAvg=gradePeriod?ppWeightedAverage(grades):null;
       const generated=gradePeriod?ppGenerateAppreciation(grades,student,visibleEvents,masteries):"";
@@ -7873,7 +7790,7 @@ async function ppRenderStudent(tab="synthese"){
         '<section class="pp-section"><div class="entry-head"><div><h3>📊 Résultats du '+esc(ppPeriodText(currentPeriod).toLowerCase())+'</h3>'+
         '<p class="small-note">Moyennes par discipline sur 20 ; les disciplines non renseignées ne comptent pas dans la moyenne générale.</p></div>'+
         '<button class="primary" type="button" onclick="ppSaveGrades()">💾 Enregistrer les moyennes</button></div>'+
-        ppGradesEditor(grades,masteries)+ppSocleEditor(socle)+
+        ppGradesEditor(grades,masteries)+
         '<div class="pp-appreciation" style="margin-top:14px"><strong>💬 Proposition d’appréciation générale</strong>'+
         '<textarea id="ppGeneratedAppreciation" rows="4" style="width:100%;margin-top:8px">'+esc(generated)+'</textarea>'+
         '<div class="row" style="margin-top:8px"><button type="button" onclick="ppGenerateAndFillAppreciation()">✨ Régénérer à partir des résultats et du comportement</button></div>'+
@@ -8054,19 +7971,16 @@ async function ppSaveGrades(){
   if(button?.disabled)return;
   try{
     const grades=ppCollectGrades();
-    const mastery=ppCollectMasteries();
-    const socle=ppCollectSocle();
     const existing=await ppLoadGrades(student.id,period);
     const known=new Set([...PP_DISCIPLINES.map(d=>d.nom),PP_SCIENCES.pc,PP_SCIENCES.svt]);
     if(!grades.length&&existing.some(row=>known.has(row.discipline))&&
       !confirm("Les moyennes de "+period+" sont toutes vides. Confirmer la suppression des notes renseignées ?"))return;
     if(button)button.disabled=true;
     await ppPersistGrades(student,period,grades);
-    await ppPersistMasteries(student,period,mastery);
-    await ppPersistSocle(student,period,socle);
+    await ppPersistMasteries(student,period,ppCollectMasteries());
     ppGradeFormSnapshot=ppCurrentGradeFormSnapshot();
     await ppRenderStudent("synthese");
-    alert("Moyennes, maîtrises et socle de "+period+" enregistrés ✓");
+    alert("Moyennes et maîtrises de "+period+" enregistrées ✓");
   }catch(e){
     alert("Enregistrement incomplet : "+e.message+". Vérifie les moyennes de cette période avant une nouvelle tentative.");
   }finally{if(button?.isConnected)button.disabled=false;}
@@ -8152,134 +8066,6 @@ async function ppCouncilAcademicRead(period,classe){
   }
   throw new Error("Trop de moyennes à parcourir : lecture interrompue.");
 }
-
-/* Visualisations interactives reconstruites des graphiques fournis sur ÉcoleDirecte.
- * Aucune donnée scolaire fictive et aucune déduction de compétences à partir des moyennes. */
-const PP_GRAPH_DISCIPLINES=[
-  "Français","Mathématiques","Anglais","Histoire-Géographie","SVT",
-  "Physique-Chimie","Arts plastiques","EPS","Éducation musicale"
-];
-let ppCouncilChartSnapshot=null;
-function ppGraphPoint(cx,cy,r,i,n){
-  const angle=-Math.PI/2+2*Math.PI*i/n;
-  return [cx+Math.cos(angle)*r,cy+Math.sin(angle)*r];
-}
-function ppGraphFloat(v){return Number(v).toFixed(1)}
-function ppGraphRows(data,pupil){
-  return PP_GRAPH_DISCIPLINES.map(name=>{
-    const subject=data.subjects.find(x=>x.name===name);
-    if(!subject||subject.average===null)return null;
-    const grade=pupil.grades.find(x=>x.discipline===name)?.moyenne;
-    return {...subject,note:grade===undefined?null:grade};
-  }).filter(Boolean);
-}
-function ppGraphComparison(data,pupil){
-  const rows=ppGraphRows(data,pupil);
-  if(!rows.length)return '<p class="pp-empty">Aucune note exploitable pour ce graphique.</p>';
-  const width=950,height=395,left=50,right=20,top=26,bottom=270;
-  const w=(width-left-right)/rows.length, y=v=>bottom-Number(v)/20*(bottom-top);
-  const grid=[0,5,10,15,20].map(n=>
-    '<line x1="'+left+'" x2="'+(width-right)+'" y1="'+ppGraphFloat(y(n))+'" y2="'+ppGraphFloat(y(n))+'" stroke="#dfe5e8"/>'+
-    '<text x="'+(left-12)+'" y="'+(y(n)+4)+'" text-anchor="end" fill="#5d6870" font-size="12">'+n+'</text>').join('');
-  const minmax=rows.map((r,i)=>{
-    const x=left+w*(i+0.5),min=Math.min(...r.rows.map(x=>x.note)),max=Math.max(...r.rows.map(x=>x.note));
-    return '<rect x="'+ppGraphFloat(x-11)+'" y="'+ppGraphFloat(y(max))+'" width="22" height="'+ppGraphFloat(y(min)-y(max))+'" fill="#b7d3ef" opacity=".85">'+
-    '<title>'+esc(r.name)+': '+ppGraphFloat(min)+' à '+ppGraphFloat(max)+'/20</title></rect>'+
-    '<text transform="translate('+ppGraphFloat(x)+','+(bottom+15)+') rotate(-44)" text-anchor="end" fill="#475966" font-size="11">'+esc(r.name)+'</text>';
-  }).join('');
-  function series(field,color){
-    let fragments='',prev=null;
-    rows.forEach((r,i)=>{
-      const value=r[field];
-      if(value===null){prev=null;return;}
-      const x=left+w*(i+0.5),point=[x,y(value)];
-      if(prev)fragments+='<line x1="'+ppGraphFloat(prev[0])+'" y1="'+ppGraphFloat(prev[1])+'" x2="'+ppGraphFloat(point[0])+'" y2="'+ppGraphFloat(point[1])+'" stroke="'+color+'" stroke-width="2.5"/>';
-      fragments+='<circle cx="'+ppGraphFloat(x)+'" cy="'+ppGraphFloat(point[1])+'" r="4" fill="'+color+'"><title>'+esc(r.name)+': '+ppGraphFloat(value)+'/20</title></circle>';
-      prev=point;
-    });
-    return fragments;
-  }
-  return '<div class="pp-chart-scroll"><svg class="pp-chart-svg" viewBox="0 0 '+width+' '+height+'" role="img" aria-label="Comparaison par discipline des moyennes de l’élève et de la classe avec les minimums et maximums">'+
-    grid+minmax+series('average','#222c33')+series('note','#e2535c')+'</svg></div>'+
-    '<div class="pp-chart-legend"><span><i style="background:#b7d3ef"></i>Min–max de la classe</span>'+
-    '<span><i style="background:#222c33"></i>Moyenne de classe</span><span><i style="background:#e2535c"></i>Moyenne de l’élève</span></div>';
-}
-function ppGraphRadar(data,pupil){
-  const rows=ppGraphRows(data,pupil).filter(x=>x.note!==null);
-  if(rows.length<3)return '<p class="pp-empty">Le radar nécessite au moins trois disciplines notées pour cet élève.</p>';
-  const cx=390,cy=230,R=142,n=rows.length,pts=(vals)=>vals.map((v,i)=>{
-    const [x,y]=ppGraphPoint(cx,cy,R*v/20,i,n);return ppGraphFloat(x)+','+ppGraphFloat(y);
-  }).join(' ');
-  const rings=[5,10,15,20].map(v=>
-    '<polygon points="'+pts(rows.map(()=>v))+'" fill="none" stroke="#d5dce0" stroke-width="1"/>'+
-    '<text x="'+(cx+5)+'" y="'+ppGraphFloat(cy-R*v/20-4)+'" fill="#687680" font-size="10">'+v+'</text>'
-  ).join('');
-  const axes=rows.map((r,i)=>{
-    const [x,y]=ppGraphPoint(cx,cy,R,i,n);
-    const [lx,ly]=ppGraphPoint(cx,cy,R+30,i,n);
-    const anchor=lx>cx+10?"start":lx<cx-10?"end":"middle";
-    return '<line x1="'+cx+'" y1="'+cy+'" x2="'+ppGraphFloat(x)+'" y2="'+ppGraphFloat(y)+'" stroke="#d5dce0"/>'+
-      '<text x="'+ppGraphFloat(lx)+'" y="'+ppGraphFloat(ly)+'" text-anchor="'+anchor+'" font-size="12" fill="#43515a">'+esc(r.name)+'</text>';
-  }).join('');
-  return '<div class="pp-chart-scroll"><svg class="pp-chart-svg" viewBox="0 0 780 475" role="img" aria-label="Radar des moyennes de l’élève comparées à celles de sa classe">'+rings+axes+
-    '<polygon points="'+pts(rows.map(x=>x.average))+'" fill="#222c33" fill-opacity=".11" stroke="#222c33" stroke-width="2.5"/>'+
-    '<polygon points="'+pts(rows.map(x=>x.note))+'" fill="#e2535c" fill-opacity=".12" stroke="#e2535c" stroke-width="2.5"/>'+
-    '</svg></div><p class="small-note">Seules les disciplines notées pour cet élève et disposant d’une moyenne de classe sont représentées.</p>';
-}
-function ppSoclePie(p){
-  const values=PP_SOCLE_CATEGORIES.map(([key,label,color])=>({value:Number(p[key]),label,color}));
-  const sum=values.reduce((s,x)=>s+x.value,0);
-  if(sum<=0)return '<div class="pp-empty">Données manquantes</div>';
-  const radius=37,perimeter=2*Math.PI*radius;
-  let offset=0;
-  const slices=values.filter(x=>x.value>0).map(x=>{
-    const length=perimeter*(x.value/sum);
-    const item='<circle cx="55" cy="55" r="'+radius+'" fill="none" stroke="'+x.color+'" stroke-width="25"'+
-      ' stroke-dasharray="'+ppGraphFloat(length)+' '+ppGraphFloat(perimeter-length)+'" stroke-dashoffset="'+ppGraphFloat(-offset)+'" transform="rotate(-90 55 55)">'+
-      '<title>'+esc(x.label)+' : '+x.value+' %</title></circle>';
-    offset+=length;return item;
-  }).join('');
-  return '<svg viewBox="0 0 110 110" class="pp-socle-pie" role="img" aria-label="Répartition des évaluations du socle">'+slices+'</svg>';
-}
-function ppCouncilSocleHtml(rows){
-  if(!rows.length)return '<p class="pp-empty">Aucune répartition par composante saisie pour cet élève. Elle peut être renseignée dans sa fiche Suivi PP, à partir d’ÉcoleDirecte.</p>';
-  return '<div class="pp-chart-legend">'+PP_SOCLE_CATEGORIES.map(x=>'<span><i style="background:'+x[2]+'"></i>'+esc(x[1])+'</span>').join('')+'</div>'+
-    '<div class="pp-socle-charts">'+PP_SOCLE_COMPONENTS.map(([code,title])=>{
-      const item=rows.find(x=>x.composante===code);
-      return '<div class="pp-socle-chart"><strong>'+esc(code)+' — '+esc(title)+'</strong>'+
-        (item?ppSoclePie(item)+
-         '<p class="small-note">'+PP_SOCLE_CATEGORIES.map(([key,label])=>esc(label)+' : '+Number(item[key])+' %').join(' · ')+'</p>':
-         '<p class="small-note">Non renseignée</p>')+'</div>';
-    }).join('')+'</div>';
-}
-function ppCouncilDrawStudentCharts(){
-  const data=ppCouncilChartSnapshot,picker=document.getElementById("ppCouncilChartStudent");
-  const host=document.getElementById("ppCouncilStudentCharts");
-  if(!data||!picker||!host)return;
-  const p=data.pupils.find(x=>x.id===picker.value);
-  if(!p){host.innerHTML='<p class="pp-empty">Sélectionne un élève.</p>';return;}
-  const socle=(data.socle||[]).filter(x=>String(x.eleve_id)===p.id);
-  host.innerHTML='<div class="pp-student-charts">'+
-    '<section><h4>Min–max et moyennes par discipline</h4>'+ppGraphComparison(data,p)+'</section>'+
-    '<section><h4>Radar des moyennes</h4>'+ppGraphRadar(data,p)+'</section></div>'+
-    '<section class="pp-socle-visual"><h4>Composantes du socle commun — répartition des évaluations</h4>'+
-    '<p class="small-note">Pourcentages transcrits depuis ÉcoleDirecte ; non calculés à partir des moyennes ou du niveau de maîtrise par matière.</p>'+
-    ppCouncilSocleHtml(socle)+'</section>';
-}
-async function ppCouncilSocleRead(period,classe){
-  const all=[],size=500;
-  for(let page=0;page<20;page++){
-    const {data,error}=await sb.from(PP_SOCLE_TABLE).select("*")
-      .eq("classe",classe).eq("periode",period).eq("created_by",String(user?.id||""))
-      .order("eleve_id",{ascending:true}).order("composante",{ascending:true})
-      .range(page*size,(page+1)*size-1);
-    if(error)throw new Error(error.message);
-    all.push(...(data||[]));
-    if((data||[]).length<size)return all;
-  }
-  throw new Error("Trop de données de socle à parcourir.");
-}
-
 function ppCouncilAcademicHtml(data,period){
   const fmt=n=>n===null?"—":n.toFixed(2).replace(".",",");
   const pct=(n,d)=>d?(100*n/d).toFixed(1).replace(".",",")+" %":"—";
@@ -8289,19 +8075,6 @@ function ppCouncilAcademicHtml(data,period){
     '<div class="pp-stat"><div class="n">'+data.ungraded+'</div><div class="l">Sans moyenne calculable</div></div>'+
     '<div class="pp-stat"><div class="n">'+data.alerts.length+'</div><div class="l">Élèves avec discipline sous 10</div></div></div>';
   const distribution=[["16 à 20",data.bins[0]],["10 à moins de 16",data.bins[1]],["5 à moins de 10",data.bins[2]],["Moins de 5",data.bins[3]]];
-
-  const maxDist=Math.max(1,...distribution.map(x=>x[1]));
-  const hist='<div class="pp-histogram" aria-label="Répartition des élèves par moyenne générale">'+
-    distribution.map(([name,n])=>
-      '<div class="pp-hist-row"><span>'+esc(name)+'/20</span>'+
-      '<div class="pp-hist-track"><div style="width:'+(100*n/maxDist)+'%"></div></div>'+
-      '<strong>'+n+'</strong></div>').join('')+'</div>';
-  const chosen=data.pupils.find(p=>p.grades.length)||data.pupils[0];
-  const studentGraphs='<h4 style="margin-top:22px">Graphiques comparatifs ÉcoleDirecte</h4>'+
-    '<p class="small-note">Sélectionne un élève pour comparer ses résultats à ceux de la classe. Les graphiques s’actualisent avec les moyennes enregistrées pour '+esc(period)+'.</p>'+
-    '<label class="pp-chart-picker">Élève <select id="ppCouncilChartStudent" onchange="ppCouncilDrawStudentCharts()">'+
-    data.pupils.map(p=>'<option value="'+esc(p.id)+'"'+(chosen&&p.id===chosen.id?' selected':'')+'>'+esc(p.name)+'</option>').join('')+
-    '</select></label><div id="ppCouncilStudentCharts"></div>';
   const tableDist='<h4>Répartition des moyennes générales</h4><div style="overflow-x:auto"><table class="data-table" style="width:100%">'+
     '<thead><tr><th>Tranche</th><th>Élèves</th><th>Pourcentage</th></tr></thead><tbody>'+
     distribution.map(([name,n])=>'<tr><td>'+name+'</td><td>'+n+'</td><td>'+pct(n,data.graded)+'</td></tr>').join("")+
@@ -8327,7 +8100,7 @@ function ppCouncilAcademicHtml(data,period){
     '<h3>📊 Bilan de la classe — '+esc(period)+'</h3>'+
     '<p class="small-note">Moyenne des moyennes générales pondérées des élèves disposant de résultats, sans assimiler une note manquante à 0.</p></div>'+
     '<button type="button" onclick="ppCouncilRefreshAcademic()">↻ Actualiser</button></div>'+
-    report+hist+tableDist+studentGraphs+tableSubjects+alertTable+
+    report+tableDist+tableSubjects+alertTable+
     '<p class="small-note" style="margin-top:12px">La moyenne est indicative lorsque certaines disciplines ne sont pas renseignées. En accord avec le bulletin École Directe, la SVT et la Physique-Chimie comptent séparément, coefficient 2 chacune.</p>'+
     (data.duplicates?'<p class="small-note" role="alert">⚠️ '+data.duplicates+' doublon(s) élève-discipline ignoré(s).</p>':"")+
     (data.invalid?'<p class="small-note">'+data.invalid+' valeur(s) absente(s) ou invalide(s) écartée(s).</p>':"")+
@@ -8341,11 +8114,9 @@ async function ppCouncilRefreshAcademic(){
   if(!["T1","T2","T3"].includes(period))return;
   host.innerHTML='<p class="small-note">Chargement du bilan des résultats…</p>';
   try{
-    const [marks,socle]=await Promise.all([ppCouncilAcademicRead(period,ppClass),ppCouncilSocleRead(period,ppClass)]);
+    const marks=await ppCouncilAcademicRead(period,ppClass);
     if(token!==ppCouncilLoadRequest||!host.isConnected||document.getElementById("ppCouncilPeriod")?.value!==period)return;
-    ppCouncilChartSnapshot={...ppCouncilAcademicData(ppClassStudents(),marks),socle};
-    host.innerHTML=ppCouncilAcademicHtml(ppCouncilChartSnapshot,period);
-    ppCouncilDrawStudentCharts();
+    host.innerHTML=ppCouncilAcademicHtml(ppCouncilAcademicData(ppClassStudents(),marks),period);
   }catch(e){
     if(token===ppCouncilLoadRequest&&host.isConnected)
       host.innerHTML='<section class="pp-section"><p role="alert">Bilan des résultats indisponible : '+esc(e.message)+'</p>'+
