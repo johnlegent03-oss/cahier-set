@@ -59,6 +59,7 @@ test('l enregistrement V2 conserve les anciennes clés et leur contenu',()=>{
  const field={
   dataset:{studentId:'eleve-42'},
   value:'Nouveau texte validé',
+  insertAdjacentElement:()=>{},
   parentElement:{querySelector:()=>null,appendChild:()=>{}}
  };
  f.fields.push(field);
