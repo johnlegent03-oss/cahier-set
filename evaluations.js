@@ -1950,6 +1950,67 @@ function exportClassAppreciationsCSV(){
   document.body.appendChild(a);a.click();a.remove();
   setTimeout(()=>URL.revokeObjectURL(url),1500);
 }
+// Devoirs notés : une ligne par devoir, même si plusieurs sujets alternatifs existent.
+function classQuarterGradedWorks(rows){
+  const works=new Map();
+  (rows||[]).forEach(student=>{
+    const studentKey=String(student.id||student.name||"").trim();
+    if(!studentKey)return;
+    const included=classAverageStudentIncluded(student.id);
+    (student.evaluations||[]).forEach(c=>{
+      const ev=c?.evaluation;
+      if(!ev)return;
+      const score=trackingScore20(c);
+      // Ne pas convertir une absence ou une note manquante en zéro.
+      if(!Number.isFinite(score))return;
+      const id=trackingEvaluationGroupId(ev);
+      if(!id||id==="item_unknown")return;
+      if(!works.has(id))works.set(id,{
+        id,titles:new Set(),type:String(ev.typeEvaluation||"evaluation"),
+        coefficient:Number(ev.coefficient)>0?Number(ev.coefficient):1,
+        scores:new Map(),allStudents:new Set(),date:null
+      });
+      const work=works.get(id);
+      const title=String(ev.titre||"Devoir sans titre").trim();
+      if(title)work.titles.add(title);
+      work.allStudents.add(studentKey);
+      const rawDate=trackingRecordDate(c);
+      const time=rawDate?new Date(normalizeTrackingDate(rawDate)).getTime():NaN;
+      if(Number.isFinite(time)&&(!work.date||time<work.date.getTime()))work.date=new Date(time);
+      if(included)work.scores.set(studentKey,score);
+    });
+  });
+  return [...works.values()].map(work=>{
+    const grades=[...work.scores.values()];
+    const average=grades.length?grades.reduce((sum,n)=>sum+n,0)/grades.length:null;
+    const titles=[...work.titles];
+    return {
+      id:work.id,title:titles[0]||"Devoir sans titre",subjects:titles.length,
+      type:work.type,coefficient:work.coefficient,date:work.date,
+      recorded:work.allStudents.size,graded:grades.length,average
+    };
+  }).sort((a,b)=>(a.date?.getTime()||0)-(b.date?.getTime()||0)||
+    a.title.localeCompare(b.title,"fr",{numeric:true,sensitivity:"base"}));
+}
+function classQuarterGradedWorkType(type){
+  if(type==="activite")return "Activité";
+  if(type==="exercice")return "Exercice";
+  return "Évaluation";
+}
+function classQuarterGradedWorkTableHTML(works){
+  if(!works.length)return '<p class="small-note">Aucun devoir avec note enregistrée pour cette période.</p>';
+  const fmt=n=>Number.isFinite(n)?n.toFixed(2).replace(".",",")+" /20":"—";
+  const date=x=>x instanceof Date&&Number.isFinite(x.getTime())?x.toLocaleDateString("fr-FR"):"—";
+  return '<div style="overflow-x:auto"><table class="mastery-table" style="width:100%;min-width:630px">'+
+    '<thead><tr><th>Devoir noté</th><th>Type</th><th>1re note saisie</th><th>Coeff.</th><th>Notes retenues</th><th>Moyenne de classe</th></tr></thead>'+
+    '<tbody>'+works.map(w=>'<tr><td><strong>'+esc(w.title)+'</strong>'+
+      (w.subjects>1?'<div class="small-note">'+w.subjects+' versions de sujet</div>':"")+
+      '</td><td>'+esc(classQuarterGradedWorkType(w.type))+'</td><td>'+esc(date(w.date))+
+      '</td><td>'+String(w.coefficient).replace(".",",")+'</td><td>'+w.graded+
+      '</td><td><strong>'+fmt(w.average)+'</strong></td></tr>').join("")+
+    '</tbody></table></div>';
+}
+
 // Bilan du trimestre : lecture seule, mêmes notes et mêmes règles d'exclusion que le suivi.
 function classQuarterBand(score){
   if(!Number.isFinite(score)||score<0||score>20)return null;
@@ -2001,12 +2062,13 @@ function classQuarterReportData(rows){
       type!=="participation"&&type!=="effort_progres";
   }).length;
   const masteryTotal=Object.values(mastery).reduce((sum,n)=>sum+n,0);
+  const gradedWorks=classQuarterGradedWorks(rows);
   const byCompetency=[...competencyBreakdown.entries()].map(([name,counts])=>{
     const total=Object.values(counts).reduce((sum,n)=>sum+n,0);
     const satisfactory=counts.TBM+counts.MS;
     return {name,...counts,total,satisfactory,rate:total?100*satisfactory/total:null};
   }).sort((a,b)=>a.name.localeCompare(b.name,"fr",{sensitivity:"base"}));
-  return {bins,evaluated,evaluationCount:evaluations.size,byCompetency,withoutScore:Math.max(0,(behaviorStudentsCache||[]).filter(st=>
+  return {bins,evaluated,evaluationCount:evaluations.size,gradedWorks,byCompetency,withoutScore:Math.max(0,(behaviorStudentsCache||[]).filter(st=>
       (!classTrackingClass||String(st.classe||"").trim()===String(classTrackingClass).trim())&&
       classAverageStudentIncluded(st.id)).length-evaluated),
     mastery,masteryTotal,masteryRate:masteryTotal?100*(mastery.TBM+mastery.MS)/masteryTotal:null,
@@ -2029,6 +2091,7 @@ function classQuarterReportHTML(rows){
     '<p class="small-note" style="margin:0 0 14px">Résultats calculés avec les moyennes réellement retenues, QCU compris selon les règles habituelles. Les élèves exclus du calcul de la moyenne de classe ne figurent pas dans la répartition des notes ni des maîtrises.</p>'+
     '<div class="tracking-summary" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-top:8px">'+
     tile(d.evaluationCount,"Évaluations distinctes","Avec au moins une correction dans la période")+
+    tile(d.gradedWorks.length,"Devoirs notés","Avec une note numérique enregistrée")+
     tile(d.competenceCount,"Compétences évaluées")+
     tile(d.masteryTotal,"Résultats élève–compétence","Un résultat par élève et par compétence")+
     '</div>'+
@@ -2037,6 +2100,9 @@ function classQuarterReportHTML(rows){
     bands.map(([key,title])=>tile(d.bins[key],title,d.evaluated?(100*d.bins[key]/d.evaluated).toFixed(1).replace(".",",")+" % des "+d.evaluated+" évalués":"Aucune moyenne")).join("")+
     '</div>'+
     '<p class="small-note" style="margin:9px 0 18px">Moins de 10 /20 : <strong>'+(d.bins.low+d.bins.veryLow)+'</strong> élève(s), dont <strong>'+d.bins.veryLow+'</strong> sous 5 /20. Sans moyenne : '+d.withoutScore+' élève(s) inclus dans la classe.</p>'+
+    '<h4 style="margin:10px 0 8px">Devoirs notés et moyennes par devoir</h4>'+
+    '<p class="small-note" style="margin:0 0 8px">Évaluations, activités et exercices du trimestre. Les sujets alternatifs d’un même devoir sont regroupés ; chaque note est ramenée sur 20. La moyenne du devoir est calculée sur les élèves comptabilisés dans la moyenne de classe. Les QCU sont gérés séparément dans le calcul des moyennes.</p>'+
+    classQuarterGradedWorkTableHTML(d.gradedWorks)+
     '<h4 style="margin:10px 0 8px">Maîtrise globale des compétences évaluées</h4>'+
     '<div class="tracking-summary" style="grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:10px;margin-top:8px">'+
     masteryLabels.map(([code,title])=>tile(d.mastery[code],title,percent(d.mastery[code]))).join("")+
@@ -2111,7 +2177,7 @@ function exportClassQuarterReportPDF(){
       '<div class="stats">'+stat(formatAverage20(averages.all),"Moyenne générale /20")+
       (sixth?stat(formatAverage20(averages.experimental),"Expérimentale /20")+stat(formatAverage20(averages.theory),"Théorie /20"):"")+
       stat(roster.length,"Élèves inscrits")+stat(correctionCount,"Corrections")+
-      stat(d.evaluationCount,"Évaluations distinctes")+stat(d.competenceCount,"Compétences évaluées")+
+      stat(d.evaluationCount,"Évaluations distinctes")+stat(d.gradedWorks.length,"Devoirs notés")+stat(d.competenceCount,"Compétences évaluées")+
       stat(d.masteryTotal,"Résultats élève–compétence")+'</div>'+
       '<div class="cols"><section><h2>Répartition des résultats</h2>'+
       '<table><thead><tr><th>Moyenne</th><th class="num">Élèves</th><th class="num">Part</th></tr></thead><tbody>'+
@@ -2121,6 +2187,11 @@ function exportClassQuarterReportPDF(){
       '<table><thead><tr><th>Niveau</th><th class="num">Résultats</th><th class="num">Part</th></tr></thead><tbody>'+
       tableRows(masteryRows,d.masteryTotal)+'</tbody></table>'+
       '<p class="note"><strong>'+(d.masteryRate===null?"—":d.masteryRate.toFixed(1).replace(".",",")+" %")+'</strong> TBM ou MS · '+d.masteryTotal+' résultats élève–compétence, non '+d.masteryTotal+' évaluations.</p></section></div>'+
+      '<h2>Devoirs notés et moyennes par devoir</h2>'+
+      '<table><thead><tr><th>Devoir</th><th>Type</th><th class="num">Notes</th><th class="num">Moyenne /20</th></tr></thead><tbody>'+
+      (d.gradedWorks.length?d.gradedWorks.map(w=>'<tr><td>'+asText(w.title)+(w.subjects>1?' ('+w.subjects+' sujets)':'')+'</td><td>'+asText(classQuarterGradedWorkType(w.type))+'</td><td class="num">'+w.graded+'</td><td class="num">'+(w.average===null?"—":w.average.toFixed(2).replace(".",","))+'</td></tr>').join(""):'<tr><td colspan="4">Aucun devoir noté dans la période</td></tr>')+
+      '</tbody></table>'+
+      '<p class="note">Notes normalisées sur 20 ; sujets alternatifs regroupés. Moyennes calculées sur les élèves retenus dans la moyenne de classe. Les QCU sont pris en compte séparément selon la règle habituelle.</p>'+
       '<h2>Détail par compétence évaluée</h2>'+
       '<table><thead><tr><th>Compétence</th><th class="num">Élèves</th><th class="num">TBM</th><th class="num">MS</th><th class="num">MF</th><th class="num">MI</th><th class="num">TBM+MS</th></tr></thead><tbody>'+
       d.byCompetency.map(c=>'<tr><td>'+asText(c.name)+'</td><td class="num">'+c.total+'</td><td class="num">'+c.TBM+'</td><td class="num">'+c.MS+'</td><td class="num">'+c.MF+'</td><td class="num">'+c.MI+'</td><td class="num">'+percent(c.satisfactory,c.total)+'</td></tr>').join("")+
