@@ -13,6 +13,28 @@ const {chromium}=require('playwright-core');
     await tab.goto(pathToFileURL(path.resolve(__dirname,'..','atelier.html')).href,
       {waitUntil:'load',timeout:15000});
     await tab.waitForSelector('#stage > .sheet',{timeout:12000});
+
+    const fonts=await tab.evaluate(()=>{
+      const options=[...$('font').options].map(option=>({label:option.textContent,value:option.value}));
+      const former="Chalkboard,'Chalkboard SE','Comic Sans MS',cursive";
+      const old=validate({
+        app:'herbier-libre',version:1,title:'Ancienne police',pages:[{objects:[
+          object('text',{text:"<span style=\"font-family: Chalkboard, 'Chalkboard SE', 'Comic Sans MS', cursive\">Texte ancien</span>",
+            font:former})
+        ]}]
+      });
+      return {options,font:old.pages[0].objects[0].font,html:old.pages[0].objects[0].text};
+    });
+    assert.equal(fonts.options.filter(option=>option.label==='Comic Sans MS').length,1,
+      'Comic Sans MS doit figurer une seule fois dans le sélecteur');
+    assert.equal(fonts.options.some(option=>/Chalkboard/i.test(option.label)||/Chalkboard/i.test(option.value)),false,
+      'Chalkboard ne doit plus être proposée');
+    assert.equal(fonts.font,"'Comic Sans MS',cursive",
+      'les anciennes fiches Chalkboard doivent conserver une police manuscrite');
+    assert.match(fonts.html,/Comic Sans MS/,
+      'la mise en forme manuscrite du texte riche doit être conservée');
+    assert.doesNotMatch(fonts.html,/Chalkboard/i,
+      'les fragments de texte anciens doivent également passer à Comic Sans MS');
     await tab.evaluate(()=>{
       project={
         app:'herbier-libre',version:1,title:'Recette texte-tableau',
