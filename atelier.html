@@ -73,22 +73,7 @@
 .home-action{display:block;width:100%;text-align:left;background:#fff;border:1px solid #d6dcc8;border-radius:14px;padding:16px;cursor:pointer}
 .home-action strong{display:block;font:17px Georgia,serif;color:#244535;margin-bottom:5px}
 .home-action span{font:12px/1.5 Arial;color:#6d7965}
-.home-action:hover{border-color:#8c9e78;background:#f4f7ec}@page{size:A4;margin:0}@media print{header,details.cloud,aside,.pagebar,.selectionBox,.marquee,#atelierHome,#cropDialog,#legacy{display:none!important}.layout{display:block}main{padding:0;margin:0;overflow:visible}#stage{display:block;margin:0;padding:0}.sheet {
-  margin: 0 !important;
-  width: 210mm;
-  height: 295mm;
-  background: #ffffff !important;
-  box-shadow: none;
-  outline: none !important;
-  break-inside: avoid;
-  break-after: auto;
-  print-color-adjust: exact;
-  -webkit-print-color-adjust: exact;
-}
-
-.sheet + .sheet {
-  break-before: page;
-}.object{outline:0!important}.content{outline:none!important}@page {size: A4;margin: 0;}html,body {width: 210mm;margin: 0 !important;padding: 0 !important;}}}@media(max-width:1100px){.layout{grid-template-columns:220px 1fr}.right{grid-column:1/-1}.right #props{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}}
+.home-action:hover{border-color:#8c9e78;background:#f4f7ec}@media(max-width:1100px){.layout{grid-template-columns:220px 1fr}.right{grid-column:1/-1}.right #props{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}}
 .toolbar-actions{position:relative;display:flex;flex:0 1 auto;min-width:0;align-items:center;justify-content:flex-end;overflow:visible}
 .toolbar-tabs{display:flex;align-items:center;gap:4px;flex:0 0 auto}
 .toolbar-actions .toolbar-tab{padding:7px 10px;border:1px solid #ffffff35;border-radius:8px;background:#ffffff0d;color:#f4f7f2;font-size:11px;font-weight:600;white-space:nowrap}
@@ -547,6 +532,36 @@ header.app-header strong{font-size:21px}
   body > .layout { display:block!important; position:static!important; width:100%!important; min-height:0!important; margin:0!important; padding:0!important; border:0!important; box-shadow:none!important; background:transparent!important; }
   body > .layout > aside, body > .layout aside { display:none!important; }
   body > .layout > main#stage, body > .layout main#stage { display:block!important; width:100%!important; min-height:0!important; margin:0!important; padding:0!important; overflow:visible!important; border:0!important; box-shadow:none!important; background:transparent!important; }
+  /* Exactement une feuille A4 par page, en portrait comme en paysage. */
+  body > .layout > main#stage > .sheet {
+    display:block!important;
+    box-sizing:border-box!important;
+    position:relative!important;
+    width:var(--print-page-w,210mm)!important;
+    height:var(--print-page-h,297mm)!important;
+    min-height:0!important;
+    max-height:var(--print-page-h,297mm)!important;
+    margin:0!important;
+    padding:0!important;
+    overflow:hidden!important;
+    zoom:1!important;
+    transform:none!important;
+    border:0!important;
+    outline:0!important;
+    border-radius:0!important;
+    box-shadow:none!important;
+    background:#fff!important;
+    break-inside:avoid!important;
+    page-break-inside:avoid!important;
+    break-after:page!important;
+    page-break-after:always!important;
+    print-color-adjust:exact;
+    -webkit-print-color-adjust:exact;
+  }
+  body > .layout > main#stage > .sheet:last-child { break-after:auto!important; page-break-after:auto!important; }
+  body > .layout > main#stage > .sheet::before { display:none!important; }
+  body > .layout > main#stage .editable-table td:focus,
+  body > .layout > main#stage .editable-table th:focus { outline:0!important; box-shadow:none!important; }
 }
 </style>
 <style id="atelier-table-editor-and-sticky-tools">
@@ -1093,7 +1108,67 @@ function tableAction(action){
   render();persist();
 }
 $('image').addEventListener('change',e=>{let f=e.target.files[0];if(!f)return;if(f.size>12*1024*1024){alert('Cette image dépasse 12 Mo. Réduis sa taille avant de l’importer pour préserver la stabilité du document.');e.target.value='';return}let r=new FileReader;r.onload=()=>{let im=new Image;im.onload=()=>{let source=r.result,target=chosen().length===1&&chosen()[0].type==='image'?chosen()[0]:null;if(!im.naturalWidth||!im.naturalHeight){alert('Dimensions de l’image invalides.');return}checkpoint();if(target){target.src=source;target.label=f.name;target.h=Math.max(10,Math.round(target.w*im.naturalHeight/im.naturalWidth))}else{let w=280,h=Math.min(500,280*im.naturalHeight/im.naturalWidth);let o=object('image',{src:source,w,h,label:f.name});current().objects.push(o);selection=new Set([o.id])}render();persist()};im.onerror=()=>alert('Impossible de lire cette image.');im.src=r.result};r.onerror=()=>alert('Impossible de lire ce fichier.');r.readAsDataURL(f);e.target.value=''});
-function printDoc(){finish();if(project.pages.some(p=>p.objects.some(o=>o.x<0||o.y<0||o.x+o.w>pageWidth()||o.y+o.h>pageHeight()))&&!confirm('Certains objets dépassent la page et risquent d’être coupés. Continuer ?'))return;selection.clear();paint();let style=document.getElementById('atelier-print-orientation');if(!style){style=document.createElement('style');style.id='atelier-print-orientation';document.head.append(style)}style.textContent='@page{size:A4 '+(project.orientation==='landscape'?'landscape':'portrait')+';margin:0}';window.print()}
+// Contrôle du document avant impression. Aucune donnée n'est modifiée.
+function printGeometryIssues(p,width,height){
+  const issues=[];
+  for(let i=0;i<p.pages.length;i++){
+    for(const o of p.pages[i].objects){
+      if(o.hidden)continue;
+      const x=Number(o.x),y=Number(o.y),w=Number(o.w),h=Number(o.h);
+      if(![x,y,w,h].every(Number.isFinite)||w<=0||h<=0){
+        issues.push('Page '+(i+1)+' — '+(o.label||o.type)+' : dimensions invalides');
+        continue;
+      }
+      const a=(Number(o.angle)||0)*Math.PI/180;
+      const rotW=Math.abs(w*Math.cos(a))+Math.abs(h*Math.sin(a));
+      const rotH=Math.abs(w*Math.sin(a))+Math.abs(h*Math.cos(a));
+      const left=x+w/2-rotW/2,top=y+h/2-rotH/2;
+      if(left < -1 || top < -1 || left+rotW > width+1 || top+rotH > height+1)
+        issues.push('Page '+(i+1)+' — '+(o.label||o.type)+' : dépassement de la feuille');
+    }
+  }
+  return issues;
+}
+function inspectPrintDocument(){
+  const issues=printGeometryIssues(project,pageWidth(),pageHeight());
+  document.querySelectorAll('#stage > .sheet').forEach((sheet,index)=>{
+    sheet.querySelectorAll('.object').forEach(el=>{
+      if(el.hidden)return;
+      const o=project.pages[index]?.objects.find(item=>item.id===el.dataset.id);
+      if(!o)return;
+      const name='Page '+(index+1)+' — '+(o.label||o.type);
+      if(['text','title','number','list','box','band','table','skills'].includes(o.type)){
+        const content=el.querySelector('.content');
+        if(content && (content.scrollHeight>content.clientHeight+3 || content.scrollWidth>content.clientWidth+3))
+          issues.push(name+' : contenu potentiellement coupé');
+        if(o.type==='table') for(const cell of el.querySelectorAll('td,th')){
+          if(cell.scrollHeight>cell.clientHeight+3 || cell.scrollWidth>cell.clientWidth+3){
+            issues.push(name+' : texte d’une cellule potentiellement coupé');break;
+          }
+        }
+      }
+      if(o.type==='image'||o.type==='logo'){
+        const im=el.querySelector('img');
+        if(im && (!im.complete || im.naturalWidth===0)) issues.push(name+' : image non chargée');
+      }
+    });
+  });
+  return issues;
+}
+function printDoc(){
+  finish();
+  const issues=inspectPrintDocument();
+  if(issues.length){
+    const shown=issues.slice(0,8).join('\n• ');
+    const more=issues.length>8?'\n… et '+(issues.length-8)+' autre(s) point(s).':'';
+    if(!confirm('Vérification avant export PDF :\n\n• '+shown+more+'\n\nVérifie ces éléments dans l’aperçu avant de poursuivre. Imprimer quand même ?'))return;
+  }
+  selection.clear();paint();
+  let style=document.getElementById('atelier-print-orientation');
+  if(!style){style=document.createElement('style');style.id='atelier-print-orientation';document.head.append(style)}
+  style.textContent='@page{size:A4 '+(project.orientation==='landscape'?'landscape':'portrait')+';margin:0}';
+  window.print();
+}
 function closeHome(){$('atelierHome').hidden=true}
 function showHome(){$('atelierHome').hidden=false}
 function startBlank(){closeHome();blank()}
