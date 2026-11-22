@@ -1926,18 +1926,28 @@ function exportClassAppreciationsPDF(){
     </style></head><body><h1>Appréciations — ${safe(classTrackingClass||"Toutes les classes")}</h1><p>${safe(({year:"Année",t1:"Trimestre 1",t2:"Trimestre 2",t3:"Trimestre 3"})[classTrackingPeriod]||classTrackingPeriod)} · ${rows.length} élève(s)</p><table><thead><tr><th>Nom</th><th>Prénom</th><th>Appréciation</th></tr></thead><tbody>${body}</tbody></table><script>window.onload=()=>{window.focus();window.print();};</script></body></html>`);
   popup.document.close();
 }
-function exportClassAppreciationsXLS(){
+function exportClassAppreciationsCSV(){
   const rows=classAppreciationExportRows();
   if(!rows.length){alert("Aucune appréciation à exporter pour cette classe.");return;}
-  const safe=value=>String(value??"").replace(/[&<>"']/g,ch=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[ch]));
-  const body=rows.map(r=>`<tr><td>${safe(r.nom)}</td><td>${safe(r.prenom)}</td><td>${safe(r.classe)}</td><td>${safe(r.periode)}</td><td>${safe(r.appreciation)}</td></tr>`).join("");
-  const html=`<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="UTF-8"><!--[if gte mso 9]><xml><x:ExcelWorkbook><x:ExcelWorksheets><x:ExcelWorksheet><x:Name>Appréciations</x:Name><x:WorksheetOptions><x:DisplayGridlines/></x:WorksheetOptions></x:ExcelWorksheet></x:ExcelWorksheets></x:ExcelWorkbook></xml><![endif]--><style>table{border-collapse:collapse}th,td{border:1px solid #999;padding:6px;vertical-align:top}th{background:#e8edf3;font-weight:bold}.app{mso-number-format:"\@";white-space:normal}</style></head><body><table><thead><tr><th>Nom</th><th>Prénom</th><th>Classe</th><th>Période</th><th>Appréciation</th></tr></thead><tbody>${body}</tbody></table></body></html>`;
-  const blob=new Blob(["\ufeff",html],{type:"application/vnd.ms-excel;charset=utf-8;"});
+  // CSV UTF-8 avec séparateur français et guillemets échappés.
+  // Numbers et Excel ouvrent les 5 colonnes sans dépendance supplémentaire.
+  const cell=value=>{
+    let text=String(value??"");
+    // Empêcher l'interprétation d'un texte saisi comme formule de tableur.
+    if(/^\s*[=+@-]/.test(text))text="'"+text;
+    return '"'+text.replace(/"/g,'""')+'"';
+  };
+  const lines=[
+    ["Nom","Prénom","Classe","Période","Appréciation"],
+    ...rows.map(r=>[r.nom,r.prenom,r.classe,r.periode,r.appreciation])
+  ].map(values=>values.map(cell).join(";"));
+  const blob=new Blob(["\ufeff",lines.join("\r\n")+"\r\n"],{type:"text/csv;charset=utf-8"});
   const url=URL.createObjectURL(blob);
   const a=document.createElement("a");
   const fileClass=(classTrackingClass||"toutes_les_classes").replace(/[^a-z0-9_-]+/gi,"_");
-  a.href=url;a.download=`appreciations_${fileClass}_${classTrackingPeriod}.xls`;
-  document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1500);
+  a.href=url;a.download=`appreciations_${fileClass}_${classTrackingPeriod}.csv`;
+  document.body.appendChild(a);a.click();a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),1500);
 }
 function renderClassTracking(){
   if(loadEvalNav().view==='behaviorTracking'){renderBehaviorTracking();return;}
@@ -2098,7 +2108,7 @@ ${isSixthGradeClass?`<div class="tracking-stat"><strong style="color:#18794e">${
       <textarea id="general-class-appreciation" maxlength="400" rows="4" style="width:100%;margin-top:10px">${esc(loadGeneralClassAppreciation())}</textarea><div class="small-note" style="text-align:right"><span id="general-class-appreciation-count">${loadGeneralClassAppreciation().length}</span> / 400 caractères</div>
     </section>
     <section class="hero" style="margin-top:14px">
-      <div class="entry-head"><div><h3 style="margin:0">💬 Appréciations de la classe</h3><p class="small-note">Quatre phrases, 400 caractères maximum par élève. Les textes restent modifiables et enregistrés comme auparavant.</p></div><div class="row" style="margin:0;flex-wrap:wrap"><button type="button" class="primary" onclick="generateAllClassAppreciations()">✨ Générer pour la classe</button><button type="button" onclick="saveAllClassAppreciations()">💾 Enregistrer toutes</button><button type="button" onclick="exportClassAppreciationsPDF()">📄 Exporter en PDF</button><button type="button" onclick="exportClassAppreciationsXLS()">📊 Exporter en XLS</button></div></div>
+      <div class="entry-head"><div><h3 style="margin:0">💬 Appréciations de la classe</h3><p class="small-note">Quatre phrases, 400 caractères maximum par élève. Les textes restent modifiables et enregistrés comme auparavant.</p></div><div class="row" style="margin:0;flex-wrap:wrap"><button type="button" class="primary" onclick="generateAllClassAppreciations()">✨ Générer pour la classe</button><button type="button" onclick="saveAllClassAppreciations()">💾 Enregistrer toutes</button><button type="button" onclick="exportClassAppreciationsPDF()">📄 Exporter en PDF</button><button type="button" onclick="exportClassAppreciationsCSV()">📊 Exporter en CSV</button></div></div>
       ${roster.length?`<div style="display:grid;gap:14px">${roster.map(student=>`<div class="appreciation-box"><label for="class-app-${esc(student.id)}"><strong>${esc(student.nom||"Élève")}</strong></label>${svtAccommodationControl(student.id)}<textarea id="class-app-${esc(student.id)}" class="class-appreciation" data-student-id="${esc(student.id)}" maxlength="400" rows="4" style="width:100%;margin-top:7px">${esc(loadClassAppreciation(student))}</textarea><div class="small-note" style="text-align:right"><span class="appreciation-count">${loadClassAppreciation(student).length}</span> / 400 caractères</div></div>`).join("")}</div>`:`<p class="muted">Aucun élève dans cette classe.</p>`}
     </section>`;
   document.querySelectorAll(".class-appreciation").forEach(field=>field.addEventListener("input",()=>{const counter=field.parentElement.querySelector(".appreciation-count");if(counter)counter.textContent=field.value.length;}));
