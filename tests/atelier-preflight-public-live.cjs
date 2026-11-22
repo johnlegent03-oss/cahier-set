@@ -12,7 +12,9 @@ const vm=require('node:vm');
 
 const configPath=path.resolve(__dirname,'..','config.js');
 const source=fs.readFileSync(configPath,'utf8');
-const config=vm.runInNewContext(source+'\n;({url:SUPABASE_URL,key:SUPABASE_PUBLISHABLE_KEY})',{});
+const declarations=source.split(/\r?\n/).filter(line=>/^\s*const\s+SUPABASE_(?:URL|PUBLISHABLE_KEY)\s*=/.test(line));
+assert.equal(declarations.length,2,'Les deux constantes publiques Supabase doivent être déclarées.');
+const config=vm.runInNewContext(declarations.join('\n')+'\n;({url:SUPABASE_URL,key:SUPABASE_PUBLISHABLE_KEY})',{});
 const url=new URL(config.url);
 assert.equal(url.protocol,'https:','Supabase doit utiliser HTTPS');
 assert.ok(/(^|\.)supabase\.co$/i.test(url.hostname),'Domaine Supabase attendu');
