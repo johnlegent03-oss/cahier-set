@@ -381,3 +381,20 @@ div.behavior-roster-row {
   .pp-grade-row,.pp-sciences-field{grid-template-columns:minmax(0,1fr) 75px}
   .pp-mastery-label{grid-column:1/-1}
 }
+
+/* Graphiques des moyennes du conseil PP (le socle reste séparé). */
+.pp-histogram{display:grid;gap:9px;margin:18px 0}
+.pp-histogram-row{display:grid;grid-template-columns:minmax(110px,170px) minmax(0,1fr) 26px;gap:10px;align-items:center;font-size:13px}
+.pp-histogram-track{height:16px;border-radius:9px;background:#eaf0f2;overflow:hidden}
+.pp-histogram-track>div{height:100%;background:#4f96ad;border-radius:9px}
+.pp-chart-selector{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:12px 0 16px}
+.pp-chart-selector select{min-width:200px;max-width:100%}
+.pp-student-graphs{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr));gap:14px}
+.pp-chart-card{min-width:0;max-width:100%;padding:12px;border:1px solid #d9e5de;background:#fbfcfd;border-radius:14px}
+.pp-chart-scroll{overflow-x:auto;max-width:100%}
+.pp-chart-svg{display:block;width:100%;height:auto;min-width:360px}
+.pp-radar-svg{min-width:440px}
+.pp-chart-legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:#475b64;margin:7px 0 12px}
+.pp-chart-legend span{display:inline-flex;gap:5px;align-items:center}
+.pp-chart-legend i{display:inline-block;width:12px;height:12px;border-radius:2px}
+@media(max-width:620px){.pp-histogram-row{grid-template-columns:110px minmax(0,1fr) 23px;gap:5px;font-size:12px}}
