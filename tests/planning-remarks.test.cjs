@@ -86,7 +86,7 @@ test('la lecture Supabase est paginée, sans noms, et sans écriture',async()=>{
  };
  const state={user:{id:'p'},period:{id:'period',start_date:'2026-09-01',end_date:'2027-07-03'},
   remarksLoading:false,remarksRows:null,remarksError:'',remarksRequest:0};
- const ctx={state,client:()=>({from(name){assert.equal(name,'StudentBehaviorEvents');return builder;}}),
+ const ctx={state,window:{PlanningRemarks:Remarks},client:()=>({from(name){assert.equal(name,'StudentBehaviorEvents');return builder;}}),
   renderRemarks(){}};
  vm.createContext(ctx);vm.runInContext(source.slice(a,b),ctx);
  await ctx.loadRemarks();
