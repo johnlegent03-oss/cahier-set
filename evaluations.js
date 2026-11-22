@@ -1961,9 +1961,17 @@ function classQuarterBand(score){
 function classQuarterReportData(rows){
   const bins={high:0,middle:0,low:0,veryLow:0};
   const mastery={TBM:0,MS:0,MF:0,MI:0};
+  const evaluations=new Set();
+  const competencyBreakdown=new Map();
   let evaluated=0;
   const names=new Set();
   (rows||[]).forEach(student=>{
+    // Une évaluation est comptée une fois, même avec plusieurs copies corrigées.
+    (student.evaluations||[]).forEach(c=>{
+      if(!c.evaluation)return;
+      const key=trackingEvaluationGroupId(c.evaluation);
+      if(key&&key!=="item_unknown")evaluations.add(key);
+    });
     if(!classAverageStudentIncluded(student.id))return;
     const avg=studentTrackingScienceAverageDetails(student.evaluations,student.qcu||[],classTrackingClass).final;
     const bucket=classQuarterBand(avg);
@@ -1976,7 +1984,11 @@ function classQuarterReportData(rows){
       const name=String(item.competence||"Compétence non renseignée").trim();
       latest.set(name,code);
     });
-    latest.forEach((code,name)=>{mastery[code]++;names.add(name);});
+    latest.forEach((code,name)=>{
+      mastery[code]++;names.add(name);
+      if(!competencyBreakdown.has(name))competencyBreakdown.set(name,{TBM:0,MS:0,MF:0,MI:0});
+      competencyBreakdown.get(name)[code]++;
+    });
   });
   const events=(behaviorEventsCache||[]).filter(e=>
     (!classTrackingClass||String(e.classe||"").trim()===String(classTrackingClass).trim()) &&
@@ -1989,7 +2001,12 @@ function classQuarterReportData(rows){
       type!=="participation"&&type!=="effort_progres";
   }).length;
   const masteryTotal=Object.values(mastery).reduce((sum,n)=>sum+n,0);
-  return {bins,evaluated,withoutScore:Math.max(0,(behaviorStudentsCache||[]).filter(st=>
+  const byCompetency=[...competencyBreakdown.entries()].map(([name,counts])=>{
+    const total=Object.values(counts).reduce((sum,n)=>sum+n,0);
+    const satisfactory=counts.TBM+counts.MS;
+    return {name,...counts,total,satisfactory,rate:total?100*satisfactory/total:null};
+  }).sort((a,b)=>a.name.localeCompare(b.name,"fr",{sensitivity:"base"}));
+  return {bins,evaluated,evaluationCount:evaluations.size,byCompetency,withoutScore:Math.max(0,(behaviorStudentsCache||[]).filter(st=>
       (!classTrackingClass||String(st.classe||"").trim()===String(classTrackingClass).trim())&&
       classAverageStudentIncluded(st.id)).length-evaluated),
     mastery,masteryTotal,masteryRate:masteryTotal?100*(mastery.TBM+mastery.MS)/masteryTotal:null,
@@ -2007,8 +2024,14 @@ function classQuarterReportHTML(rows){
   const tile=(number,title,description="")=>'<div class="tracking-stat" style="padding:14px 12px;min-width:0"><strong>'+number+'</strong><span>'+title+'</span>'+(description?'<small class="small-note">'+description+'</small>':"")+'</div>';
   const percent=n=>d.masteryTotal?((100*n/d.masteryTotal).toFixed(1).replace(".",",")+" %"):"—";
   const masteryLabels=[["TBM","Très bonne maîtrise"],["MS","Maîtrise satisfaisante"],["MF","Maîtrise fragile"],["MI","Maîtrise insuffisante"]];
+  const detailRows=d.byCompetency.map(c=>'<tr><td>'+esc(c.name)+'</td><td>'+c.total+'</td><td>'+c.TBM+'</td><td>'+c.MS+'</td><td>'+c.MF+'</td><td>'+c.MI+'</td><td><strong>'+(c.rate===null?"—":c.rate.toFixed(1).replace(".",",")+" %")+'</strong></td></tr>').join("");
   return '<h3 style="margin:0 0 6px">📊 '+label+' — résultats et suivi</h3>'+
     '<p class="small-note" style="margin:0 0 14px">Résultats calculés avec les moyennes réellement retenues, QCU compris selon les règles habituelles. Les élèves exclus du calcul de la moyenne de classe ne figurent pas dans la répartition des notes ni des maîtrises.</p>'+
+    '<div class="tracking-summary" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-top:8px">'+
+    tile(d.evaluationCount,"Évaluations distinctes","Avec au moins une correction dans la période")+
+    tile(d.competenceCount,"Compétences évaluées")+
+    tile(d.masteryTotal,"Résultats élève–compétence","Un résultat par élève et par compétence")+
+    '</div>'+
     '<h4 style="margin:12px 0 7px">Répartition des moyennes des élèves</h4>'+
     '<div class="tracking-summary" style="grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:10px;margin-top:8px">'+
     bands.map(([key,title])=>tile(d.bins[key],title,d.evaluated?(100*d.bins[key]/d.evaluated).toFixed(1).replace(".",",")+" % des "+d.evaluated+" évalués":"Aucune moyenne")).join("")+
@@ -2018,7 +2041,10 @@ function classQuarterReportHTML(rows){
     '<div class="tracking-summary" style="grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:10px;margin-top:8px">'+
     masteryLabels.map(([code,title])=>tile(d.mastery[code],title,percent(d.mastery[code]))).join("")+
     '</div>'+
-    '<p class="small-note" style="margin:9px 0 18px">Maîtrises satisfaisantes (TBM + MS) : <strong>'+(d.masteryRate===null?"—":d.masteryRate.toFixed(1).replace(".",",")+" %")+'</strong> · '+d.competenceCount+' compétence(s) distincte(s) · '+d.masteryTotal+' résultat(s) de maîtrise. Dernière maîtrise du trimestre par élève et par compétence.</p>'+
+    '<p class="small-note" style="margin:9px 0 12px">Maîtrises satisfaisantes (TBM + MS) : <strong>'+(d.masteryRate===null?"—":d.masteryRate.toFixed(1).replace(".",",")+" %")+'</strong>. Les '+d.masteryTotal+' résultats représentent des couples élève–compétence, et non des évaluations. Dernière maîtrise connue du trimestre pour chaque élève et chaque compétence.</p>'+
+    '<h4 style="margin:12px 0 8px">Détail par compétence évaluée</h4>'+
+    '<div style="overflow-x:auto"><table class="mastery-table" style="width:100%;min-width:610px"><thead><tr><th>Compétence</th><th>Élèves</th><th>TBM</th><th>MS</th><th>MF</th><th>MI</th><th>TBM + MS</th></tr></thead><tbody>'+detailRows+'</tbody></table></div>'+
+    '<p class="small-note" style="margin:7px 0 16px">Chaque ligne représente une compétence distincte, avec un résultat par élève concerné. Les pourcentages sont calculés parmi les élèves évalués dans cette compétence.</p>'+
     '<h4 style="margin:12px 0 8px">Observations et communications</h4>'+
     '<div class="tracking-summary" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-top:8px">'+
     tile(d.remarks,"Remarques enregistrées")+tile(d.messages,"Mots envoyés")+
@@ -2084,7 +2110,9 @@ function exportClassQuarterReportPDF(){
       '<p class="meta">'+asText(periodName)+' · '+asText(schoolYear+"-"+(schoolYear+1))+' · '+asText(periodDates)+'</p>'+
       '<div class="stats">'+stat(formatAverage20(averages.all),"Moyenne générale /20")+
       (sixth?stat(formatAverage20(averages.experimental),"Expérimentale /20")+stat(formatAverage20(averages.theory),"Théorie /20"):"")+
-      stat(roster.length,"Élèves inscrits")+stat(correctionCount,"Corrections")+'</div>'+
+      stat(roster.length,"Élèves inscrits")+stat(correctionCount,"Corrections")+
+      stat(d.evaluationCount,"Évaluations distinctes")+stat(d.competenceCount,"Compétences évaluées")+
+      stat(d.masteryTotal,"Résultats élève–compétence")+'</div>'+
       '<div class="cols"><section><h2>Répartition des résultats</h2>'+
       '<table><thead><tr><th>Moyenne</th><th class="num">Élèves</th><th class="num">Part</th></tr></thead><tbody>'+
       tableRows(bandRows,d.evaluated)+'</tbody></table>'+
@@ -2092,7 +2120,11 @@ function exportClassQuarterReportPDF(){
       '<section><h2>Maîtrise des compétences</h2>'+
       '<table><thead><tr><th>Niveau</th><th class="num">Résultats</th><th class="num">Part</th></tr></thead><tbody>'+
       tableRows(masteryRows,d.masteryTotal)+'</tbody></table>'+
-      '<p class="note"><strong>'+(d.masteryRate===null?"—":d.masteryRate.toFixed(1).replace(".",",")+" %")+'</strong> TBM ou MS · '+d.competenceCount+' compétence(s) distincte(s) · '+d.masteryTotal+' maîtrise(s) retenue(s).</p></section></div>'+
+      '<p class="note"><strong>'+(d.masteryRate===null?"—":d.masteryRate.toFixed(1).replace(".",",")+" %")+'</strong> TBM ou MS · '+d.masteryTotal+' résultats élève–compétence, non '+d.masteryTotal+' évaluations.</p></section></div>'+
+      '<h2>Détail par compétence évaluée</h2>'+
+      '<table><thead><tr><th>Compétence</th><th class="num">Élèves</th><th class="num">TBM</th><th class="num">MS</th><th class="num">MF</th><th class="num">MI</th><th class="num">TBM+MS</th></tr></thead><tbody>'+
+      d.byCompetency.map(c=>'<tr><td>'+asText(c.name)+'</td><td class="num">'+c.total+'</td><td class="num">'+c.TBM+'</td><td class="num">'+c.MS+'</td><td class="num">'+c.MF+'</td><td class="num">'+c.MI+'</td><td class="num">'+percent(c.satisfactory,c.total)+'</td></tr>').join("")+
+      '</tbody></table>'+
       '<h2>Comportement et communications</h2>'+
       '<div class="stats">'+stat(d.remarks,"Remarques enregistrées")+stat(d.messages,"Mots envoyés")+'</div>'+
       (generalAppreciation?'<h2>Appréciation générale de la classe</h2><div class="appreciation">'+asText(generalAppreciation)+'</div>':"")+
