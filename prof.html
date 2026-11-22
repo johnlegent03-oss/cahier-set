@@ -2055,7 +2055,7 @@ async function svtLoadTodayPlanning(dashboard){
         .eq("owner_id",user.id).eq("period_id",period.id)
         .lt("start_at",max).gt("end_at",min).order("start_at",{ascending:true}).limit(150),
       sb.from("planning_session_occurrences")
-        .select("id,session_date,start_time,end_time,class_name,title,status")
+        .select("id,session_date,start_time,end_time,class_name,status")
         .eq("owner_id",user.id).eq("period_id",period.id).eq("session_date",day)
         .order("start_time",{ascending:true}).limit(100)
     ]);
