@@ -2156,6 +2156,10 @@ function openCahierExportTab(title, contentHtml) {
       body{-webkit-print-color-adjust:exact;print-color-adjust:exact}
     }`;
   const escapedTitle = esc(title);
+  const brandedContent = logo
+    ? contentHtml.replace(/(<div class="print-page cahier-(?:cover|page)">)/g,
+        '$1<div class="export-brand">' + logo + '</div>')
+    : contentHtml;
   const html = `<!doctype html><html lang="fr"><head><meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <base href="${esc(document.baseURI)}">
@@ -2164,7 +2168,7 @@ function openCahierExportTab(title, contentHtml) {
       <div class="export-toolbar"><strong>${escapedTitle}</strong>
         <button type="button" onclick="window.print()">Imprimer / Enregistrer en PDF</button>
       </div>
-      <main class="export-container">${contentHtml}</main>
+      <main class="export-container">${brandedContent}</main>
     </body></html>`;
   try {
     tab.document.open();
