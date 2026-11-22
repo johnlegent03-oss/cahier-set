@@ -7619,40 +7619,150 @@ async function ppNewStudentEvent(){
   const modal=ppModal(`<h2>＋ Nouveau suivi PP</h2><div class="editbox"><label>Élève</label><select id="ppf_student">${students.map(s=>`<option value="${esc(s.id)}">${esc(ppName(s))} — ${esc(s.classe||"")}</option>`).join("")}</select><label>Type</label><select id="ppf_type">${ppSelectOptions([["observation","Observation"],["vigilance","Point de vigilance"],["contact","Contact famille"],["rendez_vous","Rendez-vous"],["action","Action à mener"],["conseil","Conseil de classe"]])}</select><label>Date</label><input id="ppf_date" type="date" value="${ppToday()}"><label>Titre</label><input id="ppf_title" placeholder="Ex. Point de vigilance, rencontre famille…"><label>Compte rendu / contenu</label><textarea id="ppf_content" rows="6" placeholder="Notes de suivi…"></textarea></div><div class="row"><button type="button" onclick="ppCloseModal()">Annuler</button><button class="primary" type="button" onclick="ppSaveQuickEvent()">💾 Enregistrer</button></div>`);modal.dataset.x="1";
 }
 async function ppSaveQuickEvent(){const m=document.querySelector(".pp-modal"),sid=document.getElementById("ppf_student")?.value,s=ppStudentById(sid);if(!s)return;try{await ppInsert(PP_TABLES.events,{eleve_id:String(s.id),classe:s.classe,date:document.getElementById("ppf_date").value,type:document.getElementById("ppf_type").value,titre:document.getElementById("ppf_title").value.trim(),contenu:document.getElementById("ppf_content").value.trim()});m.remove();await renderPPDashboard();alert("Suivi enregistré ✓")}catch(e){alert("Enregistrement impossible : "+e.message)}}
+// Fiche PP : période explicite, sans confondre « Année » et les notes du T1.
+let ppStudentActiveTab="synthese",ppStudentRenderRequest=0,ppGradeFormSnapshot=null;
+function ppPeriodText(period){
+  return ({year:"Année scolaire",t1:"Trimestre 1",t2:"Trimestre 2",t3:"Trimestre 3"})[period]||"Période";
+}
+function ppEventInSelectedPeriod(row,period=ppPeriod){
+  if(period==="year")return true;
+  const date=String(row?.date||"").slice(0,10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(date)&&date>=ppPeriodStart(period)&&date<=ppPeriodEnd(period);
+}
+function ppCurrentGradeFormSnapshot(){
+  const body=document.getElementById("ppStudentBody");
+  if(!body||!body.querySelector(".pp-grade"))return null;
+  const inputs=[...body.querySelectorAll(".pp-grade")].map(input=>[input.dataset.discipline,input.value]);
+  return JSON.stringify(inputs);
+}
+function ppStudentHasUnsavedGrades(){
+  const current=ppCurrentGradeFormSnapshot();
+  return current!==null&&ppGradeFormSnapshot!==null&&current!==ppGradeFormSnapshot;
+}
+async function ppSelectStudentPeriod(period){
+  const selector=document.getElementById("ppStudentPeriod");
+  if(!["year","t1","t2","t3"].includes(period)||period===ppPeriod)return;
+  if(ppStudentHasUnsavedGrades()&&!confirm("Des moyennes ont été modifiées sans être enregistrées. Changer de période et abandonner ces modifications ?")){
+    if(selector)selector.value=ppPeriod;
+    return;
+  }
+  ppPeriod=period;
+  await ppRenderStudent(ppStudentActiveTab);
+}
 async function openPPStudent(id){
   if(!correctionAllowLeave())return;
-  ppStudentId=String(id);try{localStorage.setItem(EVAL_NAV_KEY,JSON.stringify({view:"ppStudent",id:String(id)}))}catch(e){}const s=ppStudentById(id);if(!s){await ppLoadStudents();}const student=ppStudentById(id);if(!student)return;label.textContent=`Suivi PP · ${ppName(student)}`;content.innerHTML=`<button type="button" onclick="openPP()">← Suivi PP</button><section class="hero" style="margin-top:14px"><span class="eyebrow">${esc(student.classe||"")}</span><h2>👤 ${esc(ppName(student))}</h2><p class="muted">Fiche de suivi du professeur principal.</p><div class="pp-tabs"><button class="active" onclick="ppRenderStudent('synthese')">Synthèse</button><button onclick="ppRenderStudent('events')">📝 Suivi</button><button onclick="ppRenderStudent('contacts')">👪 Familles</button><button onclick="ppRenderStudent('amenagements')">🧩 Aménagements</button><button onclick="ppRenderStudent('actions')">📋 Actions</button></div></section><div id="ppStudentBody"><p class="muted">Chargement…</p></div>`;await ppRenderStudent("synthese")}
+  ppStudentId=String(id);
+  const existing=ppStudentById(id);
+  if(!existing)await ppLoadStudents();
+  const student=ppStudentById(id);
+  if(!student)return;
+  ppStudentActiveTab="synthese";
+  ppGradeFormSnapshot=null;
+  saveEvalNav({view:"ppStudent",id:String(id),classe:student.classe,period:ppPeriod,ppTab:"synthese"});
+  label.textContent="Suivi PP · "+ppName(student);
+  content.innerHTML='<button type="button" onclick="openPP()">← Suivi PP</button>'+
+    '<section class="hero" style="margin-top:14px"><span class="eyebrow">'+esc(student.classe||"")+'</span>'+
+    '<h2>👤 '+esc(ppName(student))+'</h2><p class="muted">Fiche de suivi du professeur principal.</p>'+
+    '<div class="pp-toolbar" style="margin:14px 0"><label for="ppStudentPeriod">Période de la fiche</label>'+
+    '<select id="ppStudentPeriod" onchange="ppSelectStudentPeriod(this.value)">'+
+    [["year","Année scolaire (suivis)"],["t1","Trimestre 1"],["t2","Trimestre 2"],["t3","Trimestre 3"]]
+      .map(([value,title])=>'<option value="'+value+'"'+(ppPeriod===value?' selected':'')+'>'+title+'</option>').join("")+
+    '</select></div>'+
+    '<div class="pp-tabs">'+
+    '<button data-pp-student-tab="synthese" class="active" onclick="ppRenderStudent(\'synthese\')">Synthèse</button>'+
+    '<button data-pp-student-tab="events" onclick="ppRenderStudent(\'events\')">📝 Suivi</button>'+
+    '<button data-pp-student-tab="contacts" onclick="ppRenderStudent(\'contacts\')">👪 Familles</button>'+
+    '<button data-pp-student-tab="amenagements" onclick="ppRenderStudent(\'amenagements\')">🧩 Aménagements</button>'+
+    '<button data-pp-student-tab="actions" onclick="ppRenderStudent(\'actions\')">📋 Actions</button>'+
+    '</div></section><div id="ppStudentBody"><p class="muted">Chargement…</p></div>';
+  await ppRenderStudent("synthese");
+}
 async function ppRenderStudent(tab="synthese"){
-  if(document.getElementById("ppStudentBody"))saveEvalNav({view:"ppStudent",id:String(ppStudentId),period:ppPeriod,ppTab:tab});
-  const target=document.getElementById("ppStudentBody"),s=ppStudentById(ppStudentId);if(!target||!s)return;target.innerHTML='<section class="pp-section"><p class="muted">Chargement…</p></section>';
+  const target=document.getElementById("ppStudentBody"),student=ppStudentById(ppStudentId);
+  if(!target||!student)return;
+  const choices=["synthese","events","contacts","amenagements","actions"];
+  if(!choices.includes(tab))tab="synthese";
+  if(tab!==ppStudentActiveTab&&ppStudentHasUnsavedGrades()&&
+    !confirm("Des moyennes ont été modifiées sans être enregistrées. Changer d’onglet et abandonner ces modifications ?"))return;
+  ppStudentActiveTab=tab;
+  ppGradeFormSnapshot=null;
+  const request=++ppStudentRenderRequest;
+  saveEvalNav({view:"ppStudent",id:String(ppStudentId),classe:student.classe,period:ppPeriod,ppTab:tab});
+  const periodControl=document.getElementById("ppStudentPeriod");
+  if(periodControl)periodControl.value=ppPeriod;
+  document.querySelectorAll("[data-pp-student-tab]").forEach(button=>{
+    const active=button.dataset.ppStudentTab===tab;
+    button.classList.toggle("active",active);
+    button.setAttribute("aria-pressed",String(active));
+  });
+  target.innerHTML='<section class="pp-section"><p class="muted">Chargement du suivi…</p></section>';
   try{
-    const [events,contacts,amenagements,actions]=await Promise.all([ppLoadTable(PP_TABLES.events,ppStudentId),ppLoadTable(PP_TABLES.contacts,ppStudentId),ppLoadTable(PP_TABLES.amenagements,ppStudentId),ppLoadTable(PP_TABLES.actions,ppStudentId)]);
+    const studentId=String(ppStudentId),currentPeriod=ppPeriod;
+    const [events,contacts,amenagements,actions]=await Promise.all([
+      ppLoadTable(PP_TABLES.events,studentId),
+      ppLoadTable(PP_TABLES.contacts,studentId),
+      ppLoadTable(PP_TABLES.amenagements,studentId),
+      ppLoadTable(PP_TABLES.actions,studentId)
+    ]);
+    if(request!==ppStudentRenderRequest||!target.isConnected||studentId!==String(ppStudentId))return;
+    const visibleEvents=events.filter(x=>ppEventInSelectedPeriod(x,currentPeriod));
+    const visibleContacts=contacts.filter(x=>ppEventInSelectedPeriod(x,currentPeriod));
     if(tab==="synthese"){
-      let evals=[];try{if(!studentTrackingCache.length)await loadStudentTracking();evals=studentTrackingCache.filter(x=>String(x.eleveId||"")===String(s.id)||normalizeTrackingStudentName(x.eleve)===normalizeTrackingStudentName(ppName(s)));}catch(e){}
-      const avg=evals.length?formatAverage20(evals.map(trackingScore20)):"—";const activeAm=amenagements.filter(x=>x.actif!==false).length;const openActions=actions.filter(x=>x.statut!=="termine").length;const gradePeriod=ppPeriod==="year"?"T1":ppPeriod.toUpperCase();let grades=[];try{grades=await ppLoadGrades(s.id,gradePeriod)}catch(e){}const vigilanceEvents=events.filter(x=>{
-  if(String(x.type)!=="vigilance") return false;
-  if(ppPeriod==="year") return true;
-  const date=String(x.date||"").slice(0,10);
-  const start=ppPeriodStart(ppPeriod);
-  const end=ppPeriodEnd(ppPeriod);
-  return date>=start && date<=end;
-});
-const vigilance=vigilanceEvents.length;const vigilanceHtml=vigilanceEvents.length
-  ?vigilanceEvents.map(x=>'<div class="pp-item"><strong>'+esc(x.titre||"Point de vigilance")+'</strong><div class="small-note">'+esc(x.date||"")+'</div>'+(x.contenu?'<p>'+esc(x.contenu)+'</p>':"")+'</div>').join("")
-  :'<div class="pp-empty">Aucun point de vigilance.</div>';const manualAvg=ppWeightedAverage(grades);const generated=ppGenerateAppreciation(grades,s);
-      target.innerHTML=`<div class="pp-grid"><div class="pp-stat"><div class="n">${contacts.length}</div><div class="l">Contacts familles</div></div><div class="pp-stat"><div class="n">${manualAvg===null?"—":ppFormatGrade(manualAvg)+" / 20"}</div><div class="l">Moyenne générale</div></div><div class="pp-stat"><div class="n">${activeAm}</div><div class="l">Aménagement(s) actif(s)</div></div><div class="pp-stat">
-  <div class="n">${vigilance}</div>
-  <div class="l">Points de vigilance</div>
-</div></div></section><section class="pp-section"><h3>⚠️ Points de vigilance</h3>${vigilanceHtml}</section><section class="pp-section"><div class="entry-head"><div><h3>📊 Résultats du trimestre</h3><p class="small-note">Saisis la moyenne de chaque discipline. La moyenne générale est la moyenne des disciplines renseignées.</p></div><button class="primary" type="button" onclick="ppSaveGrades()">💾 Enregistrer les moyennes</button></div>${ppGradesEditor(grades)}<div class="pp-appreciation" style="margin-top:14px"><strong>💬 Proposition d’appréciation générale</strong><textarea id="ppGeneratedAppreciation" rows="4" style="width:100%;margin-top:8px">${esc(generated)}</textarea><div class="row" style="margin-top:8px"><button type="button" onclick="ppGenerateAndFillAppreciation()">✨ Régénérer à partir des résultats et du comportement</button></div><p class="small-note">Le texte est une proposition modifiable avant d’être repris dans le conseil de classe.</p></div></section><div class="pp-two"><section class="pp-section"><h3>📝 Derniers suivis</h3>${events.filter(x=>{
-  if(ppPeriod==="year") return true;
-  const date=String(x.date||"").slice(0,10);
-  return date>=ppPeriodStart(ppPeriod) && date<=ppPeriodEnd(ppPeriod);
-}).slice(0,5).map(ppEventHtml).join("")||'<div class="pp-empty">Aucun suivi enregistré pour cette période.</div>'}</section><section class="pp-section"><h3>📋 À faire / relances</h3>${actions.filter(x=>x.statut!=="termine").slice(0,5).map(ppActionHtml).join("")||'<div class="pp-empty">Aucune action en cours.</div>'}</section></div><section class="pp-section"><h3>🧩 Aménagements</h3>${amenagements.filter(x=>x.actif!==false).map(ppAmenagementHtml).join("")||'<div class="pp-empty">Aucun aménagement actif.</div>'}</section>`;
-    } else if(tab==="events")target.innerHTML=ppListSection("📝 Suivi et observations",events,"event");
-    else if(tab==="contacts")target.innerHTML=ppListSection("👪 Contacts familles",contacts,"contact");
-    else if(tab==="amenagements")target.innerHTML=ppListSection("🧩 Aménagements",amenagements,"amenagement");
-    else target.innerHTML=ppListSection("📋 Actions",actions,"action");
-  }catch(e){target.innerHTML=`<section class="pp-section error"><p>${esc(e.message)}</p></section>`}
+      const activeAm=amenagements.filter(x=>x.actif!==false).length;
+      const openActions=actions.filter(x=>x.statut!=="termine");
+      const vigilanceEvents=visibleEvents.filter(x=>String(x.type)==="vigilance");
+      const vigilanceHtml=vigilanceEvents.length
+        ?vigilanceEvents.map(x=>'<div class="pp-item"><strong>'+esc(x.titre||"Point de vigilance")+'</strong>'+
+          '<div class="small-note">'+esc(x.date||"")+'</div>'+(x.contenu?'<p>'+esc(x.contenu)+'</p>':"")+'</div>').join("")
+        :'<div class="pp-empty">Aucun point de vigilance pour cette période.</div>';
+      // Le mode annuel n'a pas de moyenne trimestrielle unique à saisir.
+      const gradePeriod=currentPeriod==="year"?null:currentPeriod.toUpperCase();
+      let grades=[];
+      if(gradePeriod)grades=await ppLoadGrades(studentId,gradePeriod);
+      if(request!==ppStudentRenderRequest||!target.isConnected||studentId!==String(ppStudentId))return;
+      const manualAvg=gradePeriod?ppWeightedAverage(grades):null;
+      const generated=gradePeriod?ppGenerateAppreciation(grades,student,visibleEvents):"";
+      const gradeSection=gradePeriod?
+        '<section class="pp-section"><div class="entry-head"><div><h3>📊 Résultats du '+esc(ppPeriodText(currentPeriod).toLowerCase())+'</h3>'+
+        '<p class="small-note">Moyennes par discipline sur 20 ; les disciplines non renseignées ne comptent pas dans la moyenne générale.</p></div>'+
+        '<button class="primary" type="button" onclick="ppSaveGrades()">💾 Enregistrer les moyennes</button></div>'+
+        ppGradesEditor(grades)+
+        '<div class="pp-appreciation" style="margin-top:14px"><strong>💬 Proposition d’appréciation générale</strong>'+
+        '<textarea id="ppGeneratedAppreciation" rows="4" style="width:100%;margin-top:8px">'+esc(generated)+'</textarea>'+
+        '<div class="row" style="margin-top:8px"><button type="button" onclick="ppGenerateAndFillAppreciation()">✨ Régénérer à partir des résultats et du comportement</button></div>'+
+        '<p class="small-note">Proposition modifiable avant le conseil de classe.</p></div></section>':
+        '<section class="pp-section"><h3>📊 Résultats scolaires</h3><p class="small-note">'+
+        'Sélectionne le trimestre 1, 2 ou 3 en haut de la fiche pour consulter ou saisir les moyennes. En vue annuelle, aucune moyenne du T1 n’est affichée comme moyenne de l’année.</p></section>';
+      target.innerHTML='<div class="pp-grid">'+
+        '<div class="pp-stat"><div class="n">'+visibleContacts.length+'</div><div class="l">Contacts familles ('+esc(ppPeriodText(currentPeriod))+')</div></div>'+
+        '<div class="pp-stat"><div class="n">'+(manualAvg===null?"—":ppFormatGrade(manualAvg)+" / 20")+'</div>'+
+        '<div class="l">Moyenne '+esc(gradePeriod||"non calculée sur l’année")+'</div></div>'+
+        '<div class="pp-stat"><div class="n">'+activeAm+'</div><div class="l">Aménagement(s) actif(s)</div></div>'+
+        '<div class="pp-stat"><div class="n">'+vigilanceEvents.length+'</div><div class="l">Points de vigilance</div></div></div>'+
+        '<section class="pp-section"><h3>⚠️ Points de vigilance</h3>'+vigilanceHtml+'</section>'+
+        gradeSection+
+        '<div class="pp-two"><section class="pp-section"><h3>📝 Derniers suivis ('+esc(ppPeriodText(currentPeriod))+')</h3>'+
+        (visibleEvents.slice(0,5).map(ppEventHtml).join("")||'<div class="pp-empty">Aucun suivi enregistré pour cette période.</div>')+
+        '</section><section class="pp-section"><h3>📋 Actions ouvertes (toutes périodes)</h3>'+
+        (openActions.slice(0,5).map(ppActionHtml).join("")||'<div class="pp-empty">Aucune action en cours.</div>')+
+        '</section></div><section class="pp-section"><h3>🧩 Aménagements actifs</h3>'+
+        (amenagements.filter(x=>x.actif!==false).map(ppAmenagementHtml).join("")||'<div class="pp-empty">Aucun aménagement actif.</div>')+'</section>';
+      ppGradeFormSnapshot=ppCurrentGradeFormSnapshot();
+    }else if(tab==="events"){
+      target.innerHTML=ppListSection("📝 Suivi et observations — "+ppPeriodText(currentPeriod),visibleEvents,"event");
+    }else if(tab==="contacts"){
+      target.innerHTML=ppListSection("👪 Contacts familles — "+ppPeriodText(currentPeriod),visibleContacts,"contact");
+    }else if(tab==="amenagements"){
+      // Les aménagements demeurent visibles toute l'année tant qu'ils sont actifs.
+      target.innerHTML=ppListSection("🧩 Aménagements (historique annuel)",amenagements,"amenagement");
+    }else{
+      // Les échéances en cours doivent rester visibles même si l'action date d'un autre trimestre.
+      target.innerHTML=ppListSection("📋 Actions (toutes périodes)",actions,"action");
+    }
+  }catch(e){
+    if(request===ppStudentRenderRequest&&target.isConnected)
+      target.innerHTML='<section class="pp-section error"><p>'+esc(e.message)+'</p></section>';
+  }
 }
 function ppFormatGrade(v){const n=Number(v);return Number.isFinite(n)?n.toFixed(2).replace(".",","):""}
 async function ppLoadGrades(studentId,period){
@@ -7776,7 +7886,8 @@ async function ppPersistGrades(student,period,grades){
 }
 async function ppSaveGrades(){
   const student=ppStudentById(ppStudentId);if(!student)return;
-  const period=ppPeriod==="year"?"T1":ppPeriod.toUpperCase();
+  if(ppPeriod==="year"){alert("Sélectionne un trimestre avant d’enregistrer des moyennes.");return;}
+  const period=ppPeriod.toUpperCase();
   const button=document.querySelector('button[onclick="ppSaveGrades()"]');
   if(button?.disabled)return;
   try{
@@ -7787,6 +7898,7 @@ async function ppSaveGrades(){
       !confirm("Les moyennes de "+period+" sont toutes vides. Confirmer la suppression des notes renseignées ?"))return;
     if(button)button.disabled=true;
     await ppPersistGrades(student,period,grades);
+    ppGradeFormSnapshot=ppCurrentGradeFormSnapshot();
     await ppRenderStudent("synthese");
     alert("Moyennes de "+period+" enregistrées ✓");
   }catch(e){
@@ -7794,13 +7906,15 @@ async function ppSaveGrades(){
   }finally{if(button?.isConnected)button.disabled=false;}
 }
 async function ppGenerateAndFillAppreciation(){
-  const s=ppStudentById(ppStudentId);if(!s)return;
+  const student=ppStudentById(ppStudentId);
+  if(!student||ppPeriod==="year"){alert("Sélectionne un trimestre pour générer l’appréciation.");return;}
   try{
-    const period=ppPeriod==="year"?"T1":ppPeriod.toUpperCase();
-const grades=await ppLoadGrades(s.id,period);
-const events=await ppLoadTable(PP_TABLES.events,s.id);
-const txt=ppGenerateAppreciation(grades,s,events);
-    const el=document.getElementById("ppGeneratedAppreciation");if(el)el.value=txt;
+    // Tenir compte des moyennes en cours de saisie, sans imposer une sauvegarde.
+    const grades=ppCollectGrades();
+    const events=(await ppLoadTable(PP_TABLES.events,student.id)).filter(x=>ppEventInSelectedPeriod(x));
+    const txt=ppGenerateAppreciation(grades,student,events);
+    const el=document.getElementById("ppGeneratedAppreciation");
+    if(el)el.value=txt;
   }catch(e){alert("Génération impossible : "+e.message)}
 }
 function ppEventHtml(x){return `<div class="pp-item"><div class="meta">${esc(x.date||"")} · ${esc(x.type||"Observation")}</div><strong>${esc(x.titre||"Suivi")}</strong><div>${esc(x.contenu||"")}</div></div>`}
