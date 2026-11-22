@@ -1553,9 +1553,18 @@ async function sendEvaluation(){
       if(createError)throw createError;
       ev=created;
     }
-    const {data:linked,error:linkError}=await sb.from('atelier_documents').update({evaluation_id:ev.id,is_graded:true,updated_at:new Date().toISOString()}).eq('id',d.id).eq('user_id',user.id).select('id').maybeSingle();
+    // La liaison change elle aussi updated_at : la comparer et réactualiser
+    // cloudUpdatedAt pour que le prochain "Enregistrer" ne soit pas rejeté.
+    if(!d.updated_at)throw Error('Version du document inconnue : la liaison à Évaluations est bloquée. Recharge la fiche.');
+    const linkedAt=new Date().toISOString();
+    const {data:linked,error:linkError}=await sb.from('atelier_documents')
+      .update({evaluation_id:ev.id,is_graded:true,updated_at:linkedAt})
+      .eq('id',d.id).eq('user_id',user.id).eq('updated_at',d.updated_at)
+      .select('id,updated_at').maybeSingle();
     if(linkError)throw Error('Évaluation '+ev.id+' créée ou retrouvée, mais liaison impossible. Réessaie pour terminer la liaison : '+linkError.message);
-    if(!linked?.id)throw Error('Évaluation '+ev.id+' créée ou retrouvée, mais le document n’a pas été mis à jour. Vérifie les droits puis réessaie.');
+    if(!linked?.id)throw Error('Le document a changé pendant la liaison à Évaluations. L’entrée '+ev.id+' est conservée ; recharge la fiche avant de réessayer.');
+    cloudUpdatedAt=linked.updated_at||linkedAt;
+    persistNow();
     status('Entrée créée dans Évaluations : '+ev.id+'. Complète les critères dans ton module habituel.');
   }catch(e){status(e.message,true)}
   finally{evaluationBusy=false;controls()}
