@@ -7937,6 +7937,114 @@ function ppAddAmenagement(){ppForm("＋ Aménagement",[`<label>Type</label><sele
 async function ppSaveAmenagement(){const s=ppStudentById(ppStudentId);try{await ppInsert(PP_TABLES.amenagements,{eleve_id:String(s.id),classe:s.classe,date:ppx_date.value,type:ppx_type.value,description:ppx_content.value.trim(),actif:ppx_actif.value==="true"});ppCloseModal();await ppRenderStudent("amenagements")}catch(e){alert(e.message)}}
 function ppAddAction(){ppForm("＋ Action à mener",[`<label>Date</label><input id="ppx_date" type="date" value="${ppToday()}"><label>Action</label><input id="ppx_title" placeholder="Ex. contacter la famille, proposer un rendez-vous…"><label>Responsable</label><input id="ppx_resp" placeholder="PP, CPE, professeur…"><label>Échéance</label><input id="ppx_echeance" type="date"><label>Statut</label><select id="ppx_statut">${ppSelectOptions([["a_faire","À faire"],["en_cours","En cours"],["termine","Terminé"]])}</select><label>Notes</label><textarea id="ppx_content" rows="5"></textarea>`],"ppSaveAction()")}
 async function ppSaveAction(){const s=ppStudentById(ppStudentId);try{await ppInsert(PP_TABLES.actions,{eleve_id:String(s.id),classe:s.classe,date:ppx_date.value,action:ppx_title.value.trim(),responsable:ppx_resp.value.trim(),echeance:ppx_echeance.value||null,statut:ppx_statut.value,notes:ppx_content.value.trim()});ppCloseModal();await ppRenderStudent("actions")}catch(e){alert(e.message)}}
+
+/* Suivi PP — bilan académique du conseil, calculé à partir des moyennes enregistrées. */
+function ppCouncilAcademicData(students,marks){
+  const list=students||[],valid=new Map(list.map(x=>[String(x.id),new Map()])),duplicates=new Set();
+  let invalid=0;
+  (marks||[]).forEach(m=>{
+    const id=String(m.eleve_id||""),discipline=String(m.discipline||"").trim();
+    if(!valid.has(id)||!discipline)return;
+    const grade=ppNumericGrade(m.moyenne);
+    if(grade===null){invalid++;return;}
+    const map=valid.get(id),key=id+"::"+discipline;
+    if(duplicates.has(key))return;
+    if(map.has(discipline)){map.delete(discipline);duplicates.add(key);return;}
+    map.set(discipline,grade);
+  });
+  const pupils=list.map(st=>{
+    const m=valid.get(String(st.id)),grades=[...m].map(([discipline,moyenne])=>({discipline,moyenne}));
+    return {id:String(st.id),name:ppName(st),grades,average:ppWeightedAverage(grades)};
+  });
+  const graded=pupils.filter(p=>p.average!==null);
+  const bins=[0,0,0,0];
+  graded.forEach(p=>{bins[p.average>=16?0:p.average>=10?1:p.average>=5?2:3]++});
+  const weightedClassAverage=graded.length?graded.reduce((sum,p)=>sum+p.average,0)/graded.length:null;
+  const names=[...PP_DISCIPLINES.map(x=>x.nom),PP_SCIENCES.pc,PP_SCIENCES.svt];
+  const others=[...new Set((marks||[]).map(x=>String(x.discipline||"").trim()).filter(x=>x&&!names.includes(x)))].sort((a,b)=>a.localeCompare(b,"fr"));
+  const subjects=[...names,...others].map(name=>{
+    const rows=pupils.map(p=>{
+      const note=p.grades.find(g=>g.discipline===name)?.moyenne;
+      return note===undefined?null:{id:p.id,name:p.name,note};
+    }).filter(Boolean);
+    const avg=rows.length?rows.reduce((sum,x)=>sum+x.note,0)/rows.length:null;
+    return {name,rows,average:avg,below:rows.filter(x=>x.note<10).sort((a,b)=>a.note-b.note),included:names.includes(name)};
+  });
+  const alerts=pupils.map(p=>({...p,below:p.grades.filter(g=>g.moyenne<10).sort((a,b)=>a.moyenne-b.moyenne)}))
+    .filter(p=>p.below.length).sort((a,b)=>b.below.length-a.below.length||a.name.localeCompare(b.name,"fr"));
+  return {pupils,graded:graded.length,ungraded:pupils.length-graded.length,bins,average:weightedClassAverage,subjects,alerts,duplicates:duplicates.size,invalid};
+}
+async function ppCouncilAcademicRead(period,classe){
+  const rows=[],size=500;
+  for(let page=0;page<20;page++){
+    const {data,error}=await sb.from(PP_TABLES.moyennes).select("eleve_id,discipline,moyenne")
+      .eq("classe",classe).eq("periode",period)
+      .order("eleve_id",{ascending:true}).order("discipline",{ascending:true})
+      .range(page*size,(page+1)*size-1);
+    if(error)throw new Error(error.message);
+    rows.push(...(data||[]));
+    if((data||[]).length<size)return rows;
+  }
+  throw new Error("Trop de moyennes à parcourir : lecture interrompue.");
+}
+function ppCouncilAcademicHtml(data,period){
+  const fmt=n=>n===null?"—":n.toFixed(2).replace(".",",");
+  const pct=(n,d)=>d?(100*n/d).toFixed(1).replace(".",",")+" %":"—";
+  const report='<div class="pp-grid">'+
+    '<div class="pp-stat"><div class="n">'+fmt(data.average)+'</div><div class="l">Moyenne de classe /20</div></div>'+
+    '<div class="pp-stat"><div class="n">'+data.graded+'</div><div class="l">Élèves avec moyenne</div></div>'+
+    '<div class="pp-stat"><div class="n">'+data.ungraded+'</div><div class="l">Sans moyenne calculable</div></div>'+
+    '<div class="pp-stat"><div class="n">'+data.alerts.length+'</div><div class="l">Élèves avec discipline sous 10</div></div></div>';
+  const distribution=[["16 à 20",data.bins[0]],["10 à moins de 16",data.bins[1]],["5 à moins de 10",data.bins[2]],["Moins de 5",data.bins[3]]];
+  const tableDist='<h4>Répartition des moyennes générales</h4><div style="overflow-x:auto"><table class="data-table" style="width:100%">'+
+    '<thead><tr><th>Tranche</th><th>Élèves</th><th>Pourcentage</th></tr></thead><tbody>'+
+    distribution.map(([name,n])=>'<tr><td>'+name+'</td><td>'+n+'</td><td>'+pct(n,data.graded)+'</td></tr>').join("")+
+    '</tbody></table></div>';
+  const tableSubjects='<h4 style="margin-top:16px">Bilan par discipline</h4>'+
+    '<p class="small-note">Les moyennes sont calculées parmi les élèves ayant une note dans la discipline. Le pourcentage « sous 10 » ne mesure pas la maîtrise des compétences.</p>'+
+    '<div style="overflow-x:auto"><table class="data-table" style="width:100%"><thead><tr>'+
+    '<th>Discipline</th><th>Moyenne /20</th><th>Élèves notés</th><th>Élèves sous 10</th><th>Part sous 10</th></tr></thead><tbody>'+
+    data.subjects.map(d=>'<tr><td><strong>'+esc(d.name)+'</strong>'+
+      (d.included?"":'<div class="small-note">Non incluse dans le calcul pondéré actuel</div>')+
+      '</td><td>'+fmt(d.average)+'</td><td>'+d.rows.length+'</td><td>'+
+      (d.below.length?'<details><summary>'+d.below.length+' élève(s)</summary>'+
+        d.below.map(p=>'<div class="small-note">'+esc(p.name)+' : '+fmt(p.note)+'/20</div>').join("")+'</details>':'0')+
+      '</td><td>'+pct(d.below.length,d.rows.length)+'</td></tr>').join("")+
+    '</tbody></table></div>';
+  const alertTable='<h4 style="margin-top:16px">Points de vigilance individuels</h4>'+
+    (data.alerts.length?'<div style="overflow-x:auto"><table class="data-table" style="width:100%"><thead><tr>'+
+      '<th>Élève</th><th>Moyenne générale</th><th>Disciplines sous 10/20</th></tr></thead><tbody>'+
+      data.alerts.map(p=>'<tr><td><strong>'+esc(p.name)+'</strong></td><td>'+fmt(p.average)+'</td><td>'+
+        p.below.map(g=>esc(g.discipline)+' : <strong>'+fmt(g.moyenne)+'</strong>').join(" · ")+'</td></tr>').join("")+
+      '</tbody></table></div>':'<p class="pp-empty">Aucune discipline sous 10 dans les données saisies.</p>');
+  return '<section class="pp-section"><div class="entry-head"><div>'+
+    '<h3>📊 Bilan de la classe — '+esc(period)+'</h3>'+
+    '<p class="small-note">Moyenne des moyennes générales pondérées des élèves disposant de résultats, sans assimiler une note manquante à 0.</p></div>'+
+    '<button type="button" onclick="ppCouncilRefreshAcademic()">↻ Actualiser</button></div>'+
+    report+tableDist+tableSubjects+alertTable+
+    '<p class="small-note" style="margin-top:12px">La moyenne est indicative si des disciplines manquent. Les sciences comptent comme un seul ensemble (coefficient 2), à condition de disposer des moyennes de SVT et Physique-Chimie.</p>'+
+    (data.duplicates?'<p class="small-note" role="alert">⚠️ '+data.duplicates+' doublon(s) élève-discipline ignoré(s).</p>':"")+
+    (data.invalid?'<p class="small-note">'+data.invalid+' valeur(s) absente(s) ou invalide(s) écartée(s).</p>':"")+
+    '<h4 style="margin-top:16px">Maîtrise des compétences</h4>'+
+    '<p class="small-note">Indicateur à compléter : le pourcentage de maîtrise satisfaisante (TBM + MS) nécessite les résultats de compétences par discipline, pas seulement les moyennes sur 20.</p>'+
+    '</section>';
+}
+async function ppCouncilRefreshAcademic(){
+  const host=document.getElementById("ppCouncilAcademic");if(!host)return;
+  const token=ppCouncilLoadRequest,period=document.getElementById("ppCouncilPeriod")?.value;
+  if(!["T1","T2","T3"].includes(period))return;
+  host.innerHTML='<p class="small-note">Chargement du bilan des résultats…</p>';
+  try{
+    const marks=await ppCouncilAcademicRead(period,ppClass);
+    if(token!==ppCouncilLoadRequest||!host.isConnected||document.getElementById("ppCouncilPeriod")?.value!==period)return;
+    host.innerHTML=ppCouncilAcademicHtml(ppCouncilAcademicData(ppClassStudents(),marks),period);
+  }catch(e){
+    if(token===ppCouncilLoadRequest&&host.isConnected)
+      host.innerHTML='<section class="pp-section"><p role="alert">Bilan des résultats indisponible : '+esc(e.message)+'</p>'+
+        '<button type="button" onclick="ppCouncilRefreshAcademic()">Réessayer</button></section>';
+  }
+}
+
 /* Conseil de classe PP : repères de complétude, modifications protégées et sauvegarde ciblée. */
 let ppCouncilBaseline=new Map(),ppCouncilSaving=false,ppCouncilLoadRequest=0;
 function ppCouncilText(value){return String(value??"").trim();}
@@ -8043,7 +8151,8 @@ async function openPPCouncil(){
       originals.set(id,{id:row.id,appreciation:ppCouncilText(row.appreciation),decisions:ppCouncilText(row.decisions)});
     });
     ppCouncilBaseline=originals;
-    host.innerHTML='<section class="pp-section">'+
+    host.innerHTML='<div id="ppCouncilAcademic"><p class="small-note">Chargement du bilan…</p></div>'+ 
+      '<section class="pp-section">'+
       '<div class="entry-head"><div><h3>Préparation du conseil — '+esc(period)+'</h3>'+
       '<p class="small-note">Seules les fiches modifiées sont enregistrées. Aucune appréciation existante n’est remplacée automatiquement.</p></div>'+
       '<button class="primary" type="button" id="ppCouncilSave" onclick="ppSaveCouncil()" disabled>💾 Enregistrer les modifications</button></div>'+
@@ -8072,6 +8181,7 @@ async function openPPCouncil(){
           '<td><textarea class="pp-council-dec" data-id="'+esc(st.id)+'" rows="4" style="width:100%" oninput="ppCouncilDrawStatus()">'+esc(old.decisions||"")+'</textarea></td></tr>';
       }).join("")+'</tbody></table></div></section>';
     ppCouncilDrawStatus();
+    void ppCouncilRefreshAcademic();
   }catch(e){
     if(token===ppCouncilLoadRequest&&host.isConnected)
       host.innerHTML='<section class="hero error"><p>'+esc(e.message)+'</p></section>';
