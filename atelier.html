@@ -1366,9 +1366,76 @@ async function uploadHerbierImages(){
     throw new Error((e.message||String(e))+' Vérifie les droits d’envoi du bucket « documents » et son accès public en lecture. Les images de la fiche n’ont pas été remplacées par des liens incomplets.');
   }
 }
-async function saveCloud(copy=false){if(cloudBusy)return false;try{requireUser();finish();metadata();let id=!copy&&cloudOwner===user.id?cloudId:null;if(id&&!confirm('Mettre à jour « '+project.title+' » dans la banque ?'))return false;cloudBusy=true;controls();status('Préparation des images et enregistrement…');await uploadHerbierImages();let payload={user_id:user.id,...context(),titre:project.title||'Document sans titre',contenu_html:cloudHTML(),nb_pages:project.pages.length,document_type:project.documentType,is_graded:project.graded,coefficient:project.documentType==='evaluation'?1:.5,updated_at:new Date().toISOString()};let q=id?sb.from('atelier_documents').update(payload).eq('id',id).eq('user_id',user.id):sb.from('atelier_documents').insert(payload);let {data,error}=await q.select('id').single();if(error)throw error;cloudId=data.id;cloudOwner=user.id;persist();await refreshBank();$('bank').value=cloudId;status('Document Herbier enregistré. Les images sont stockées séparément dans Supabase.');return true}catch(e){status('Enregistrement impossible : '+e.message,true);return false}finally{cloudBusy=false;controls()}}
+async function saveCloud(copy=false){
+  if(cloudBusy)return false;
+  try{
+    requireUser();finish();metadata();
+    const owner=user.id;
+    const id=!copy&&cloudOwner===owner?cloudId:null;
+    const expectedVersion=id?cloudUpdatedAt:null;
+    if(id&&!expectedVersion){
+      status('La version du document en ligne est inconnue. Utilise « Enregistrer une copie » pour ne pas écraser une version plus récente.',true);
+      return false;
+    }
+    if(id&&!confirm('Mettre à jour « '+project.title+' » dans la banque ?'))return false;
+    cloudBusy=true;controls();
+    persistNow();
+    status('Préparation des images et enregistrement…');
+    await uploadHerbierImages();
+    if(!user||user.id!==owner)throw Error('La session a changé pendant l’enregistrement. Réessaie après connexion.');
+    const payload={user_id:owner,...context(),titre:project.title||'Document sans titre',
+      contenu_html:cloudHTML(),nb_pages:project.pages.length,document_type:project.documentType,
+      is_graded:project.graded,coefficient:project.documentType==='evaluation'?1:.5,
+      updated_at:new Date().toISOString()};
+    let q=id
+      ?sb.from('atelier_documents').update(payload).eq('id',id).eq('user_id',owner).eq('updated_at',expectedVersion)
+      :sb.from('atelier_documents').insert(payload);
+    const {data,error}=await q.select('id,updated_at').maybeSingle();
+    if(error)throw error;
+    if(!data?.id)throw Error('Le document en ligne a été modifié dans un autre onglet ou n’est plus accessible. Aucune version distante n’a été écrasée. Utilise « Enregistrer une copie ».');
+    cloudId=data.id;cloudOwner=owner;cloudUpdatedAt=data.updated_at||payload.updated_at;
+    persistNow();
+    await refreshBank();
+    $('bank').value=cloudId;
+    status('Document enregistré dans la banque. Dernière version vérifiée.');
+    return true;
+  }catch(e){
+    persistNow();
+    status('Enregistrement impossible : '+e.message,true);
+    return false;
+  }finally{cloudBusy=false;controls()}
+}
 function legacyPreview(raw){let box=document.createElement('div');box.innerHTML=raw||'';box.querySelectorAll('script,iframe,object,embed,link,base,form').forEach(n=>n.remove());box.querySelectorAll('*').forEach(n=>{for(let a of [...n.attributes])if(/^on/i.test(a.name)||(['src','href'].includes(a.name)&&/^\s*javascript:/i.test(a.value)))n.removeAttribute(a.name)});let html='<!doctype html><html><head><meta charset="utf-8"><style>body{margin:20px;background:#e9e9df;font:14px Arial}.paper{background:#fff;width:794px;min-height:1123px;position:relative;padding:46px 52px;margin:0 auto 24px}.blocks-area{position:relative;min-height:1000px}.block{position:absolute;padding:10px}.content{white-space:pre-wrap}.content img{max-width:100%}.dragbar,.actions{display:none}.title{font:32px Georgia;color:#254e3c}.heading{font-weight:bold}table{border-collapse:collapse}td,th{border:1px solid #aaa;padding:8px}</style></head><body>'+box.innerHTML+'</body></html>';$('legacyFrame').srcdoc=html;$('legacy').showModal();status('Ancien format : consultation seule. Aucun document existant n’a été modifié.')}
-async function loadCloud(requestedId=null){try{requireUser();let id=requestedId||$('bank').value;if(!id)throw Error('Choisis un document.');let {data,error}=await sb.from('atelier_documents').select('*').eq('id',id).eq('user_id',user.id).single();if(error)throw error;if(String(data.contenu_html||'').length>30*1024*1024)throw Error('Document enregistré trop volumineux (30 Mo maximum).');$('bank').value=id;let box=document.createElement('div');box.innerHTML=data.contenu_html||'';let json=box.querySelector('script[type="application/json"][data-herbier-project]');if(!json){legacyPreview(data.contenu_html);return}let d=validate(JSON.parse(json.textContent));if(!confirm('Ouvrir « '+data.titre+' » et remplacer le document affiché ?'))return;install(d);cloudId=data.id;cloudOwner=user.id;project.title=data.titre||project.title;project.documentType=data.document_type||project.documentType;project.graded=!!data.is_graded;syncMeta();$('linkClass').value=data.classe||'';await loadClass();if(data.chapitre_index!=null){$('linkChapter').value=String(data.chapitre_index);loadSessions();if(data.seance_index!=null)$('linkSession').value=String(data.seance_index)}persist();status('Document ouvert : '+project.title)}catch(e){status('Ouverture impossible : '+e.message,true)}}
+async function loadCloud(requestedId=null){
+  try{
+    requireUser();
+    const owner=user.id,id=requestedId||$('bank').value;
+    if(!id)throw Error('Choisis un document.');
+    const {data,error}=await sb.from('atelier_documents').select('*').eq('id',id).eq('user_id',owner).single();
+    if(error)throw error;
+    if(!data)throw Error('Document introuvable.');
+    if(String(data.contenu_html||'').length>30*1024*1024)throw Error('Document enregistré trop volumineux (30 Mo maximum).');
+    const box=document.createElement('div');box.innerHTML=data.contenu_html||'';
+    const json=box.querySelector('script[type="application/json"][data-herbier-project]');
+    if(!json){legacyPreview(data.contenu_html);return}
+    const d=validate(JSON.parse(json.textContent));
+    if(!confirm('Ouvrir « '+data.titre+' » et remplacer le document affiché ? Une copie de secours du brouillon sera créée.'))return;
+    if(!user||user.id!==owner)throw Error('La session a changé pendant le chargement.');
+    if(!install(d))return;
+    cloudId=data.id;cloudOwner=owner;cloudUpdatedAt=data.updated_at||null;
+    project.title=data.titre||project.title;
+    project.documentType=data.document_type||project.documentType;
+    project.graded=!!data.is_graded;
+    syncMeta();$('linkClass').value=data.classe||'';
+    await loadClass();
+    if(data.chapitre_index!=null){
+      $('linkChapter').value=String(data.chapitre_index);loadSessions();
+      if(data.seance_index!=null)$('linkSession').value=String(data.seance_index);
+    }
+    persistNow();
+    status('Document ouvert : '+project.title);
+  }catch(e){status('Ouverture impossible : '+e.message,true)}
+}
 function escapeHtml(v){return String(v||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
 function activityReadingHtml(){let out='';project.pages.forEach((p,pi)=>{let items=p.objects.filter(o=>o.type!=='logo').sort((a,b)=>a.y-b.y||a.x-b.x);let pageHtml='';items.forEach(o=>{if(['text','title','number','list','box','band'].includes(o.type)){if(o.text&&String(o.text).trim())pageHtml+='<div style="margin:0 0 10px">'+o.text+'</div>'}else if(o.type==='image'&&o.src){pageHtml+='<p><img src="'+o.src+'" alt="'+escapeHtml(o.label||'Image')+'" style="max-width:100%"></p>'}else if(o.type==='table'&&o.cells){let t='<table style="border-collapse:collapse;width:100%">';o.cells.forEach((row,ri)=>{t+='<tr>';row.forEach(cell=>{t+=(ri?'<td':'<th')+' style="border:1px solid #a4b095;padding:6px;text-align:left">'+escapeHtml(cell)+'</'+(ri?'td':'th')+'>'});t+='</tr>'});pageHtml+=t+'</table>'}else if(o.type==='skills'&&project.competencies?.length){pageHtml+='<p><strong>Compétences travaillées :</strong> '+project.competencies.map(c=>escapeHtml(c.nom)).join(' · ')+'</p>'}});if(pageHtml)out+=(project.pages.length>1?'<h3 style="margin:14px 0 6px">Page '+(pi+1)+'</h3>':'')+pageHtml});return out||'<p><em>Cette activité ne contient pas encore de contenu textuel.</em></p>'}
 function atelierClassCode(classe){
