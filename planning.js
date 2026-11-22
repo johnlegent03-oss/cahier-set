@@ -5,10 +5,11 @@ const $ = (s,root=document) => root.querySelector(s);
 const $$ = (s,root=document) => [...root.querySelectorAll(s)];
 const CLASSES = ['6e1','6e2','6e3','6e4','6e5','5e1','5e3','5e5','3e2','3e3'];
 const DAYS = ['Lundi','Mardi','Mercredi','Jeudi','Vendredi'];
-const state = {user:null,period:null,slots:[],occurrences:[],events:[],cahierSessionsByUid:{},weekStart:mondayOf(new Date()),weekPattern:'',view:'week',tab:'planning',busy:false};
+const state = {user:null,period:null,slots:[],occurrences:[],events:[],cahierSessionsByUid:{},weekStart:mondayOf(new Date()),weekPattern:'',view:'week',tab:'planning',busy:false,
+ followupClass:'',followupFilter:'missing',followupSessions:null,followupLoadedClass:'',followupLoading:false,followupError:'',followupRequest:0};
 const NAV_KEY='svt.planning.navigation.v1';
 function savePlanningNav(){if(!state.user)return;try{localStorage.setItem(NAV_KEY+':'+state.user.id,JSON.stringify({weekStart:iso(state.weekStart),tab:state.tab,weekPattern:state.weekPattern,scrollY:window.scrollY||0}));}catch(e){}}
-function restorePlanningNav(){if(!state.user)return;try{const saved=JSON.parse(localStorage.getItem(NAV_KEY+':'+state.user.id)||'null');if(!saved)return;if(saved.weekStart&&/^\d{4}-\d{2}-\d{2}$/.test(saved.weekStart))state.weekStart=mondayOf(dateFrom(saved.weekStart));if(['planning','events','settings'].includes(saved.tab))state.tab=saved.tab;if(['A','B'].includes(saved.weekPattern))state.weekPattern=saved.weekPattern;state._restoreScroll=Math.max(0,Number(saved.scrollY)||0);}catch(e){}}
+function restorePlanningNav(){if(!state.user)return;try{const saved=JSON.parse(localStorage.getItem(NAV_KEY+':'+state.user.id)||'null');if(!saved)return;if(saved.weekStart&&/^\d{4}-\d{2}-\d{2}$/.test(saved.weekStart))state.weekStart=mondayOf(dateFrom(saved.weekStart));if(['planning','events','settings','followup'].includes(saved.tab))state.tab=saved.tab;if(['A','B'].includes(saved.weekPattern))state.weekPattern=saved.weekPattern;state._restoreScroll=Math.max(0,Number(saved.scrollY)||0);}catch(e){}}
 function mondayOf(d){const x=new Date(d);x.setHours(0,0,0,0);x.setDate(x.getDate()-((x.getDay()+6)%7));return x}
 function iso(d){return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`}
 function dateFrom(s){return new Date(`${s}T12:00:00`)}
@@ -69,6 +70,7 @@ async function loadPeriod(){
  state.period=rows.find(p=>p.start_date<=today&&p.end_date>=today)||rows.sort((a,b)=>b.start_date.localeCompare(a.start_date))[0]||null;
  if(!state.period){
   state.slots=[];state.occurrences=[];state.events=[];state.cahierSessionsByUid={};
+  state.followupSessions=null;state.followupLoadedClass='';state.followupRequest++;state.followupLoading=false;
   state.tab='settings';
   notify('Aucune période de planning n’est configurée. Ouvre les paramètres pour créer l’année scolaire, puis les créneaux et les séances.');return
  }
@@ -78,6 +80,7 @@ async function loadPeriod(){
   query('planning_events','select',null,[['owner_id','eq',state.user.id],['period_id','eq',state.period.id]])
  ]);
  state.slots=slots;state.occurrences=occ;state.events=events;
+ state.followupSessions=null;state.followupLoadedClass='';state.followupRequest++;state.followupLoading=false;
  await loadLinkedCahierSessions();
 }
 async function loadLinkedCahierSessions(){
@@ -106,7 +109,8 @@ function render(){
  $('#planningWeekView').hidden=state.tab!=='planning';
  $('#planningEventsView').hidden=state.tab!=='events';
  $('#planningSettingsView').hidden=state.tab!=='settings';
- renderGrid();renderEvents();renderSettings();savePlanningNav();
+ $('#planningFollowupView').hidden=state.tab!=='followup';
+ renderGrid();renderEvents();renderSettings();if(state.tab==='followup')renderFollowup();savePlanningNav();
 }
 /* Projection des événements intégrée : la grille fonctionne même si planning-calendar-events.js manque. */
 function planningWeekEvents(events,weekStart,days=5){
@@ -184,6 +188,93 @@ function showEventInWeek(eventId){
   node.scrollIntoView({behavior:'smooth',block:'center'});
  }else{
   notify('Semaine affichée, mais cet événement ne figure pas dans la grille. Vérifie sa date et son horaire ; la grille affiche seulement du lundi au vendredi.',true);
+ }
+}
+
+/* Phase 7 — vue en lecture, aucun accès direct en écriture à Supabase. */
+function renderFollowup(){
+ const root=$('#planningFollowupView');
+ if(!root)return;
+ if(!window.PlanningFollowup){
+  $('#planningFollowupList').textContent='Module de suivi introuvable. Recharge les fichiers complets de la phase 7.';
+  return;
+ }
+ const classSelect=$('#planningFollowupClass'),filterSelect=$('#planningFollowupFilter');
+ const classes=[...new Set([...CLASSES,...state.occurrences.map(o=>o.class_name).filter(Boolean)])];
+ classSelect.innerHTML='<option value="">Toutes les classes</option>'+classes.map(c=>'<option value="'+esc(c)+'">'+esc(c)+'</option>').join('');
+ classSelect.value=state.followupClass;
+ filterSelect.value=state.followupFilter;
+ const report=window.PlanningFollowup.summarize({
+  occurrences:state.occurrences,className:state.followupClass,
+  today:iso(new Date()),fromDate:state.period?.start_date||'',toDate:state.period?.end_date||'',
+  sessions:state.followupLoadedClass===state.followupClass?state.followupSessions:null
+ });
+ const metrics=[
+  {id:'completed',label:'Effectués (confirmés)',value:report.counts.completed},
+  {id:'upcoming',label:'À venir',value:report.counts.upcoming},
+  {id:'toConfirm',label:'Passés à confirmer',value:report.counts.toConfirm},
+  {id:'missing',label:'Sans séance associée',value:report.counts.missing},
+  {id:'special',label:'Activités particulières',value:report.counts.special}
+ ];
+ $('#planningFollowupSummary').innerHTML=metrics.map(m=>
+  '<button type="button" class="planning-followup-metric" data-followup-filter="'+esc(m.id)+'"'+
+  (state.followupFilter===m.id?' aria-pressed="true"':' aria-pressed="false"')+'>'+
+  '<strong>'+m.value+'</strong><span>'+esc(m.label)+'</span></button>').join('');
+ const all=report.rows.filter(row=>state.followupFilter==='all'
+  ||state.followupFilter==='missing'&&row.missing
+  ||row.stage===state.followupFilter);
+ const max=60,visible=all.slice(0,max);
+ const stageNames={completed:'Effectué',upcoming:'À venir',toConfirm:'À confirmer',
+  postponed:'Reporté',cancelled:'Annulé',special:'Activité particulière'};
+ const list='<p class="planning-muted">'+all.length+' créneau(x) correspondant(s)'+
+  (all.length>max?' · '+max+' premiers affichés':'')+' — année scolaire en cours.</p>'+
+  (visible.length?'<div class="planning-followup-rows">'+visible.map(o=>{
+   const linked=state.cahierSessionsByUid[o.uid]||
+    (state.followupLoadedClass===o.class_name?(state.followupSessions||[]).find(s=>s.uid===o.uid):null);
+   const headline=o.kind!=='cours'
+    ?'Activité : '+(window.PlanningKinds?.descriptor(o.kind).label||o.kind)
+    :linked?linked.chapterTitle+' — '+linked.sessionTitle
+    :o.linked?'Séance associée au cahier':'Séance du cahier non associée';
+   const classAndDate=esc(o.class_name)+' · '+esc(o.session_date)+' · '+esc(o.start_time)+'–'+esc(o.end_time);
+   return '<article class="planning-followup-row"><div><strong>'+esc(headline)+'</strong>'+
+    '<p class="planning-muted">'+classAndDate+' · '+esc(stageNames[o.stage]||o.stage)+'</p></div>'+
+    '<button class="planning-btn" type="button" data-followup-occ="'+esc(o.id)+'">Voir le créneau</button></article>';
+  }).join('')+'</div>':'<p class="planning-muted">Aucun créneau pour ce filtre.</p>');
+ $('#planningFollowupList').innerHTML=list;
+ const sessionsNode=$('#planningFollowupSessions');
+ if(!state.followupClass){
+  sessionsNode.innerHTML='<p class="planning-muted">Choisis une classe pour comparer les séances créées dans le cahier avec celles placées dans le planning.</p>';
+ }else if(state.followupLoading){
+  sessionsNode.innerHTML='<p class="planning-muted">Chargement des séances du cahier de '+esc(state.followupClass)+'…</p>';
+ }else if(state.followupError){
+  sessionsNode.innerHTML='<p class="planning-muted">Cahier de '+esc(state.followupClass)+' indisponible : '+esc(state.followupError)+'</p>';
+ }else if(!report.sessions){
+  sessionsNode.innerHTML='<p class="planning-muted">Lecture des séances non lancée. Sélectionne à nouveau la classe.</p>';
+ }else{
+  const unplaced=report.sessions.unplaced;
+  sessionsNode.innerHTML='<h3>Séances du cahier non placées · '+esc(state.followupClass)+'</h3>'+
+   '<p class="planning-muted">'+report.sessions.placed+' séance(s) placée(s) sur '+report.sessions.total+' dans le cahier. '+
+   unplaced.length+' séance(s) non placée(s). Une séance peut occuper plusieurs créneaux.</p>'+
+   (unplaced.length?'<ul class="planning-followup-unplaced">'+unplaced.slice(0,30).map(s=>
+    '<li>'+esc(s.chapterTitle)+' — '+esc(s.sessionTitle)+'</li>').join('')+'</ul>'+
+    (unplaced.length>30?'<p class="planning-muted">Les 30 premières séances sont affichées.</p>':'')
+    :'<p class="planning-muted">Toutes les séances existantes du cahier sont présentes au moins une fois dans le planning.</p>');
+ }
+}
+async function loadFollowupCahier(className){
+ const request=++state.followupRequest;
+ if(!className){state.followupSessions=null;state.followupLoadedClass='';state.followupError='';state.followupLoading=false;renderFollowup();return;}
+ state.followupSessions=null;state.followupLoadedClass='';state.followupLoading=true;state.followupError='';
+ renderFollowup();
+ try{
+  const sessions=await getCahierSessions(className);
+  if(request!==state.followupRequest||state.followupClass!==className)return;
+  state.followupSessions=sessions;state.followupLoadedClass=className;
+ }catch(e){
+  if(request!==state.followupRequest||state.followupClass!==className)return;
+  state.followupError=e.message||'Erreur de lecture';
+ }finally{
+  if(request===state.followupRequest){state.followupLoading=false;renderFollowup();}
  }
 }
 function renderSettings(){
@@ -497,9 +588,13 @@ function bind(){
  $('#planningNext').onclick=()=>{state.weekStart=plusDays(state.weekStart,7);state.weekPattern=weekPatternFor(state.weekStart);render()};
  $('#planningToday').onclick=()=>{state.weekStart=mondayOf(new Date());state.weekPattern=weekPatternFor(state.weekStart);render()};
  $('#planningPattern').onchange=e=>{state.weekPattern=e.target.value;render()};
- $$('.planning-tabs button').forEach(b=>b.onclick=()=>{state.tab=b.dataset.tab;render()});
+ $('.planning-tabs button').forEach(b=>b.onclick=()=>{state.tab=b.dataset.tab;render();if(state.tab==='followup'&&state.followupClass&&state.followupLoadedClass!==state.followupClass&&!state.followupLoading)loadFollowupCahier(state.followupClass)});
  window.addEventListener('pagehide',savePlanningNav);window.addEventListener('scroll',()=>{clearTimeout(window.__planningNavTimer);window.__planningNavTimer=setTimeout(savePlanningNav,250)},{passive:true});
  $('#planningEvents').addEventListener('click',e=>{const button=e.target.closest('[data-event-week]');if(button)showEventInWeek(button.dataset.eventWeek)});
+ $('#planningFollowupClass').addEventListener('change',e=>{state.followupClass=e.target.value;loadFollowupCahier(state.followupClass)});
+ $('#planningFollowupFilter').addEventListener('change',e=>{state.followupFilter=e.target.value;renderFollowup()});
+ $('#planningFollowupSummary').addEventListener('click',e=>{const item=e.target.closest('[data-followup-filter]');if(!item)return;state.followupFilter=item.dataset.followupFilter;renderFollowup()});
+ $('#planningFollowupList').addEventListener('click',e=>{const item=e.target.closest('[data-followup-occ]');if(item)editOccurrence(item.dataset.followupOcc)});
  $('#planningAddEvent').onclick=addEvent;
  const weekAddEvent=$('#planningWeekAddEvent');if(weekAddEvent)weekAddEvent.onclick=addEvent;
  $('#planningBulkLink').onclick=openPlanningBulk;
