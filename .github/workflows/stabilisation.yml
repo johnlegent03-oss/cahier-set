@@ -14,17 +14,12 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - name: Vérifier la syntaxe JavaScript
+      - name: Vérifier la syntaxe de tous les JavaScript du site
         run: |
-          node --check evaluations.js
-          node --check behavior-supabase.js
-          node --check atelier-mise-en-page.js
-          node --check planning-associations.js
-          node --check planning-types.js
-          node --check planning-calendar-events.js
-          node --check planning-followup.js
-          node --check planning-completion.js
-          node --check planning-remarks.js
-          node --check planning.js
+          set -eu
+          for file in ./*.js; do
+            echo "Vérification : $file"
+            node --check "$file"
+          done
       - name: Tester les règles de calcul et les chargements
         run: node --test tests/*.test.cjs
