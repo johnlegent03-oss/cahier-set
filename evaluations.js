@@ -8155,7 +8155,7 @@ function ppCouncilDrawAcademicCharts(){
   const pupil=d.pupils.find(p=>String(p.id)===String(selector.value));
   if(!pupil){host.innerHTML='<p class="pp-empty">Aucun élève sélectionné.</p>';return;}
   host.innerHTML='<div class="pp-student-graphs">'+
-    '<section class="pp-chart-card"><h4>Évolution des moyennes par matière</h4>'+ppChartCompareSvg(d,pupil)+'</section>'+
+    '<section class="pp-chart-card"><h4>Moyennes par discipline — élève et classe</h4>'+ppChartCompareSvg(d,pupil)+'</section>'+
     '<section class="pp-chart-card"><h4>Radar des moyennes</h4>'+ppChartRadarSvg(d,pupil)+'</section></div>'+
     '<p class="small-note">Graphiques calculés uniquement à partir des moyennes de discipline enregistrées dans le Suivi PP. Les plages min–max et les moyennes de classe peuvent être incomplètes si des élèves ne sont pas encore renseignés.</p>';
 }
@@ -8186,7 +8186,7 @@ function ppCouncilAcademicHtml(data,period){
   const distribution=[["16 à 20",data.bins[0]],["10 à moins de 16",data.bins[1]],["5 à moins de 10",data.bins[2]],["Moins de 5",data.bins[3]]];
   const histogram=ppCouncilHistogramHtml(data,distribution);
   const comparison='<h4 style="margin-top:20px">Comparaisons graphiques des résultats</h4>'+ppCouncilSelectorHtml(data);
-  const tableDist='<h4>Répartition des moyennes générales</h4><div style="overflow-x:auto"><table class="data-table" style="width:100%">'+
+  const tableDist='<div style="overflow-x:auto"><table class="data-table" style="width:100%">'+
     '<thead><tr><th>Tranche</th><th>Élèves</th><th>Pourcentage</th></tr></thead><tbody>'+
     distribution.map(([name,n])=>'<tr><td>'+name+'</td><td>'+n+'</td><td>'+pct(n,data.graded)+'</td></tr>').join("")+
     '</tbody></table></div>';
@@ -8211,7 +8211,7 @@ function ppCouncilAcademicHtml(data,period){
     '<h3>📊 Bilan de la classe — '+esc(period)+'</h3>'+
     '<p class="small-note">Moyenne des moyennes générales pondérées des élèves disposant de résultats, sans assimiler une note manquante à 0.</p></div>'+
     '<button type="button" onclick="ppCouncilRefreshAcademic()">↻ Actualiser</button></div>'+
-    report+histogram+tableDist+comparison+tableSubjects+alertTable+
+    report+'<h4>Répartition des moyennes générales</h4>'+histogram+tableDist+comparison+tableSubjects+alertTable+
     '<p class="small-note" style="margin-top:12px">La moyenne est indicative lorsque certaines disciplines ne sont pas renseignées. En accord avec le bulletin École Directe, la SVT et la Physique-Chimie comptent séparément, coefficient 2 chacune.</p>'+
     (data.duplicates?'<p class="small-note" role="alert">⚠️ '+data.duplicates+' doublon(s) élève-discipline ignoré(s).</p>':"")+
     (data.invalid?'<p class="small-note">'+data.invalid+' valeur(s) absente(s) ou invalide(s) écartée(s).</p>':"")+
