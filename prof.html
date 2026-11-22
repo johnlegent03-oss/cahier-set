@@ -838,6 +838,12 @@ function sanitizeRichHtml(value){
         el.setAttribute("data-rich-text-box","1");
       }else{el.removeAttribute(attr.name);}
     });
+    // Conserver l'ouverture sécurisée dans un nouvel onglet, même si un
+    // ancien target/rel était présent puis nettoyé dans la boucle ci-dessus.
+    if(el.tagName==="A"&&el.hasAttribute("href")){
+      el.setAttribute("target","_blank");
+      el.setAttribute("rel","noopener noreferrer");
+    }
     if(el.tagName==="IMG"){
       // Les dimensions et le placement doivent survivre à l'enregistrement,
       // à l'aperçu élève et à l'export PDF.
