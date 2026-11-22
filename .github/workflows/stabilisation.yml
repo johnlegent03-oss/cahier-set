@@ -69,3 +69,14 @@ jobs:
         env:
           HOME: /root
         run: node tests/atelier-multinavigateurs-browser.cjs
+
+  verification_lecture_publique:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Tester en lecture seule la RPC publiée et la classe TEST
+        run: node tests/atelier-preflight-public-live.cjs
