@@ -52,3 +52,18 @@ jobs:
           path: test-artifacts/*.pdf
           if-no-files-found: ignore
           retention-days: 7
+
+  compatibilite_multinavigateurs:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Installer les moteurs Firefox et WebKit
+        run: |
+          npm install --no-save --ignore-scripts playwright-core@1.56.1
+          node node_modules/playwright-core/cli.js install --with-deps firefox webkit
+      - name: Tester l'atelier dans Firefox et WebKit
+        run: node tests/atelier-multinavigateurs-browser.cjs
