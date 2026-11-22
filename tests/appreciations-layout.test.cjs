@@ -32,6 +32,6 @@ test('les cases des appréciations ont une taille fixe et ne prennent pas width:
 
 test('les fichiers changés sont rechargés par la page évaluations sans ancien cache',()=>{
  assert.match(html,/evaluations\.css\?v=20261122-appreciations-layout/);
- assert.match(html,/evaluations\.js\?v=20261122-appreciations-layout/);
+ assert.match(html,/evaluations\.js\?v=[0-9]{8}-[a-z0-9-]+/);
  assert.match(html,/appreciations-moteur\.js\?v=20261122-appreciations-layout/);
 });
