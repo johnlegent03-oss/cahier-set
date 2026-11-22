@@ -7659,14 +7659,22 @@ async function ppLoadGrades(studentId,period){
   const {data,error}=await sb.from(PP_TABLES.moyennes).select("*").eq("eleve_id",String(studentId)).eq("periode",period);
   if(error)throw new Error(error.message);return data||[];
 }
+function ppNumericGrade(value){
+  // Une case vide est une note manquante ; zéro est uniquement une vraie note saisie.
+  if(value===null||value===undefined||String(value).trim()==="")return null;
+  const n=Number(value);
+  return Number.isFinite(n)&&n>=0&&n<=20?n:null;
+}
 function ppWeightedAverage(grades){
-  const by=new Map(grades.map(x=>[String(x.discipline),Number(x.moyenne)]));
+  const by=new Map((grades||[]).map(x=>[String(x.discipline),ppNumericGrade(x.moyenne)]));
   let total=0,coefTotal=0;
-  PP_DISCIPLINES.forEach(d=>{const v=by.get(d.nom);if(Number.isFinite(v)){total+=v*d.coef;coefTotal+=d.coef;}});
-  const pc=by.get(PP_SCIENCES.pc), svt=by.get(PP_SCIENCES.svt);
-  if(Number.isFinite(pc) && Number.isFinite(svt)){
-    const sciences=(pc*2+svt*2)/4;
-    total+=sciences*PP_SCIENCES.coef;coefTotal+=PP_SCIENCES.coef;
+  PP_DISCIPLINES.forEach(d=>{
+    const v=by.get(d.nom);
+    if(v!==null&&v!==undefined){total+=v*d.coef;coefTotal+=d.coef;}
+  });
+  const pc=by.get(PP_SCIENCES.pc),svt=by.get(PP_SCIENCES.svt);
+  if(pc!==null&&pc!==undefined&&svt!==null&&svt!==undefined){
+    total+=((pc+svt)/2)*PP_SCIENCES.coef;coefTotal+=PP_SCIENCES.coef;
   }
   return coefTotal?total/coefTotal:null;
 }
@@ -7699,24 +7707,30 @@ function ppGenerateAppreciation(grades,student,events=[]){
 }
 function ppGradesEditor(grades){
   const by=new Map(grades.map(x=>[String(x.discipline),x]));
-  const pcVal=by.get("Physique-Chimie")?.moyenne;
-  const svtVal=by.get("SVT")?.moyenne;
+  const pcVal=ppNumericGrade(by.get("Physique-Chimie")?.moyenne);
+  const svtVal=ppNumericGrade(by.get("SVT")?.moyenne);
   const scienceAvg=(pcVal!=null&&svtVal!=null)?((Number(pcVal)+Number(svtVal))/2):null;
   const scienceHtml=`<div class="pp-sciences"><div class="pp-sciences-title"><div><strong>Sciences</strong> <span class="small-note">coef. 2 dans la moyenne générale</span></div><span class="small-note">PC + SVT regroupées</span></div><div class="pp-sciences-fields"><div class="pp-sciences-field"><label>Physique-Chimie <span class="small-note">coef. 2</span></label><input class="pp-grade" data-discipline="Physique-Chimie" type="number" min="0" max="20" step="0.01" value="${pcVal==null?"":esc(pcVal)}" placeholder="/20"></div><div class="pp-sciences-field"><label>SVT <span class="small-note">coef. 2</span></label><input class="pp-grade" data-discipline="SVT" type="number" min="0" max="20" step="0.01" value="${svtVal==null?"":esc(svtVal)}" placeholder="/20"></div></div><div class="pp-sciences-average">Moyenne Sciences : <output id="ppScienceAverage">${scienceAvg==null?"—":ppFormatGrade(scienceAvg)+" /20"}</output></div><div class="small-note" style="margin-top:6px">Les deux moyennes sont regroupées en une seule moyenne Sciences, qui compte coef. 2 dans la moyenne générale.</div></div>`;
   return `<div class="pp-grades"><div class="small-note" style="margin-bottom:10px">Les coefficients sont appliqués automatiquement. Pour Sciences, saisis les moyennes École Directe de Physique-Chimie et de SVT.</div>${PP_DISCIPLINES.map(d=>{const r=by.get(d.nom)||{};return `<div class="pp-grade-row"><label>${esc(d.nom)} <span class="small-note">coef. ${d.coef}</span></label><input class="pp-grade" data-discipline="${esc(d.nom)}" type="number" min="0" max="20" step="0.01" value="${r.moyenne==null?"":esc(r.moyenne)}" placeholder="/20"></div>`}).join("")}${scienceHtml}</div>`;
 }
 function ppCollectGrades(){
-  const out=[...document.querySelectorAll(".pp-grade")].map(i=>({discipline:i.dataset.discipline,moyenne:i.value===""?null:Number(i.value)})).filter(x=>Number.isFinite(x.moyenne));
+  const out=[];
+  for(const field of document.querySelectorAll(".pp-grade")){
+    if(field.value.trim()==="")continue;
+    const grade=ppNumericGrade(field.value);
+    if(grade===null)throw new Error("Moyenne invalide pour « "+field.dataset.discipline+" » (attendu : 0 à 20).");
+    out.push({discipline:field.dataset.discipline,moyenne:grade});
+  }
   const d=document.getElementById("pp_other_discipline")?.value.trim(),v=document.getElementById("pp_other_grade")?.value;
-  if(d&&v!==""&&Number.isFinite(Number(v)))out.push({discipline:d,moyenne:Number(v)});
+  if(d&&v!==""){const grade=ppNumericGrade(v);if(grade===null)throw new Error("Moyenne invalide pour « "+d+" ».");out.push({discipline:d,moyenne:grade});}
   return out;
 }
 function ppUpdateScienceAverage(){
-  const pc=Number(document.querySelector('.pp-grade[data-discipline="Physique-Chimie"]')?.value);
-  const svt=Number(document.querySelector('.pp-grade[data-discipline="SVT"]')?.value);
+  const pc=ppNumericGrade(document.querySelector('.pp-grade[data-discipline="Physique-Chimie"]')?.value);
+  const svt=ppNumericGrade(document.querySelector('.pp-grade[data-discipline="SVT"]')?.value);
   const out=document.getElementById("ppScienceAverage");
   if(!out)return;
-  out.textContent=(Number.isFinite(pc)&&Number.isFinite(svt))?`${ppFormatGrade((pc+svt)/2)} /20`:"—";
+  out.textContent=(pc!==null&&svt!==null)?`${ppFormatGrade((pc+svt)/2)} /20`:"—";
 }
 async function ppSaveGrades(){
   const s=ppStudentById(ppStudentId);if(!s)return;
