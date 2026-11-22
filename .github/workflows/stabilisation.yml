@@ -42,6 +42,8 @@ jobs:
         run: node tests/atelier-sauvegardes-browser.cjs
       - name: Vérifier le lien cahier et la lecture élève
         run: node tests/atelier-cahier-browser.cjs
+      - name: Vérifier sauvegarde et réouverture de la fiche complète
+        run: node tests/atelier-reouverture-browser.cjs
       - name: Conserver les PDF d'essai pour contrôle visuel
         if: always()
         uses: actions/upload-artifact@v4
