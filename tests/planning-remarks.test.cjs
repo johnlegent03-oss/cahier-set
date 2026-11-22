@@ -53,10 +53,15 @@ test('afficher un panneau explicite en cas de droits insuffisants, sans prétend
  const a=source.indexOf('function renderRemarks(){'),b=source.indexOf('async function loadRemarks(){',a);
  assert.ok(a>0&&b>a);
  const node={innerHTML:''};
+ const history={innerHTML:''};
+ const fromInput={value:'',min:'',max:''},toInput={value:'',min:'',max:''};
  const state={remarksRows:null,remarksLoading:false,remarksError:'Permission refusée',
   followupClass:'6e2',occurrences:[],period:{start_date:'2026-09-01',end_date:'2027-07-03'}};
- const ctx={window:{PlanningRemarks:Remarks},state,$:id=>id==='#planningRemarksSummary'?node:null,
-  esc:x=>String(x),CLASSES:['6e2']};
+ const ctx={window:{PlanningRemarks:Remarks},state,$:id=>({
+  '#planningRemarksSummary':node,'#planningRemarksHistory':history,
+  '#planningRemarksFrom':fromInput,'#planningRemarksTo':toInput
+ })[id]||null,esc:x=>String(x),CLASSES:['6e2'],
+  dateFrom:s=>new Date(s+'T12:00:00')};
  vm.createContext(ctx);vm.runInContext(source.slice(a,b),ctx);
  ctx.renderRemarks();
  assert.match(node.innerHTML,/Remarques indisponibles/);
@@ -75,7 +80,7 @@ test('la lecture Supabase est paginée, sans noms, et sans écriture',async()=>{
  const ranges=[],selected=[];
  const builder={
   select(cols){selected.push(cols);return this;},
-  gte(){return this;},lte(){return this;},
+  gte(){return this;},lte(){return this;},lt(){return this;},
   order(){return this;},
   async range(start,end){ranges.push([start,end]);return {data:rows.slice(start,end+1),error:null};}
  };
