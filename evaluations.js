@@ -8046,6 +8046,37 @@ async function ppCouncilRefreshAcademic(){
   }
 }
 
+// Formulation qualitative validée par le PP, non inférée des notes ou des évaluations.
+const PP_COUNCIL_MASTERY_PHRASES={
+ tres_bonne:"La maîtrise globale des compétences est très bonne.",
+ satisfaisante:"La maîtrise globale des compétences est satisfaisante.",
+ fragile:"La maîtrise globale des compétences reste fragile.",
+ insuffisante:"La maîtrise globale des compétences est insuffisante."
+};
+function ppCouncilMasteryFromText(value){
+ const text=String(value||"");
+ return Object.keys(PP_COUNCIL_MASTERY_PHRASES).find(k=>text.includes(PP_COUNCIL_MASTERY_PHRASES[k]))||"";
+}
+function ppCouncilHasMastery(value){
+ const text=String(value||"");
+ return !!ppCouncilMasteryFromText(text)||
+  (/maîtris[\w]*[^.!?]{0,80}compétences|compétences[^.!?]{0,80}maîtris[\w]*/iu).test(text);
+}
+function ppCouncilInsertMastery(studentId){
+ if(ppCouncilSaving)return;
+ const id=String(studentId);
+ const field=[...document.querySelectorAll(".pp-council-app")].find(el=>String(el.dataset.id)===id);
+ const select=[...document.querySelectorAll(".pp-council-mastery")].find(el=>String(el.dataset.id)===id);
+ if(!field||!select)return;
+ const sentence=PP_COUNCIL_MASTERY_PHRASES[select.value];
+ if(!sentence){alert("Choisis d’abord le niveau de maîtrise des compétences.");return;}
+ let text=String(field.value||"").trim();
+ Object.values(PP_COUNCIL_MASTERY_PHRASES).forEach(previous=>{text=text.split(previous).join(" ");});
+ text=text.replace(/\s+/g," ").trim();
+ field.value=(text?text+(/[.!?]$/.test(text)?" ":". "):"")+sentence;
+ ppCouncilDrawStatus();
+}
+
 /* Conseil de classe PP : repères de complétude, modifications protégées et sauvegarde ciblée. */
 let ppCouncilBaseline=new Map(),ppCouncilSaving=false,ppCouncilLoadRequest=0;
 function ppCouncilText(value){return String(value??"").trim();}
@@ -8069,6 +8100,7 @@ function ppCouncilDrawStatus(){
   const rows=ppCouncilCapture();
   const done=rows.filter(x=>x.appreciation).length;
   const decisions=rows.filter(x=>x.decisions).length;
+  const masteryCount=rows.filter(x=>ppCouncilHasMastery(x.appreciation)).length;
   const dirty=rows.filter(ppCouncilChanged).length;
   const summary=document.getElementById("ppCouncilSummary");
   if(summary)summary.innerHTML=
@@ -8076,7 +8108,8 @@ function ppCouncilDrawStatus(){
     '<div class="pp-stat"><div class="n">'+rows.length+'</div><div class="l">Élèves de la classe</div></div>'+
     '<div class="pp-stat"><div class="n">'+done+'</div><div class="l">Appréciations renseignées</div></div>'+
     '<div class="pp-stat"><div class="n">'+decisions+'</div><div class="l">Décisions / suites renseignées</div></div>'+
-    '<div class="pp-stat"><div class="n">'+(rows.length-done)+'</div><div class="l">Appréciations à compléter</div></div>'+
+    '<div class="pp-stat"><div class="n">'+(rows.length-done)+'</div><div class="l">Appréciations à compléter</div></div>'+ 
+    '<div class="pp-stat"><div class="n">'+masteryCount+'</div><div class="l">Appréciations évoquant la maîtrise des compétences</div></div>'+
     '</div><p class="small-note" role="status">'+
     (dirty?'<strong style="color:#9a5519">● '+dirty+' fiche(s) modifiée(s) non enregistrée(s).</strong>':
       '✓ Toutes les modifications saisies sont enregistrées.')+
@@ -8093,11 +8126,13 @@ function ppCouncilDrawStatus(){
     const matching=(!search||name.includes(search))&&
       (filter==="missing"?!row.appreciation:
        filter==="written"?!!row.appreciation:
+       filter==="mastery_missing"?!ppCouncilHasMastery(row.appreciation):
        filter==="unsaved"?changed:true);
     tr.hidden=!matching;
     if(matching)visible++;
     const status=tr.querySelector(".pp-council-status");
     if(status)status.textContent=(row.appreciation?"✓ Appréciation saisie":"À compléter")+
+      (row.appreciation?(ppCouncilHasMastery(row.appreciation)?" · Compétences évoquées":" · Maîtrise à préciser"):"")+
       (row.decisions?" · Décision saisie":"")+
       (changed?" · ● Non enregistré":"");
   });
@@ -8165,7 +8200,8 @@ async function openPPCouncil(){
       '<select id="ppCouncilFilter" onchange="ppCouncilDrawStatus()">'+
       '<option value="all">Tous les élèves</option>'+
       '<option value="missing">Appréciations à compléter</option>'+
-      '<option value="written">Appréciations renseignées</option>'+
+      '<option value="written">Appréciations renseignées</option>'+ 
+      '<option value="mastery_missing">Maîtrise des compétences à préciser</option>'+
       '<option value="unsaved">Modifications non enregistrées</option>'+
       '</select></label></div>'+
       '<p id="ppCouncilShown" class="small-note"></p>'+
@@ -8178,7 +8214,16 @@ async function openPPCouncil(){
           '<td style="vertical-align:top;min-width:160px"><strong>'+esc(name)+'</strong>'+
           '<div class="small-note">'+esc(st.classe||"")+'</div>'+
           '<span class="small-note pp-council-status"></span></td>'+
-          '<td><textarea class="pp-council-app" data-id="'+esc(st.id)+'" rows="4" style="width:100%" oninput="ppCouncilDrawStatus()">'+esc(old.appreciation||"")+'</textarea></td>'+
+          '<td><textarea class="pp-council-app" data-id="'+esc(st.id)+'" rows="4" style="width:100%" oninput="ppCouncilDrawStatus()">'+esc(old.appreciation||"")+'</textarea>'+
+          '<div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:7px;align-items:end">'+
+          '<label class="small-note" style="flex:1;min-width:175px">Maîtrise globale des compétences'+
+          '<select class="pp-council-mastery" data-id="'+esc(st.id)+'" style="width:100%;margin-top:3px">'+
+          '<option value="">Choisir un niveau…</option>'+
+          [["tres_bonne","Très bonne maîtrise"],["satisfaisante","Maîtrise satisfaisante"],["fragile","Maîtrise fragile"],["insuffisante","Maîtrise insuffisante"]]
+            .map(([key,title])=>'<option value="'+key+'"'+(ppCouncilMasteryFromText(old.appreciation)===key?' selected':'')+'>'+title+'</option>').join("")+
+          '</select></label>'+
+          '<button type="button" onclick="ppCouncilInsertMastery('+jsArg(st.id)+')">Insérer la phrase</button></div>'+
+          '<div class="small-note">Formulation choisie par le PP, sans déduction automatique de la moyenne.</div></td>'+
           '<td><textarea class="pp-council-dec" data-id="'+esc(st.id)+'" rows="4" style="width:100%" oninput="ppCouncilDrawStatus()">'+esc(old.decisions||"")+'</textarea></td></tr>';
       }).join("")+'</tbody></table></div></section>';
     ppCouncilDrawStatus();
