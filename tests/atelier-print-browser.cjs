@@ -1,6 +1,7 @@
 // Test réel de l'export PDF A4 dans Chromium, lancé uniquement par la CI dédiée.
 const assert=require('node:assert/strict');
 const path=require('node:path');
+const fs=require('node:fs');
 const {pathToFileURL}=require('node:url');
 const {chromium}=require('playwright-core');
 
@@ -58,6 +59,9 @@ function pagesInPdf(buffer){
 
     await checkSize(794,1123);
     const portrait=await page.pdf({preferCSSPageSize:true,printBackground:true});
+    const output=path.resolve(__dirname,'..','test-artifacts');
+    fs.mkdirSync(output,{recursive:true});
+    fs.writeFileSync(path.join(output,'atelier-test-portrait.pdf'),portrait);
     assert.equal(pagesInPdf(portrait),2,'deux pages A4 portrait attendues, sans feuille blanche');
 
     await page.evaluate(()=>{
@@ -67,6 +71,7 @@ function pagesInPdf(buffer){
     });
     await checkSize(1123,794);
     const landscape=await page.pdf({preferCSSPageSize:true,printBackground:true});
+    fs.writeFileSync(path.join(output,'atelier-test-paysage.pdf'),landscape);
     assert.equal(pagesInPdf(landscape),2,'deux pages A4 paysage attendues, sans feuille blanche');
 
     console.log('OK : PDF Chromium A4 portrait et paysage, deux pages chacun.');
