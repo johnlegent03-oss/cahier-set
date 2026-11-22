@@ -105,6 +105,21 @@ const {chromium}=require('playwright-core');
     });
     assert.deepEqual(multiTab,{saved:false,untouched:true,conflict:true,warning:true},
       'deux onglets ne doivent pas se réécrire silencieusement');
-    console.log('OK : récupération locale, version cloud et protection du brouillon entre onglets.');
+    await tab.evaluate(()=>{
+      const saved=currentDraftSnapshot();
+      localStorage.setItem(BACKUP_KEY,saved);
+      localStorage.setItem(KEY,'{brouillon corrompu');
+    });
+    await tab.reload({waitUntil:'load'});
+    await tab.waitForSelector('#stage > .sheet',{timeout:12000});
+    const recovered=await tab.evaluate(()=>({
+      title:project.title,
+      alert:$('localStatus').textContent.includes('copie de secours récupérée'),
+      backupKept:!!localStorage.getItem(BACKUP_KEY)
+    }));
+    assert.equal(recovered.title,'Fiche de départ');
+    assert.equal(recovered.alert,true,'la récupération doit être annoncée clairement');
+    assert.equal(recovered.backupKept,true,'le brouillon de secours ne doit pas être détruit');
+    console.log('OK : récupération locale, version cloud, onglets multiples et brouillon corrompu.');
   }finally{await browser.close()}
 })().catch(error=>{console.error(error);process.exitCode=1});
