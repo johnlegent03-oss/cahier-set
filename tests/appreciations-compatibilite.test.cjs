@@ -25,6 +25,7 @@ function makeFixture(initial={}){
   document:{
    querySelectorAll:()=>fields,
    addEventListener:()=>{},
+   createElement:()=>({dataset:{},className:'',textContent:'',setAttribute:()=>{}}),
    getElementById:()=>null,
   },
   window:{addEventListener:()=>{}},
