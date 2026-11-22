@@ -8066,6 +8066,115 @@ async function ppCouncilAcademicRead(period,classe){
   }
   throw new Error("Trop de moyennes à parcourir : lecture interrompue.");
 }
+
+/* Graphiques du conseil PP : reproduisent les deux vues de résultats fournies
+   dans ÉcoleDirecte, sans assimiler moyennes et maîtrise des compétences. */
+let ppCouncilAcademicChartData=null;
+function ppChartNumber(value){return Number(value).toFixed(1)}
+function ppChartSubjects(data){
+  const preferred=[...PP_DISCIPLINES.map(d=>d.nom),PP_SCIENCES.svt,PP_SCIENCES.pc];
+  return [...data.subjects].sort((a,b)=>{
+    const ai=preferred.indexOf(a.name),bi=preferred.indexOf(b.name);
+    return (ai<0?999:ai)-(bi<0?999:bi);
+  }).filter(x=>x.rows.length&&x.average!==null);
+}
+function ppChartCompareSvg(data,pupil){
+  const all=ppChartSubjects(data);
+  if(!all.length)return '<p class="pp-empty">Aucune moyenne de discipline enregistrée pour la classe.</p>';
+  const svgW=Math.max(820,all.length*90+75),svgH=405;
+  const left=48,right=24,top=30,baseline=268;
+  const step=(svgW-left-right)/all.length;
+  const y=v=>baseline-Number(v)/20*(baseline-top);
+  const axis=[0,5,10,15,20].map(n=>
+    '<line x1="'+left+'" y1="'+ppChartNumber(y(n))+'" x2="'+(svgW-right)+'" y2="'+ppChartNumber(y(n))+'" stroke="#d8e2e6"/>'+
+    '<text x="'+(left-10)+'" y="'+ppChartNumber(y(n)+4)+'" font-size="12" fill="#637079" text-anchor="end">'+n+'</text>').join("");
+  const range=all.map((subject,i)=>{
+    const x=left+step*(i+0.5);
+    const vals=subject.rows.map(r=>r.note).filter(Number.isFinite);
+    const lo=Math.min(...vals),hi=Math.max(...vals);
+    const h=Math.max(3,y(lo)-y(hi));
+    return '<rect x="'+ppChartNumber(x-13)+'" y="'+ppChartNumber(y(hi))+'" width="26" height="'+ppChartNumber(h)+'" fill="#9dc5e4" opacity="0.73">'+
+       '<title>'+esc(subject.name)+' : '+ppChartNumber(lo)+'–'+ppChartNumber(hi)+'/20 (élèves saisis)</title></rect>'+
+       '<text x="'+ppChartNumber(x-4)+'" y="'+(baseline+14)+'" transform="rotate(-48 '+ppChartNumber(x-4)+' '+(baseline+14)+')" text-anchor="end" fill="#42525a" font-size="12">'+esc(subject.name)+'</text>';
+  }).join("");
+  function line(field,color){
+    let html="",prior=null;
+    all.forEach((subject,i)=>{
+      const v=field==="average" ? subject.average : pupil.grades.find(g=>g.discipline===subject.name)?.moyenne;
+      if(!Number.isFinite(v)){prior=null;return;}
+      const x=left+step*(i+0.5),cy=y(v);
+      if(prior)html+='<line x1="'+ppChartNumber(prior[0])+'" y1="'+ppChartNumber(prior[1])+
+        '" x2="'+ppChartNumber(x)+'" y2="'+ppChartNumber(cy)+'" stroke="'+color+'" stroke-width="2.6"/>';
+      html+='<circle cx="'+ppChartNumber(x)+'" cy="'+ppChartNumber(cy)+'" r="4.3" fill="'+color+'">'+
+        '<title>'+esc(subject.name)+' : '+ppChartNumber(v)+'/20</title></circle>';
+      prior=[x,cy];
+    });
+    return html;
+  }
+  return '<div class="pp-chart-scroll"><svg class="pp-chart-svg" viewBox="0 0 '+svgW+' '+svgH+
+    '" role="img" aria-label="Moyennes de l’élève et de la classe, minimum et maximum par discipline">'+
+    axis+range+line("average","#263746")+line("pupil","#d94b58")+'</svg></div>'+
+    '<div class="pp-chart-legend"><span><i style="background:#9dc5e4"></i>Min–max de la classe</span>'+
+    '<span><i style="background:#263746"></i>Moyenne de la classe</span>'+
+    '<span><i style="background:#d94b58"></i>Moyenne de l’élève</span></div>';
+}
+function ppChartRadarSvg(data,pupil){
+  const shared=ppChartSubjects(data).map(subject=>{
+    const own=pupil.grades.find(g=>g.discipline===subject.name)?.moyenne;
+    return own===undefined?null:{...subject,own};
+  }).filter(Boolean);
+  if(shared.length<3)return '<p class="pp-empty">Radar indisponible : au moins trois disciplines avec des moyennes sont nécessaires.</p>';
+  const n=shared.length,cx=385,cy=223,radius=145;
+  function point(i,value){
+    const a=-Math.PI/2+2*Math.PI*i/n,rad=radius*(value/20);
+    return [cx+rad*Math.cos(a),cy+rad*Math.sin(a)];
+  }
+  function points(values){return values.map((v,i)=>point(i,v).map(ppChartNumber).join(",")).join(" ")}
+  const grid=[5,10,15,20].map(v=>
+    '<polygon points="'+points(shared.map(()=>v))+'" fill="none" stroke="#d5dfe4"/>'+
+    '<text x="'+(cx+6)+'" y="'+ppChartNumber(cy-radius*v/20-3)+'" font-size="11" fill="#637079">'+v+'</text>').join("");
+  const labels=shared.map((s,i)=>{
+    const [endX,endY]=point(i,20),a=-Math.PI/2+2*Math.PI*i/n;
+    const x=cx+(radius+36)*Math.cos(a),y=cy+(radius+36)*Math.sin(a);
+    const anchor=x>cx+8?"start":x<cx-8?"end":"middle";
+    return '<line x1="'+cx+'" y1="'+cy+'" x2="'+ppChartNumber(endX)+'" y2="'+ppChartNumber(endY)+'" stroke="#d5dfe4"/>'+
+      '<text x="'+ppChartNumber(x)+'" y="'+ppChartNumber(y)+'" font-size="11" fill="#40515a" text-anchor="'+anchor+'">'+esc(s.name)+'</text>';
+  }).join("");
+  return '<div class="pp-chart-scroll"><svg class="pp-chart-svg pp-radar-svg" viewBox="0 0 770 465" role="img" aria-label="Radar comparant les moyennes de l’élève et de la classe">'+
+    grid+labels+
+    '<polygon points="'+points(shared.map(s=>s.average))+'" fill="#263746" fill-opacity=".09" stroke="#263746" stroke-width="2.4"/>'+
+    '<polygon points="'+points(shared.map(s=>s.own))+'" fill="#d94b58" fill-opacity=".12" stroke="#d94b58" stroke-width="2.4"/></svg></div>'+
+    '<div class="pp-chart-legend"><span><i style="background:#263746"></i>Moyenne de la classe</span>'+
+    '<span><i style="background:#d94b58"></i>Moyenne de l’élève</span></div>'+
+    '<p class="small-note">Radar limité aux disciplines ayant une moyenne disponible pour cet élève.</p>';
+}
+function ppCouncilDrawAcademicCharts(){
+  const d=ppCouncilAcademicChartData,selector=document.getElementById("ppCouncilChartStudent");
+  const host=document.getElementById("ppCouncilCharts");
+  if(!host||!selector||!d)return;
+  const pupil=d.pupils.find(p=>String(p.id)===String(selector.value));
+  if(!pupil){host.innerHTML='<p class="pp-empty">Aucun élève sélectionné.</p>';return;}
+  host.innerHTML='<div class="pp-student-graphs">'+
+    '<section class="pp-chart-card"><h4>Évolution des moyennes par matière</h4>'+ppChartCompareSvg(d,pupil)+'</section>'+
+    '<section class="pp-chart-card"><h4>Radar des moyennes</h4>'+ppChartRadarSvg(d,pupil)+'</section></div>'+
+    '<p class="small-note">Graphiques calculés uniquement à partir des moyennes de discipline enregistrées dans le Suivi PP. Les plages min–max et les moyennes de classe peuvent être incomplètes si des élèves ne sont pas encore renseignés.</p>';
+}
+function ppCouncilHistogramHtml(data,distribution){
+  const max=Math.max(1,...distribution.map(row=>row[1]));
+  return '<div class="pp-histogram" role="img" aria-label="Histogramme des moyennes générales de la classe">'+
+    distribution.map(([name,count])=>'<div class="pp-histogram-row"><span>'+esc(name)+'</span>'+
+      '<div class="pp-histogram-track"><div style="width:'+(100*count/max).toFixed(1)+'%"></div></div>'+
+      '<strong>'+count+'</strong></div>').join("")+'</div>';
+}
+function ppCouncilSelectorHtml(data){
+  const first=data.pupils.find(p=>p.grades.length)||data.pupils[0];
+  if(!first)return '<p class="pp-empty">Aucun élève à comparer.</p>';
+  return '<div class="pp-chart-selector"><label for="ppCouncilChartStudent">Élève à comparer</label>'+
+    '<select id="ppCouncilChartStudent" onchange="ppCouncilDrawAcademicCharts()">'+
+    data.pupils.map(p=>'<option value="'+esc(p.id)+'"'+(p.id===first.id?' selected':'')+'>'+esc(p.name)+'</option>').join("")+
+    '</select></div><div id="ppCouncilCharts"></div>';
+}
+
 function ppCouncilAcademicHtml(data,period){
   const fmt=n=>n===null?"—":n.toFixed(2).replace(".",",");
   const pct=(n,d)=>d?(100*n/d).toFixed(1).replace(".",",")+" %":"—";
@@ -8075,6 +8184,8 @@ function ppCouncilAcademicHtml(data,period){
     '<div class="pp-stat"><div class="n">'+data.ungraded+'</div><div class="l">Sans moyenne calculable</div></div>'+
     '<div class="pp-stat"><div class="n">'+data.alerts.length+'</div><div class="l">Élèves avec discipline sous 10</div></div></div>';
   const distribution=[["16 à 20",data.bins[0]],["10 à moins de 16",data.bins[1]],["5 à moins de 10",data.bins[2]],["Moins de 5",data.bins[3]]];
+  const histogram=ppCouncilHistogramHtml(data,distribution);
+  const comparison='<h4 style="margin-top:20px">Comparaisons graphiques des résultats</h4>'+ppCouncilSelectorHtml(data);
   const tableDist='<h4>Répartition des moyennes générales</h4><div style="overflow-x:auto"><table class="data-table" style="width:100%">'+
     '<thead><tr><th>Tranche</th><th>Élèves</th><th>Pourcentage</th></tr></thead><tbody>'+
     distribution.map(([name,n])=>'<tr><td>'+name+'</td><td>'+n+'</td><td>'+pct(n,data.graded)+'</td></tr>').join("")+
@@ -8100,7 +8211,7 @@ function ppCouncilAcademicHtml(data,period){
     '<h3>📊 Bilan de la classe — '+esc(period)+'</h3>'+
     '<p class="small-note">Moyenne des moyennes générales pondérées des élèves disposant de résultats, sans assimiler une note manquante à 0.</p></div>'+
     '<button type="button" onclick="ppCouncilRefreshAcademic()">↻ Actualiser</button></div>'+
-    report+tableDist+tableSubjects+alertTable+
+    report+histogram+tableDist+comparison+tableSubjects+alertTable+
     '<p class="small-note" style="margin-top:12px">La moyenne est indicative lorsque certaines disciplines ne sont pas renseignées. En accord avec le bulletin École Directe, la SVT et la Physique-Chimie comptent séparément, coefficient 2 chacune.</p>'+
     (data.duplicates?'<p class="small-note" role="alert">⚠️ '+data.duplicates+' doublon(s) élève-discipline ignoré(s).</p>':"")+
     (data.invalid?'<p class="small-note">'+data.invalid+' valeur(s) absente(s) ou invalide(s) écartée(s).</p>':"")+
@@ -8114,9 +8225,12 @@ async function ppCouncilRefreshAcademic(){
   if(!["T1","T2","T3"].includes(period))return;
   host.innerHTML='<p class="small-note">Chargement du bilan des résultats…</p>';
   try{
+    ppCouncilAcademicChartData=null;
     const marks=await ppCouncilAcademicRead(period,ppClass);
     if(token!==ppCouncilLoadRequest||!host.isConnected||document.getElementById("ppCouncilPeriod")?.value!==period)return;
-    host.innerHTML=ppCouncilAcademicHtml(ppCouncilAcademicData(ppClassStudents(),marks),period);
+    ppCouncilAcademicChartData=ppCouncilAcademicData(ppClassStudents(),marks);
+    host.innerHTML=ppCouncilAcademicHtml(ppCouncilAcademicChartData,period);
+    ppCouncilDrawAcademicCharts();
   }catch(e){
     if(token===ppCouncilLoadRequest&&host.isConnected)
       host.innerHTML='<section class="pp-section"><p role="alert">Bilan des résultats indisponible : '+esc(e.message)+'</p>'+
