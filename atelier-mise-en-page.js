@@ -67,62 +67,8 @@
       window.sanitizeRichHtml = wrapped;
     }
 
-    if (!document.getElementById('stage') || typeof window.addToSession !== 'function') return;
-
-// L’ajout par lien reste géré par atelier.html.
-return;
-
-let busy = false;
-    window.addToSession = async function() {
-      if (busy) return;
-      busy = true;
-      try {
-        requireUser();
-        if (typeof finish === 'function') finish();
-        metadata();
-        const cx = context();
-        if (!cx.classe || !cx.cahier_id || cx.chapitre_index === null || cx.seance_index === null) throw Error('Choisis une classe, un chapitre et une séance.');
-        if (!confirm('Enregistrer la fiche avec sa mise en page dans « ' + cx.classe + ' / ' + cx.seance_titre + ' » ? L’entrée de ce document sera mise à jour si elle existe déjà.')) return;
-        const html = snapshot();
-        if (!await saveCloud(false)) return;
-        const id = String(cloudId || '');
-        if (!id) throw Error('Le document enregistré n’a pas d’identifiant.');
-        const {data:row,error} = await sb.from('Cahier').select('id,contenu').eq('id',cx.cahier_id).single();
-        if (error) throw error;
-        const before = JSON.stringify(row.contenu);
-        const contenu = JSON.parse(before);
-        const seance = contenu?.chapitres?.[cx.chapitre_index]?.seances?.[cx.seance_index];
-        if (!seance) throw Error('Séance introuvable.');
-        if (seance.activites != null && !Array.isArray(seance.activites)) throw Error('Format des activités inattendu. Aucune modification.');
-        const list = seance.activites || (seance.activites = []);
-        const matches = [];
-        list.forEach((entry,index) => {
-          const text = String(entry.texte || '');
-          let found = text.includes('atelier-doc=' + id + ' ');
-          const doc = new DOMParser().parseFromString(text,'text/html');
-          for (const link of doc.querySelectorAll('a[href]')) {
-            try { if (new URL(link.getAttribute('href'),location.href).searchParams.get('doc') === id) found = true; } catch (_) {}
-          }
-          if (found) matches.push(index);
-        });
-        if (matches.length > 1) throw Error('Plusieurs entrées correspondent au document. Aucune modification du cahier.');
-        localStorage.setItem('svt-layout-backup-' + row.id + '-' + Date.now(), before);
-        const texte = '<!-- atelier-doc=' + id + ' --><h3>' + escape(project.title || 'Activité') + '</h3>' + html;
-        if (matches.length) {
-          const index = matches[0];
-          list[index] = {...list[index], texte};
-        } else {
-          list.push({date:new Date().toISOString().slice(0,10),texte,pdf:''});
-        }
-        const {data:updated,error:updateError} = await sb.from('Cahier').update({contenu}).eq('id',row.id).eq('contenu',before).select('id');
-        if (updateError) throw updateError;
-        if (!updated || updated.length !== 1) throw Error('Mise à jour non confirmée : le cahier a changé ou l’accès est refusé. Recharge avant de réessayer.');
-        status('Fiche enregistrée avec sa mise en page. Recharge le cahier élève pour vérifier.');
-      } catch (error) {
-        status(error.message || String(error), true);
-      } finally { busy = false; }
-    };
-    console.info('[Fiche SVT] Ajout avec mise en page activé.');
+    // L'ajout d'une fiche au cahier reste exclusivement géré par atelier.html.
+    // Cet ancien gestionnaire est supprimé pour éviter tout UPDATE direct de Cahier.
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded',install,{once:true});

@@ -339,3 +339,37 @@ div.behavior-roster-row {
   align-items:initial !important;
   gap:0 !important;
 }
+
+
+/* Stabilisation V1 — options des appréciations.
+   Les champs checkbox ne doivent jamais hériter de input {width:100%}. */
+.appreciation-box label.appreciation-option {
+  display:flex;
+  align-items:flex-start;
+  justify-content:flex-start;
+  gap:9px;
+  width:100%;
+  margin:7px 0;
+  font-size:13px;
+  font-weight:500;
+  line-height:1.4;
+  cursor:pointer;
+}
+.appreciation-box label.appreciation-option > input[type="checkbox"] {
+  display:block;
+  width:18px !important;
+  height:18px !important;
+  min-width:18px;
+  min-height:18px;
+  flex:0 0 18px !important;
+  padding:0 !important;
+  margin:0 !important;
+  accent-color:#344e37;
+  cursor:pointer;
+}
+.appreciation-box label.appreciation-option > span {
+  display:block;
+  flex:1 1 auto;
+  min-width:0;
+  overflow-wrap:anywhere;
+}

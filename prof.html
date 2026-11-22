@@ -666,15 +666,87 @@ function clearLocalChapterBackup(index){try{if(classe&&index>=0)localStorage.rem
 function recoverLocalChapterBackup(index){
   try{
     if(!classe||!currentClassData||index<0)return;
-    const key=localBackupKey(classe,index),raw=localStorage.getItem(key);if(!raw)return;
-    const backup=JSON.parse(raw);if(backup.classe!==classe||backup.index!==index||!backup.chapter)return;
-    const online=normalizeChapter(currentClassData.contenu.chapitres[index]);
-    const local=normalizeChapter(backup.chapter);
+    const key=localBackupKey(classe,index),raw=localStorage.getItem(key);
+    if(!raw)return;
+    const backup=JSON.parse(raw);
+    if(backup.classe!==classe||backup.index!==index||!backup.chapter)return;
+    const online=normalizeChapter(JSON.parse(JSON.stringify(currentClassData.contenu.chapitres[index])));
+    const local=normalizeChapter(JSON.parse(JSON.stringify(backup.chapter)));
     if(JSON.stringify(online)===JSON.stringify(local)){localStorage.removeItem(key);return;}
+
+    // La version en ligne reste chargée. Une récupération ne doit jamais
+    // remplacer silencieusement un chapitre, ni effacer la copie avant succès.
     const when=backup.savedAt?new Date(backup.savedAt).toLocaleString("fr-FR"):"date inconnue";
-    if(confirm(`Une copie locale de ce chapitre, datée du ${when}, diffère de la version en ligne.\n\nVeux-tu restaurer cette copie locale ?\n\nChoisis « Annuler » pour conserver la version en ligne et supprimer la copie locale.`)){
-      currentClassData.contenu.chapitres[index]=local;localStorage.removeItem(key);
-    }else localStorage.removeItem(key);
+    const changedKeys=[...new Set([...Object.keys(online),...Object.keys(local)])]
+      .filter(name=>JSON.stringify(online[name])!==JSON.stringify(local[name]));
+    const names={titre:"Titre",germoir:"Germoir à idées",problematique:"Problématique",vocabulaire:"Vocabulaire",seances:"Séances",schema:"Schéma-bilan",germoirPdf:"PDF du germoir",schemaPdf:"PDF du schéma-bilan",memoPdf:"Fiche de mémorisation",evaluationPdf:"Évaluation"};
+    const valuePreview=value=>{
+      const printed=typeof value==="string"?stripHtml(value):JSON.stringify(value??null,null,2);
+      const readable=printed&&printed.trim()?printed.trim():"(aucun texte lisible ou image)";
+      return esc(readable.slice(0,1800))+(readable.length>1800?"\n… (aperçu limité : télécharge la copie pour tout conserver)":"");
+    };
+    const comparison=changedKeys.map(name=>
+      '<div style="border-top:1px solid #ddd;padding:12px 0;">'
+      +'<strong>'+esc(names[name]||name)+'</strong>'
+      +'<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;margin-top:8px;">'
+      +'<div><b>Version en ligne</b><pre style="white-space:pre-wrap;overflow-wrap:anywhere;max-height:180px;overflow:auto;">'+valuePreview(online[name])+'</pre></div>'
+      +'<div><b>Copie locale</b><pre style="white-space:pre-wrap;overflow-wrap:anywhere;max-height:180px;overflow:auto;">'+valuePreview(local[name])+'</pre></div>'
+      +'</div></div>').join("");
+    const existing=document.getElementById("svtLocalRecovery");
+    if(existing)existing.remove();
+    const overlay=document.createElement("div");
+    overlay.id="svtLocalRecovery";
+    overlay.setAttribute("role","dialog");
+    overlay.setAttribute("aria-modal","true");
+    overlay.setAttribute("aria-labelledby","svtLocalRecoveryTitle");
+    overlay.style.cssText="position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,.65);overflow:auto;padding:28px 14px;box-sizing:border-box;";
+    overlay.innerHTML=
+      '<section style="background:#fff;color:#192331;max-width:980px;margin:auto;padding:24px;border-radius:14px;box-shadow:0 12px 50px #1118;">'
+      +'<h2 id="svtLocalRecoveryTitle">⚠️ Une copie locale différente existe</h2>'
+      +'<p>Une copie de ce chapitre datant du <strong>'+esc(when)+'</strong> a été retrouvée. <strong>La version en ligne est conservée par défaut.</strong></p>'
+      +'<p>Restaurer la copie locale remplacera le chapitre entier lors de son prochain enregistrement. Compare les différences ou télécharge une sauvegarde avant de décider.</p>'
+      +'<div style="display:flex;gap:10px;flex-wrap:wrap;margin:16px 0;">'
+      +'<button type="button" id="svtCompareCopies">🔎 Comparer les versions</button>'
+      +'<button type="button" id="svtDownloadCopy">⬇ Télécharger la copie locale (.json)</button>'
+      +'</div>'
+      +'<div id="svtBackupComparison" hidden style="max-height:45vh;overflow:auto;border:1px solid #ddd;border-radius:8px;padding:12px;margin-bottom:16px;">'
+      +(comparison||'<p>Les différences portent sur la structure du chapitre.</p>')
+      +'</div>'
+      +'<div style="display:flex;gap:12px;flex-wrap:wrap;justify-content:flex-end;">'
+      +'<button type="button" id="svtKeepOnline">Conserver la version en ligne</button>'
+      +'<button type="button" id="svtRestoreBackup" style="background:#8f2525;color:white;">Restaurer la copie locale</button>'
+      +'</div></section>';
+    document.body.appendChild(overlay);
+    overlay.querySelector("#svtCompareCopies").addEventListener("click",()=>{
+      const detail=overlay.querySelector("#svtBackupComparison");
+      detail.hidden=!detail.hidden;
+    });
+    overlay.querySelector("#svtDownloadCopy").addEventListener("click",()=>{
+      const blob=new Blob([JSON.stringify(backup,null,2)],{type:"application/json"});
+      const url=URL.createObjectURL(blob),link=document.createElement("a");
+      link.href=url;
+      link.download="copie-locale-"+String(classe).replace(/[^a-z0-9_-]/gi,"-")+"-chapitre-"+(index+1)+".json";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(()=>URL.revokeObjectURL(url),1000);
+    });
+    overlay.querySelector("#svtKeepOnline").addEventListener("click",()=>{
+      if(!confirm("Conserver la version en ligne et supprimer cette copie locale non enregistrée ? Tu peux d’abord la télécharger."))return;
+      localStorage.removeItem(key);
+      overlay.remove();
+    });
+    overlay.querySelector("#svtRestoreBackup").addEventListener("click",()=>{
+      if(!confirm("La copie locale remplacera le chapitre entier lors du prochain enregistrement, et les modifications en ligne seront perdues. Confirmer la restauration dans l’éditeur ?"))return;
+      currentClassData.contenu.chapitres[index]=local;
+      overlay.remove();
+      editChapter(index,true);
+      hasUnsavedChanges=true;
+      setSaveStatus("saving","Copie locale chargée, NON enregistrée. Vérifie et clique sur Enregistrer.");
+      // Ne pas supprimer le backup : seul saveChapter / runAutosave
+      // après un succès serveur sont autorisés à le supprimer.
+    });
+    overlay.querySelector("#svtCompareCopies").focus();
   }catch(e){console.warn("Récupération de la copie locale impossible :",e);}
 }
   function requireTeacher(){
@@ -848,16 +920,22 @@ async function saveClass(c,contenu,id){
     if(currentClassData?.id!==id||currentClassData?.classe!==c||currentClassData.originalContent===undefined)throw new Error("Recharge le cahier avant de l’enregistrer : la version de départ est inconnue.");
     const original=currentClassData.originalContent;
     const payload=typeof original==="string"?JSON.stringify(contenu):contenu;
-    const{data:latest,error:readError}=await sb.from("Cahier").select("contenu").eq("id",id).maybeSingle();
-    if(readError)throw new Error(readError.message);
-    if(!latest)throw new Error("Le cahier n’est plus disponible. Recharge-le avant de réessayer.");
-    const sameContent=value=>typeof value==="string"?value:JSON.stringify(value??null);
-    if(sameContent(latest.contenu)!==sameContent(original))throw new Error("Le cahier a été modifié depuis son chargement. Recharge-le pour éviter d’écraser les changements.");
-    const{data,error}=await sb.from("Cahier").update({contenu:payload}).eq("id",id).select("id,contenu").maybeSingle();
-    if(error)throw new Error(error.message);
-    if(!data?.id)throw new Error("Le cahier a été modifié depuis son chargement ou l’enregistrement est refusé. Recharge-le avant de réessayer.");
-    currentClassData.originalContent=data.contenu;
-    return data.id;
+    // Un UPDATE conditionnel exécuté dans PostgreSQL empêche qu'un autre onglet
+    // écrase des modifications effectuées après le chargement du cahier.
+    // Voir sql/proposition-svt-cahier-cas-v1.sql (à déployer avant cette version).
+    const {data,error}=await sb.rpc("svt_cahier_cas_v1",{
+      p_id:id,p_original:original,p_nouveau:payload
+    });
+    if(error){
+      if(error.code==="PGRST202")throw new Error("Sauvegarde protégée indisponible : la fonction Supabase svt_cahier_cas_v1 n’est pas installée. Aucune modification n’a été envoyée au cahier.");
+      throw new Error(error.message);
+    }
+    const saved=Array.isArray(data)?data[0]:null;
+    if(!saved?.cahier_id){
+      throw new Error("Conflit d’enregistrement : ce cahier a été modifié dans un autre onglet, supprimé, ou l’accès est refusé. Aucune donnée existante n’a été écrasée. Conserve cet onglet et une copie de tes modifications avant de recharger.");
+    }
+    currentClassData.originalContent=saved.cahier_contenu;
+    return saved.cahier_id;
   }
   const{data,error}=await sb.from("Cahier").insert({classe:c,contenu}).select("id,contenu").maybeSingle();
   if(error)throw new Error(error.message);
@@ -2004,6 +2082,107 @@ function exportPdfLink(labelText,url){
   const href=safeHttpUrl(url);if(!href)return "";
   return `<div class="cahier-pdf"><strong>📄 ${esc(labelText)}</strong><br><a href="${esc(href)}" target="_blank" rel="noopener noreferrer">Ouvrir le PDF associé</a></div>`;
 }
+function openCahierExportTab(title, contentHtml) {
+  // Ouverture synchrone depuis le clic : Firefox ne traite pas cela comme un popup différé.
+  const tab = window.open("", "_blank");
+  if (!tab) {
+    alert("Firefox a bloqué le nouvel onglet. Autorise les fenêtres surgissantes pour ce site, puis réessaie.");
+    return false;
+  }
+  const sourceLogo = document.querySelector(".brand .logo img");
+  const logo = sourceLogo?.src
+    ? `<img class="export-logo" src="${esc(sourceLogo.src)}" alt="Logo SVT">`
+    : "";
+  const css = `
+    :root{color-scheme:light;--forest:#34513a;--sage:#6f8966;--ivory:#fffdf5;--line:#d9e2cb}
+    *{box-sizing:border-box}
+    html{background:#f3f2e8}
+    body{margin:0;color:#344e39;background:#f3f2e8;font:14px/1.65 Arial,sans-serif}
+    .export-toolbar{position:sticky;top:0;z-index:5;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px max(20px,calc((100vw - 1000px)/2));background:#fffdf5;border-bottom:1px solid var(--line)}
+    .export-toolbar strong{font:700 16px Georgia,serif;color:var(--forest)}
+    .export-toolbar button{border:0;background:var(--forest);color:#fff;padding:10px 16px;border-radius:9px;cursor:pointer;font:700 13px Arial,sans-serif}
+    .export-container{max-width:950px;margin:26px auto 50px;padding:0 18px}
+    .print-page{background:var(--ivory);border:1px solid var(--line);border-radius:14px;margin:0 0 22px;padding:34px 42px;box-shadow:0 8px 24px #40593413;overflow-wrap:anywhere}
+    .print-page h1,.print-page h2,.print-page h3{font-family:Georgia,"Times New Roman",serif;line-height:1.22}
+    .print-page h1{font-size:29px;color:var(--forest);margin:10px 0 22px}
+    .print-page h2{font-size:21px;color:#466b46;margin:22px 0 10px}
+    .print-page h3{font-size:17px;color:#527249;margin:15px 0 8px}
+    .cahier-kicker{font:700 10px/1.6 Arial,sans-serif;letter-spacing:1.6px;text-transform:uppercase;color:#788a66}
+    .cahier-cover{min-height:500px;display:flex;flex-direction:column;justify-content:center;text-align:center;background:linear-gradient(130deg,#fffdf5,#e8eedc)}
+    .cahier-cover h1{font-size:44px}
+    .cahier-cover .subtitle{font:italic 19px Georgia,serif;color:#58724f}
+    .cahier-page section{margin:18px 0;border-top:1px solid #e1e7d8;padding-top:8px}
+    .cahier-page section:first-of-type{border:0}
+    .cahier-page .problem{border-left:4px solid #839b70;background:#eef2e2;padding:12px 14px;border-radius:0 8px 8px 0}
+    .session-print{border:1px solid #d8e2cf!important;background:#fafbf5;border-radius:10px;padding:14px 16px!important;margin:20px 0!important}
+    .session-print>h2{margin-top:3px}
+    .entry-print{border-top:1px solid #e2e9d8;padding:10px 0}
+    .date-print{color:#738768;font:700 11px Arial,sans-serif;margin:6px 0}
+    .cahier-pdf{border:1px dashed #b7cba9;background:#f4f7ee;padding:9px 12px;border-radius:8px;font-size:12px;margin:10px 0}
+    .cahier-pdf a{color:#315f48;text-decoration:underline;text-underline-offset:3px}
+    .rich-content{line-height:1.65;overflow-wrap:anywhere}
+    .rich-content p{margin:8px 0}
+    .rich-content img{display:block;max-width:100%;height:auto;object-fit:contain}
+    .rich-content table{width:100%;border-collapse:collapse;max-width:100%}
+    .rich-content th,.rich-content td{border:1px solid #c5d2bd;padding:7px;vertical-align:top}
+    .rich-content iframe,.rich-content video{max-width:100%}
+    .rich-content pre{white-space:pre-wrap;overflow-wrap:anywhere}
+    .cahier-footer{font:11px Arial,sans-serif;color:#788775;border-top:1px solid var(--line);padding-top:10px;margin-top:25px}
+    .export-brand{display:flex;align-items:center;gap:15px;justify-content:center;margin:0 0 20px}
+    .export-brand h1{margin:0}
+    .export-logo{width:48px;height:48px;object-fit:contain}
+    .print-page:not(.cahier-cover) .export-brand{justify-content:flex-start}
+    @media(max-width:650px){
+      .export-toolbar{padding:12px 15px}.export-toolbar strong{font-size:12px}
+      .print-page{padding:24px 17px}.cahier-cover h1{font-size:32px}
+    }
+    @page{size:A4 portrait;margin:14mm}
+    @media print{
+      html,body{background:#fff!important;margin:0;padding:0}
+      .export-toolbar{display:none!important}
+      .export-container{max-width:none;margin:0;padding:0}
+      .print-page{background:#fff!important;border:0;box-shadow:none;border-radius:0;margin:0;padding:0;overflow:visible;break-after:page;page-break-after:always}
+      .print-page:last-child{break-after:auto;page-break-after:auto}
+      .cahier-cover{min-height:240mm;background:#fff!important}
+      .session-print{background:#fff}
+      .print-page section{break-inside:auto}
+      .entry-print,.cahier-pdf,.date-print{break-inside:avoid;page-break-inside:avoid}
+      .rich-content img{max-height:240mm;break-inside:avoid;page-break-inside:avoid}
+      .rich-content table{table-layout:fixed}
+      .rich-content tr{break-inside:avoid}
+      .rich-content iframe,.rich-content video{display:none!important}
+      h1,h2,h3{break-after:avoid-page;page-break-after:avoid}
+      a{color:#34513a;text-decoration:underline}
+      body{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    }`;
+  const escapedTitle = esc(title);
+  const brandedContent = logo
+    ? contentHtml.replace(/(<div class="print-page cahier-(?:cover|page)">)/g,
+        '$1<div class="export-brand">' + logo + '</div>')
+    : contentHtml;
+  const html = `<!doctype html><html lang="fr"><head><meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <base href="${esc(document.baseURI)}">
+    <title>${escapedTitle}</title><style>${css}</style></head>
+    <body>
+      <div class="export-toolbar"><strong>${escapedTitle}</strong>
+        <button type="button" onclick="window.print()">Imprimer / Enregistrer en PDF</button>
+      </div>
+      <main class="export-container">${brandedContent}</main>
+    </body></html>`;
+  try {
+    tab.document.open();
+    tab.document.write(html);
+    tab.document.close();
+    tab.opener = null;
+    tab.focus();
+    return true;
+  } catch (error) {
+    try { tab.close(); } catch (_) {}
+    alert("Impossible de créer l'aperçu du cahier : " + error.message);
+    return false;
+  }
+}
 function exportCahierPDF(){
   try{
     if(!currentClassData?.contenu?.chapitres?.length){
@@ -2036,18 +2215,18 @@ function exportCahierPDF(){
       pages+=body;
     });
     const intro=`<div class="print-page cahier-cover"><div class="cahier-kicker">Cahier numérique de SVT</div><h1>${esc(classe||"Classe")}</h1><p class="subtitle">Contenu du cahier exporté pour impression</p><p class="small-note">Les contenus textuels, activités, bilans et informations de séances sont regroupés dans l'ordre du cahier. Les PDF associés sont indiqués comme documents à ouvrir/imprimer séparément.</p></div>`;
-    printHtmlInCurrentWindow(`Cahier de SVT — ${classe||"Classe"}`,intro+pages,`\n      .cahier-cover{display:flex;flex-direction:column;justify-content:center;min-height:260mm;text-align:center}\n      .cahier-cover h1{font-size:34px!important;margin:15px 0!important}\n      .cahier-cover .subtitle{font-size:18px;margin:0 0 20px}\n      .cahier-kicker{font-size:11px;text-transform:uppercase;letter-spacing:.12em;color:#34796a;font-weight:800;margin-bottom:8px}\n      .cahier-page h1{font-size:25px!important;border-bottom:2px solid #333;padding-bottom:8px}\n      .cahier-page section{margin:12px 0 18px}\n      .cahier-page h2{font-size:17px!important;margin:13px 0 7px!important}\n      .cahier-page h3{font-size:14px!important;margin:10px 0 5px!important}\n      .rich-content{line-height:1.55}\n      .problem{border-left:4px solid #34796a;background:#f4faf7;padding:10px 12px}\n      .session-print{border:1px solid #d8e2de;border-radius:8px;padding:10px;margin:12px 0}\n      .entry-print{border-top:1px solid #e5ebe8;padding:7px 0}\n      .date-print{font-size:10px;color:#666;margin-bottom:4px}\n      .cahier-pdf{margin-top:7px;padding:7px 9px;border:1px dashed #9fbab0;background:#f7fbf9;font-size:10px}\n      .cahier-pdf a{color:#286456;text-decoration:underline}\n      .cahier-footer{margin-top:18px;padding-top:7px;border-top:1px solid #ccc;font-size:9px;color:#666}\n    `);
+     openCahierExportTab(`Cahier de SVT — ${classe||"Classe"}`,intro+pages);
   }catch(e){alert("Export du cahier impossible : "+e.message);}
 }
 async function newChapter(){
   try{if(!currentClassData)currentClassData=await loadClass(classe);currentClassData.contenu.chapitres.push(normalizeChapter({titre:"Nouveau chapitre",problematique:"",germoir:"",seances:[]}));currentClassData.id=await saveClass(classe,currentClassData.contenu,currentClassData.id);const i=currentClassData.contenu.chapitres.length-1;currentChapterIndex=i;saveNav();editChapter(i)}
   catch(e){alert("Impossible d'ajouter le chapitre : "+e.message)}
 }
-function editChapter(i){
+function editChapter(i,skipLocalRecovery=false){
   try{
     if(!currentClassData||!Array.isArray(currentClassData.contenu?.chapitres)){showError("Le cahier n'est pas chargé.");return}
     if(i<0||i>=currentClassData.contenu.chapitres.length){showError("Ce chapitre est introuvable.");return}
-    recoverLocalChapterBackup(i);const ch=normalizeChapter(currentClassData.contenu.chapitres[i]);currentClassData.contenu.chapitres[i]=ch;currentChapterIndex=i;saveNav();
+    const ch=normalizeChapter(currentClassData.contenu.chapitres[i]);currentClassData.contenu.chapitres[i]=ch;currentChapterIndex=i;saveNav();
     content.innerHTML=`<div class="row" style="justify-content:space-between;align-items:center"><div class="row"><button type="button" onclick="chapters()">← Tous les chapitres</button><button type="button" onclick="openNiveau('${niveau}')">← ${niveau}</button><button type="button" onclick="home()">🏠 Accueil</button></div></div><section class="hero teacher" style="margin-top:14px"><span class="eyebrow">Chapitre ${i+1}</span><h2>✏️ Modifier le chapitre</h2>
       <div class="editbox"><label>🌱 Germoir à idées</label>${richToolbar("chGermoir")}<div id="chGermoir" class="rich-editor" contenteditable="true" data-placeholder="Écris ici les idées à faire émerger…">${ch.germoir||""}</div>${pdfField("le Germoir à idées","germoirPdf",i,ch.germoirPdf)}
       <label>Titre du chapitre</label>${richToolbar("chTitre")}<div id="chTitre" class="rich-editor" contenteditable="true" data-placeholder="Titre du chapitre">${ch.titre||""}</div>
@@ -2057,6 +2236,7 @@ function editChapter(i){
       <div id="sessions">${ch.seances.map((s,n)=>sessionEditor(s,n)).join("")}</div><button type="button" class="entry-add" onclick="addSession(${i})">＋ Ajouter une séance</button>
       <div class="editbox"><label>🧠 Schéma-bilan du chapitre</label><p class="muted">Tu peux importer directement une image PNG, JPG ou WEBP, sans devoir la convertir en PDF.</p><div class="row"><button type="button" onclick="uploadSchemaImage(${i})">🖼️ Importer une image du schéma-bilan</button>${ch.schema?`<button type="button" class="danger" onclick="removeSchemaImage(${i})">Retirer l’image / le contenu</button>`:""}</div>${ch.schema?`<div class="schema-image-preview rich-output">${ch.schema}</div>`:""}<span id="schemaImageStatus" class="status"></span>${pdfField("le schéma-bilan","schemaPdf",i,ch.schemaPdf)}<label>📝 Fiche de mémorisation</label>${pdfField("la fiche de mémorisation","memoPdf",i,ch.memoPdf)}<label>✅ Évaluation de fin de chapitre</label>${pdfField("l'évaluation de fin de chapitre","evaluationPdf",i,ch.evaluationPdf)}</div>
       <div class="row"><button class="primary" onclick="saveChapter(${i})">💾 Enregistrer</button><button type="button" onclick="previewStudentChapter(${i})">👁️ Aperçu élève</button><button type="button" onclick="duplicateChapter(${i})">Dupliquer le chapitre</button><button class="danger" onclick="deleteChapter(${i})">🗑️ Supprimer le chapitre</button><span id="saveStatus" class="status save-indicator"></span></div></section>`;
+    if(!skipLocalRecovery)recoverLocalChapterBackup(i);
   }catch(e){showError(e.message)}
 }
 async function duplicateChapter(i){
