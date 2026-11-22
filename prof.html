@@ -632,6 +632,23 @@ body #svtDashboard #svtClasses>button{font-size:16px!important}
 <style id="planning-linked-session-focus">
 .session-box.svt-session-target{outline:3px solid #879762!important;outline-offset:5px!important;background:#f2f6e8!important;box-shadow:0 0 0 7px rgba(135,151,98,.13)!important;transition:outline-color .2s ease}
 </style>
+<style id="svt-dashboard-planning-css">
+#svtDashboard #svtTodayPlanning{margin:18px 0 20px}
+#svtDashboard .svt-today-head{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+#svtDashboard .svt-today-head h3{margin:0!important}
+#svtDashboard .svt-today-head p{margin:4px 0 0}
+body #svtDashboard .svt-today-open{background:#426849!important;color:#fff!important;border:1px solid #426849!important;padding:10px 14px!important;border-radius:9px;min-height:43px;cursor:pointer}
+#svtDashboard .svt-today-badges{display:flex;gap:9px;flex-wrap:wrap;margin:14px 0}
+#svtDashboard .svt-today-badges span{background:#eaf0df;color:#3d5d43;padding:5px 10px;border-radius:16px;font-size:13px;font-weight:700}
+#svtDashboard .svt-today-list{list-style:none;padding:0;margin:10px 0 0;display:grid;gap:9px}
+#svtDashboard .svt-today-list li{display:grid;grid-template-columns:82px 1fr;gap:12px;border:1px solid #dde8d4;background:#fcfdf8;border-radius:10px;padding:11px 13px}
+#svtDashboard .svt-today-hour{font-size:13px;color:#4e7154;font-weight:750}
+#svtDashboard .svt-today-list strong{color:#38543d}
+#svtDashboard .svt-today-list small{display:block;font-size:13px;color:#61715e;margin-top:4px;overflow-wrap:anywhere}
+#svtDashboard .svt-today-empty{padding:14px;background:#f3f6ed;border:1px dashed #d5ddce;border-radius:11px;color:#53684e}
+#svtDashboard .svt-today-next{font-size:14px;margin:12px 0 0;color:#53684e}
+@media(max-width:560px){#svtDashboard .svt-today-list li{grid-template-columns:65px 1fr}}
+</style>
 </head>
 <body>
 <div id="printOverlay" aria-hidden="true"></div>
@@ -1956,6 +1973,101 @@ async function doLogin(){
   }
 }
 async function logout(){const saved=await flushPendingAutosave();if(saved===false){alert("Le cahier n’a pas pu être enregistré. La déconnexion est annulée pour éviter de perdre tes modifications.");return;}clearTimeout(autosaveTimer);autosaveTimer=null;const{error}=await sb.auth.signOut();if(error){alert("La déconnexion a échoué : "+error.message);return;}clearNav()}
+// Aperçu du planning sur le tableau de bord : lecture seule, calendrier Europe/Paris.
+function svtParisDay(value){
+  const d=value instanceof Date?value:new Date(value);
+  if(!Number.isFinite(d.getTime()))return "";
+  const parts=new Intl.DateTimeFormat("fr-FR",{timeZone:"Europe/Paris",year:"numeric",month:"2-digit",day:"2-digit"}).formatToParts(d);
+  const part=t=>parts.find(x=>x.type===t)?.value||"";
+  return part("year")+"-"+part("month")+"-"+part("day");
+}
+function svtShiftDay(day,n){
+  const d=new Date(day+"T12:00:00Z");d.setUTCDate(d.getUTCDate()+n);return d.toISOString().slice(0,10);
+}
+function svtParisHour(value){
+  const d=new Date(value);
+  return Number.isFinite(d.getTime())?new Intl.DateTimeFormat("fr-FR",{timeZone:"Europe/Paris",hour:"2-digit",minute:"2-digit"}).format(d):"—";
+}
+function svtEventOnDay(event,day){
+  const a=new Date(event?.start_at),b=new Date(event?.end_at);
+  return Number.isFinite(a.getTime())&&Number.isFinite(b.getTime())&&b>a&&
+    svtParisDay(a)<=day&&svtParisDay(new Date(b.getTime()-1))>=day;
+}
+function svtTodayPlanningData(day,events,courses){
+  const allEvents=(events||[]).filter(x=>svtEventOnDay(x,day));
+  const dayCourses=(courses||[]).filter(x=>x.session_date===day);
+  const lines=[
+    ...allEvents.map(x=>{
+      const d=new Date(x.start_at),all=x.all_day===true,onset=svtParisDay(d)===day;
+      return {hour:all?"Journée":onset?svtParisHour(x.start_at):"En cours",
+        when:all?"Toute la journée":svtParisHour(x.start_at)+" – "+svtParisHour(x.end_at),
+        title:"📌 "+String(x.title||"Événement"),
+        detail:[x.class_name,x.description].filter(Boolean).join(" · "),
+        status:String(x.status||""),sort:all?"00:00":onset?svtParisHour(x.start_at):"00:01"};
+    }),
+    ...dayCourses.map(x=>{
+      const from=String(x.start_time||"").slice(0,5),to=String(x.end_time||"").slice(0,5),title=String(x.class_name||x.title||"Séance");
+      return {hour:from||"—",when:(from||"—")+(to?" – "+to:""),
+        title:"📘 "+title,detail:x.title&&x.title!==title?String(x.title):"",
+        status:String(x.status||""),sort:from||"99:99"};
+    })
+  ].sort((a,b)=>a.sort.localeCompare(b.sort)||a.title.localeCompare(b.title,"fr"));
+  return {lines,eventCount:allEvents.length,courseCount:dayCourses.length};
+}
+function svtTodayPlanningHtml(day,events,courses){
+  const {lines,eventCount,courseCount}=svtTodayPlanningData(day,events,courses);
+  const badges='<div class="svt-today-badges"><span>'+eventCount+' événement(s)</span><span>'+courseCount+' cours / créneau(x)</span></div>';
+  const list=lines.length?'<ul class="svt-today-list">'+lines.map(x=>
+    '<li><span class="svt-today-hour">'+esc(x.hour)+'</span><div><strong>'+esc(x.title)+'</strong><small>'+
+    esc(x.when)+(x.detail?" · "+esc(x.detail):"")+
+    (x.status==="cancelled"?" · Annulé":x.status==="postponed"?" · Reporté":"")+
+    '</small></div></li>').join("")+'</ul>':
+    '<p class="svt-today-empty">Aucun cours ni événement prévu aujourd’hui.</p>';
+  let extra="";
+  if(!lines.length){
+    const next=(events||[]).filter(x=>svtParisDay(x.start_at)>day&&new Date(x.end_at).getTime()>Date.now())
+      .sort((a,b)=>new Date(a.start_at)-new Date(b.start_at))[0];
+    if(next)extra='<p class="svt-today-next"><strong>Prochain événement :</strong> '+esc(next.title||"Événement")+
+      ' · '+esc(new Date(next.start_at).toLocaleDateString("fr-FR",{timeZone:"Europe/Paris",weekday:"long",day:"numeric",month:"long"}))+'</p>';
+  }
+  return badges+list+extra;
+}
+async function svtLoadTodayPlanning(dashboard){
+  const box=dashboard?.querySelector("#svtTodayContents");
+  const dateEl=dashboard?.querySelector("#svtTodayDate");
+  if(!box||!dateEl||!user?.id)return;
+  const day=svtParisDay(new Date());
+  dateEl.textContent=new Date().toLocaleDateString("fr-FR",{timeZone:"Europe/Paris",weekday:"long",day:"numeric",month:"long",year:"numeric"});
+  try{
+    const {data:periods,error:pError}=await sb.from("planning_periods")
+      .select("id,name,start_date,end_date").eq("owner_id",user.id)
+      .order("start_date",{ascending:false}).limit(20);
+    if(pError)throw pError;
+    if(!box.isConnected)return;
+    const period=(periods||[]).find(p=>p.start_date<=day&&p.end_date>=day)||(periods||[])[0];
+    if(!period){box.innerHTML='<p class="svt-today-empty">Aucune période de planning configurée. Ouvre le planning pour la créer.</p>';return;}
+    // Fenêtre UTC légèrement élargie ; contrôle des journées en fuseau Paris ensuite.
+    const min=new Date(svtShiftDay(day,-1)+"T00:00:00Z").toISOString();
+    const max=new Date(svtShiftDay(day,15)+"T00:00:00Z").toISOString();
+    const [events,courses]=await Promise.all([
+      sb.from("planning_events")
+        .select("id,title,description,class_name,event_type,start_at,end_at,all_day,status")
+        .eq("owner_id",user.id).eq("period_id",period.id)
+        .lt("start_at",max).gt("end_at",min).order("start_at",{ascending:true}).limit(150),
+      sb.from("planning_session_occurrences")
+        .select("id,session_date,start_time,end_time,class_name,title,status")
+        .eq("owner_id",user.id).eq("period_id",period.id).eq("session_date",day)
+        .order("start_time",{ascending:true}).limit(100)
+    ]);
+    if(events.error)throw events.error;
+    if(courses.error)throw courses.error;
+    if(box.isConnected)box.innerHTML=svtTodayPlanningHtml(day,events.data||[],courses.data||[]);
+  }catch(error){
+    console.warn("Aperçu du planning du jour indisponible :",error);
+    if(box.isConnected)box.innerHTML='<p class="svt-today-empty">Impossible de charger le planning du jour. Tu peux consulter le planning complet.</p>';
+  }
+}
+
 async function home(){
   if(!requireTeacher())return;
   const saved=await flushPendingAutosave();if(saved===false)return;
@@ -1965,11 +2077,18 @@ async function home(){
   <div class="svt-stats"><div class="svt-stat"><strong>${Object.values(CLASSES).flat().filter(c=>c!=='TEST').length}</strong><span>Classes<br>hors TEST</span></div><div class="svt-stat"><strong id="svtChapterCount">…</strong><span>Chapitres actifs</span></div><div class="svt-stat"><strong id="svtSessionCount">…</strong><span>Séances</span></div><div class="svt-stat"><strong>${Object.keys(CLASSES).filter(n=>n!=='TEST').length}</strong><span>Niveaux<br>hors TEST</span></div></div>
   <section class="svt-welcome"><img class="svt-hero-art" src="data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%221000%22%20height%3D%22420%22%20viewBox%3D%220%200%201000%20420%22%3E%3Cdefs%3E%3ClinearGradient%20id%3D%22bg%22%3E%3Cstop%20stop-color%3D%22%23f7f7eb%22%2F%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%23d6e3c5%22%2F%3E%3C%2FlinearGradient%3E%3ClinearGradient%20id%3D%22l%22%20x2%3D%22.8%22%20y2%3D%221%22%3E%3Cstop%20stop-color%3D%22%23a0b85a%22%2F%3E%3Cstop%20offset%3D%22.5%22%20stop-color%3D%22%23477541%22%2F%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%231c4934%22%2F%3E%3C%2FlinearGradient%3E%3CradialGradient%20id%3D%22d%22%3E%3Cstop%20stop-color%3D%22%23ffffff%22%20stop-opacity%3D%22.9%22%2F%3E%3Cstop%20offset%3D%22.5%22%20stop-color%3D%22%23d8eeda%22%20stop-opacity%3D%22.3%22%2F%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%23edf9de%22%20stop-opacity%3D%22.8%22%2F%3E%3C%2FradialGradient%3E%3C%2Fdefs%3E%3Cpath%20fill%3D%22url%28%23bg%29%22%20d%3D%22M0%200h1000v420H0z%22%2F%3E%3Cg%20transform%3D%22translate%28430%20-20%29%20rotate%2810%20250%20230%29%22%3E%3Cpath%20d%3D%22M40%20385C-10%2090%20235%2024%20475%2035C445%20241%20294%20400%2040%20385Z%22%20fill%3D%22url%28%23l%29%22%2F%3E%3Cpath%20d%3D%22M38%20390Q233%20178%20470%2037%22%20fill%3D%22none%22%20stroke%3D%22%23d3de9c%22%20stroke-width%3D%225%22%2F%3E%3Cg%20fill%3D%22none%22%20stroke%3D%22%23c1d58a%22%20stroke-width%3D%222%22%20opacity%3D%22.65%22%3E%3Cpath%20d%3D%22M90%20334Q47%20242%2088%20158M143%20280Q103%20164%20164%2099M201%20229Q176%20114%20248%2065M259%20182Q258%2095%20326%2047M91%20334Q229%20353%20300%20293M146%20278Q288%20300%20370%20226M201%20229Q342%20236%20421%20158M263%20180Q385%20168%20449%20104%22%2F%3E%3C%2Fg%3E%3Cg%20fill%3D%22url%28%23d%29%22%20stroke%3D%22%23e4f4d0%22%20stroke-opacity%3D%22.7%22%3E%3Cellipse%20cx%3D%22145%22%20cy%3D%22190%22%20rx%3D%2210%22%20ry%3D%2214%22%2F%3E%3Cellipse%20cx%3D%22291%22%20cy%3D%22231%22%20rx%3D%2214%22%20ry%3D%2218%22%2F%3E%3Cellipse%20cx%3D%22301%22%20cy%3D%22102%22%20rx%3D%227%22%20ry%3D%229%22%2F%3E%3Cellipse%20cx%3D%22111%22%20cy%3D%22302%22%20rx%3D%226%22%20ry%3D%228%22%2F%3E%3Cellipse%20cx%3D%22371%22%20cy%3D%22139%22%20rx%3D%228%22%20ry%3D%2210%22%2F%3E%3C%2Fg%3E%3C%2Fg%3E%3C%2Fsvg%3E" alt="" aria-hidden="true"><h2>Bonjour !</h2><p>Gère tes chapitres et tes séances, prépare tes évaluations et retrouve les cahiers de tes classes.</p><span class="svt-note">Explorer · Observer · Comprendre</span></section>
   <h3>Accès rapides</h3><div class="svt-actions"><button onclick="document.getElementById('svtClasses').scrollIntoView({behavior:'smooth'})">▤<br>Gérer mes chapitres</button><button onclick="document.getElementById('svtClasses').scrollIntoView({behavior:'smooth'})">＋<br>Ouvrir un cahier</button><button onclick="openEvaluationsSpace()">✓<br>Évaluations et suivi</button><button onclick="openAtelierSpace()">✧<br>Atelier pédagogique</button></div>
+  <section class="svt-panel" id="svtTodayPlanning" aria-labelledby="svtTodayTitle">
+    <div class="svt-today-head"><div><h3 id="svtTodayTitle">🗓️ Mon planning aujourd’hui</h3><p class="svt-note" id="svtTodayDate"></p></div>
+      <button type="button" class="svt-today-open" onclick="openPlanningSpace()">Ouvrir le planning →</button>
+    </div>
+    <div id="svtTodayContents" aria-live="polite"><p class="svt-note">Chargement du planning du jour…</p></div>
+  </section>
   <div class="svt-columns"><section class="svt-panel"><h3>Dernières séances consultées</h3><div id="svtSessions" aria-live="polite">Chargement des cahiers…</div><p class="svt-note">Les cinq dernières séances utilisées sur ce navigateur, hors TEST et chapitres archivés.</p></section>
   <section class="svt-panel" id="svtClasses"><h3>Mes classes</h3><p>Choisis un niveau pour retrouver ses classes et modifier leurs chapitres.</p><div class="svt-levels">${Object.keys(CLASSES).map(n=>`<button onclick="openNiveau('${n}')">${esc(n)}</button>`).join('')}</div><h3 style="margin-top:26px">Évaluations</h3><p class="svt-note">Les évaluations et le suivi des élèves restent dans ton espace dédié.</p><button onclick="openEvaluationsSpace()">Ouvrir les évaluations →</button></section></div>
   <div class="svt-quote">« Comprendre le monde du vivant pour mieux le protéger. »</div></div>`;
   const dashboard=document.getElementById('svtDashboard');
   svtDecorateDashboard(dashboard);
+  void svtLoadTodayPlanning(dashboard);
   const classes=Object.values(CLASSES).flat().filter(c=>c!=='TEST');
   const results=await Promise.all(classes.map(async c=>{try{return {c,data:await loadClass(c)}}catch(e){return {c,error:e.message}}}));
   if(!dashboard.isConnected)return;
