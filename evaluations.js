@@ -6248,6 +6248,7 @@ function correctionBegin(evalId,correctionId,corr,classe,groupIds){
   localDraftBeginCorrection();
 }
 function correctionAllowLeave(){
+  if(!ppCouncilConfirmLeave())return false;
   if(window.__savingEvaluation){alert('Enregistrement de l’évaluation en cours. Attends sa fin avant de quitter.');return false;}
   if(!correctionSession){
     const s=localDraftSession;
@@ -7936,16 +7937,196 @@ function ppAddAmenagement(){ppForm("＋ Aménagement",[`<label>Type</label><sele
 async function ppSaveAmenagement(){const s=ppStudentById(ppStudentId);try{await ppInsert(PP_TABLES.amenagements,{eleve_id:String(s.id),classe:s.classe,date:ppx_date.value,type:ppx_type.value,description:ppx_content.value.trim(),actif:ppx_actif.value==="true"});ppCloseModal();await ppRenderStudent("amenagements")}catch(e){alert(e.message)}}
 function ppAddAction(){ppForm("＋ Action à mener",[`<label>Date</label><input id="ppx_date" type="date" value="${ppToday()}"><label>Action</label><input id="ppx_title" placeholder="Ex. contacter la famille, proposer un rendez-vous…"><label>Responsable</label><input id="ppx_resp" placeholder="PP, CPE, professeur…"><label>Échéance</label><input id="ppx_echeance" type="date"><label>Statut</label><select id="ppx_statut">${ppSelectOptions([["a_faire","À faire"],["en_cours","En cours"],["termine","Terminé"]])}</select><label>Notes</label><textarea id="ppx_content" rows="5"></textarea>`],"ppSaveAction()")}
 async function ppSaveAction(){const s=ppStudentById(ppStudentId);try{await ppInsert(PP_TABLES.actions,{eleve_id:String(s.id),classe:s.classe,date:ppx_date.value,action:ppx_title.value.trim(),responsable:ppx_resp.value.trim(),echeance:ppx_echeance.value||null,statut:ppx_statut.value,notes:ppx_content.value.trim()});ppCloseModal();await ppRenderStudent("actions")}catch(e){alert(e.message)}}
+/* Conseil de classe PP : repères de complétude, modifications protégées et sauvegarde ciblée. */
+let ppCouncilBaseline=new Map(),ppCouncilSaving=false,ppCouncilLoadRequest=0;
+function ppCouncilText(value){return String(value??"").trim();}
+function ppCouncilCapture(){
+  const decisions=new Map([...document.querySelectorAll(".pp-council-dec")]
+    .map(el=>[String(el.dataset.id||""),ppCouncilText(el.value)]));
+  return [...document.querySelectorAll(".pp-council-app")].map(el=>({
+    id:String(el.dataset.id||""),appreciation:ppCouncilText(el.value),
+    decisions:decisions.get(String(el.dataset.id||""))||""
+  })).filter(row=>row.id);
+}
+function ppCouncilChanged(row){
+  const old=ppCouncilBaseline.get(String(row.id));
+  return row.appreciation!==ppCouncilText(old?.appreciation)||
+    row.decisions!==ppCouncilText(old?.decisions);
+}
+function ppCouncilIsDirty(){
+  return !!document.getElementById("ppCouncilBody")&&ppCouncilCapture().some(ppCouncilChanged);
+}
+function ppCouncilDrawStatus(){
+  const rows=ppCouncilCapture();
+  const done=rows.filter(x=>x.appreciation).length;
+  const decisions=rows.filter(x=>x.decisions).length;
+  const dirty=rows.filter(ppCouncilChanged).length;
+  const summary=document.getElementById("ppCouncilSummary");
+  if(summary)summary.innerHTML=
+    '<div class="pp-grid">'+
+    '<div class="pp-stat"><div class="n">'+rows.length+'</div><div class="l">Élèves de la classe</div></div>'+
+    '<div class="pp-stat"><div class="n">'+done+'</div><div class="l">Appréciations renseignées</div></div>'+
+    '<div class="pp-stat"><div class="n">'+decisions+'</div><div class="l">Décisions / suites renseignées</div></div>'+
+    '<div class="pp-stat"><div class="n">'+(rows.length-done)+'</div><div class="l">Appréciations à compléter</div></div>'+
+    '</div><p class="small-note" role="status">'+
+    (dirty?'<strong style="color:#9a5519">● '+dirty+' fiche(s) modifiée(s) non enregistrée(s).</strong>':
+      '✓ Toutes les modifications saisies sont enregistrées.')+
+    ' Les décisions ne sont pas obligatoires pour chaque élève.</p>';
+  const search=(document.getElementById("ppCouncilSearch")?.value||"").trim().toLocaleLowerCase("fr");
+  const filter=document.getElementById("ppCouncilFilter")?.value||"all";
+  let visible=0;
+  const byId=new Map(rows.map(row=>[row.id,row]));
+  document.querySelectorAll("tr[data-pp-council-id]").forEach(tr=>{
+    const row=byId.get(String(tr.dataset.ppCouncilId||""));
+    if(!row)return;
+    const changed=ppCouncilChanged(row);
+    const name=String(tr.dataset.ppCouncilName||"").toLocaleLowerCase("fr");
+    const matching=(!search||name.includes(search))&&
+      (filter==="missing"?!row.appreciation:
+       filter==="written"?!!row.appreciation:
+       filter==="unsaved"?changed:true);
+    tr.hidden=!matching;
+    if(matching)visible++;
+    const status=tr.querySelector(".pp-council-status");
+    if(status)status.textContent=(row.appreciation?"✓ Appréciation saisie":"À compléter")+
+      (row.decisions?" · Décision saisie":"")+
+      (changed?" · ● Non enregistré":"");
+  });
+  const shown=document.getElementById("ppCouncilShown");
+  if(shown)shown.textContent=visible+" / "+rows.length+" élève(s) affiché(s)";
+  const button=document.getElementById("ppCouncilSave");
+  if(button)button.disabled=ppCouncilSaving||dirty===0;
+}
+function ppCouncilConfirmLeave(){
+  if(ppCouncilSaving){alert("Enregistrement du conseil de classe en cours.");return false;}
+  return !ppCouncilIsDirty()||
+    confirm("Des appréciations ou décisions du conseil de classe ne sont pas enregistrées. Quitter sans les sauvegarder ?");
+}
+async function ppCouncilChangePeriod(value){
+  const select=document.getElementById("ppCouncilPeriod");
+  const previous=ppPeriod==="year"?"T1":ppPeriod.toUpperCase();
+  if(!["T1","T2","T3"].includes(value)){if(select)select.value=previous;return;}
+  if(value===previous)return;
+  if(!ppCouncilConfirmLeave()){if(select)select.value=previous;return;}
+  // La confirmation a été donnée : ne pas la demander une seconde fois à l'ouverture.
+  ppCouncilBaseline=new Map(ppCouncilCapture().map(x=>[x.id,x]));
+  ppPeriod=value.toLowerCase();
+  await openPPCouncil();
+}
 async function openPPCouncil(){
   if(!correctionAllowLeave())return;
-  saveEvalNav({view:"ppCouncil",classe:ppClass,period:ppPeriod});
   if(!ppClass){alert("Sélectionne d'abord une classe dans le Suivi PP.");return;}
-  label.textContent=`Conseil de classe · ${ppClass}`;
-  content.innerHTML=`<button type="button" onclick="openPP()">← Suivi PP</button><section class="hero" style="margin-top:14px"><span class="eyebrow">${esc(ppClass)}</span><h2>📅 Conseil de classe</h2><p class="muted">Prépare les appréciations et les décisions pour chaque élève. Les textes restent modifiables avant le conseil.</p><div class="pp-toolbar"><div><label>Période</label><select id="ppCouncilPeriod"><option>T1</option><option>T2</option><option>T3</option></select></div></div></section><div id="ppCouncilBody"><p class="muted">Chargement…</p></div>`;
-  const per=document.getElementById("ppCouncilPeriod");per.value=ppPeriod==="year"?"T1":ppPeriod.toUpperCase();
-  try{const [students,rows]=await Promise.all([Promise.resolve(ppClassStudents()),ppLoadTable(PP_TABLES.conseils,null,ppClass)]);const period=per.value;const by=new Map(rows.filter(x=>String(x.periode).toUpperCase()===period).map(x=>[String(x.eleve_id),x]));document.getElementById("ppCouncilBody").innerHTML=`<section class="pp-section"><div class="entry-head"><div><h3>Appréciations de ${esc(period)}</h3><p class="small-note">Une ligne par élève. Enregistre la préparation quand elle est prête.</p></div><button class="primary" type="button" onclick="ppSaveCouncil()">💾 Enregistrer le conseil</button></div><div style="overflow:auto"><table class="data-table" style="width:100%"><thead><tr><th>Élève</th><th>Appréciation / synthèse</th><th>Décisions / suites</th></tr></thead><tbody>${students.map(s=>{const r=by.get(String(s.id))||{};return `<tr><td style="vertical-align:top"><strong>${esc(ppName(s))}</strong><div class="small-note">${esc(s.classe||"")}</div></td><td><textarea class="pp-council-app" data-id="${esc(s.id)}" rows="4" style="width:100%">${esc(r.appreciation||"")}</textarea></td><td><textarea class="pp-council-dec" data-id="${esc(s.id)}" rows="4" style="width:100%">${esc(r.decisions||"")}</textarea></td></tr>`}).join("")}</tbody></table></div></section>`;document.getElementById("ppCouncilPeriod").onchange=()=>{ppPeriod=document.getElementById("ppCouncilPeriod")?.value?.toLowerCase()||"t1";openPPCouncil();};}catch(e){document.getElementById("ppCouncilBody").innerHTML=`<section class="hero error"><p>${esc(e.message)}</p></section>`}
+  const token=++ppCouncilLoadRequest;
+  const period=ppPeriod==="year"?"T1":ppPeriod.toUpperCase();
+  saveEvalNav({view:"ppCouncil",classe:ppClass,period:ppPeriod});
+  label.textContent="Conseil de classe · "+ppClass;
+  ppCouncilBaseline=new Map();
+  content.innerHTML='<button type="button" onclick="openPP()">← Suivi PP</button>'+
+    '<section class="hero" style="margin-top:14px"><span class="eyebrow">'+esc(ppClass)+'</span>'+
+    '<h2>📅 Conseil de classe</h2>'+
+    '<p class="muted">Prépare les appréciations et les décisions par élève. Les décisions sont facultatives ; les modifications non enregistrées sont signalées.</p>'+
+    '<div class="pp-toolbar"><div><label for="ppCouncilPeriod">Trimestre du conseil</label>'+
+    '<select id="ppCouncilPeriod" onchange="ppCouncilChangePeriod(this.value)">'+
+    ['T1','T2','T3'].map(p=>'<option value="'+p+'"'+(p===period?' selected':'')+'>'+p+'</option>').join("")+
+    '</select></div></div></section>'+
+    '<div id="ppCouncilBody"><p class="muted">Chargement des appréciations…</p></div>';
+  const host=document.getElementById("ppCouncilBody");
+  try{
+    const [students,all]=await Promise.all([Promise.resolve(ppClassStudents()),
+      ppLoadTable(PP_TABLES.conseils,null,ppClass)]);
+    if(token!==ppCouncilLoadRequest||!host.isConnected)return;
+    const originals=new Map();
+    (all||[]).filter(row=>String(row.periode||"").toUpperCase()===period).forEach(row=>{
+      const id=String(row.eleve_id||"");
+      if(originals.has(id))throw new Error("Deux préparations existent pour un même élève en "+period+
+        ". Aucune modification automatique : vérifie les doublons dans PP_Conseils.");
+      originals.set(id,{id:row.id,appreciation:ppCouncilText(row.appreciation),decisions:ppCouncilText(row.decisions)});
+    });
+    ppCouncilBaseline=originals;
+    host.innerHTML='<section class="pp-section">'+
+      '<div class="entry-head"><div><h3>Préparation du conseil — '+esc(period)+'</h3>'+
+      '<p class="small-note">Seules les fiches modifiées sont enregistrées. Aucune appréciation existante n’est remplacée automatiquement.</p></div>'+
+      '<button class="primary" type="button" id="ppCouncilSave" onclick="ppSaveCouncil()" disabled>💾 Enregistrer les modifications</button></div>'+
+      '<div id="ppCouncilSummary"></div>'+
+      '<div class="row" style="gap:10px;flex-wrap:wrap;margin:10px 0">'+
+      '<label style="flex:1;min-width:190px">Rechercher un élève'+
+      '<input id="ppCouncilSearch" type="search" placeholder="Nom ou prénom…" oninput="ppCouncilDrawStatus()"></label>'+
+      '<label style="min-width:200px">Afficher'+
+      '<select id="ppCouncilFilter" onchange="ppCouncilDrawStatus()">'+
+      '<option value="all">Tous les élèves</option>'+
+      '<option value="missing">Appréciations à compléter</option>'+
+      '<option value="written">Appréciations renseignées</option>'+
+      '<option value="unsaved">Modifications non enregistrées</option>'+
+      '</select></label></div>'+
+      '<p id="ppCouncilShown" class="small-note"></p>'+
+      '<div style="overflow:auto"><table class="data-table" style="width:100%">'+
+      '<thead><tr><th>Élève et état</th><th>Appréciation / synthèse</th><th>Décisions / suites (facultatif)</th></tr></thead><tbody>'+
+      students.map(st=>{
+        const old=originals.get(String(st.id))||{};
+        const name=ppName(st);
+        return '<tr data-pp-council-id="'+esc(st.id)+'" data-pp-council-name="'+esc(name)+'">'+
+          '<td style="vertical-align:top;min-width:160px"><strong>'+esc(name)+'</strong>'+
+          '<div class="small-note">'+esc(st.classe||"")+'</div>'+
+          '<span class="small-note pp-council-status"></span></td>'+
+          '<td><textarea class="pp-council-app" data-id="'+esc(st.id)+'" rows="4" style="width:100%" oninput="ppCouncilDrawStatus()">'+esc(old.appreciation||"")+'</textarea></td>'+
+          '<td><textarea class="pp-council-dec" data-id="'+esc(st.id)+'" rows="4" style="width:100%" oninput="ppCouncilDrawStatus()">'+esc(old.decisions||"")+'</textarea></td></tr>';
+      }).join("")+'</tbody></table></div></section>';
+    ppCouncilDrawStatus();
+  }catch(e){
+    if(token===ppCouncilLoadRequest&&host.isConnected)
+      host.innerHTML='<section class="hero error"><p>'+esc(e.message)+'</p></section>';
+  }
 }
-async function ppSaveCouncil(){if(!ppClass)return;const period=document.getElementById("ppCouncilPeriod")?.value||"T1";ppPeriod=String(period).toLowerCase();try{const apps=[...document.querySelectorAll(".pp-council-app")],decs=[...document.querySelectorAll(".pp-council-dec")];for(const a of apps){const d=decs.find(x=>x.dataset.id===a.dataset.id);const sid=a.dataset.id;const student=ppStudentById(sid);if(!student)continue;const appreciation=a.value.trim(),decisions=d?.value.trim()||"";const existing=(await sb.from(PP_TABLES.conseils).select("id").eq("eleve_id",String(sid)).eq("classe",student.classe).eq("periode",period).maybeSingle()).data;if(existing?.id){const {error}=await sb.from(PP_TABLES.conseils).update({appreciation,decisions,updated_at:new Date().toISOString()}).eq("id",existing.id);if(error)throw new Error(error.message)}else await ppInsert(PP_TABLES.conseils,{classe:student.classe,periode:period,eleve_id:String(sid),appreciation,decisions});}alert("Préparation du conseil enregistrée ✓");}catch(e){alert("Enregistrement impossible : "+e.message)}}
+async function ppSaveCouncil(){
+  if(ppCouncilSaving||!ppClass)return;
+  const period=document.getElementById("ppCouncilPeriod")?.value||"T1";
+  if(!["T1","T2","T3"].includes(period))return;
+  const changed=ppCouncilCapture().filter(ppCouncilChanged);
+  if(!changed.length){ppCouncilDrawStatus();return;}
+  ppCouncilSaving=true;
+  ppCouncilDrawStatus();
+  let saved=0;
+  try{
+    for(const row of changed){
+      const student=ppStudentById(row.id);
+      if(!student||String(student.classe)!==String(ppClass))
+        throw new Error("Élève non retrouvé dans la classe : "+row.id);
+      const original=ppCouncilBaseline.get(row.id);
+      let savedId=original?.id;
+      if(savedId){
+        const {data,error}=await sb.from(PP_TABLES.conseils)
+          .update({appreciation:row.appreciation,decisions:row.decisions,updated_at:new Date().toISOString()})
+          .eq("id",savedId).eq("eleve_id",row.id).eq("classe",student.classe).eq("periode",period)
+          .select("id");
+        if(error)throw new Error(error.message);
+        if(!data?.length)throw new Error("Modification non confirmée pour "+ppName(student));
+      }else{
+        // Ne pas créer une fiche vide ; garder les valeurs déjà enregistrées des autres élèves.
+        if(!row.appreciation&&!row.decisions)continue;
+        const inserted=await ppInsert(PP_TABLES.conseils,{
+          classe:student.classe,periode:period,eleve_id:row.id,
+          appreciation:row.appreciation,decisions:row.decisions
+        });
+        if(!inserted?.id)throw new Error("Création non confirmée pour "+ppName(student));
+        savedId=inserted.id;
+      }
+      // Actualiser la référence de chaque élève seulement après confirmation Supabase.
+      ppCouncilBaseline.set(row.id,{id:savedId,appreciation:row.appreciation,decisions:row.decisions});
+      saved++;
+      ppCouncilDrawStatus();
+    }
+    alert(saved+" fiche(s) du conseil enregistrée(s) pour "+period+" ✓");
+  }catch(e){
+    alert("Enregistrement interrompu après "+saved+" fiche(s) : "+e.message+
+      ". Les modifications restantes sont conservées dans le formulaire. Réessaie pour les enregistrer.");
+  }finally{
+    ppCouncilSaving=false;
+    ppCouncilDrawStatus();
+  }
+}
+window.addEventListener("beforeunload",event=>{
+  if(ppCouncilSaving||ppCouncilIsDirty()){event.preventDefault();event.returnValue="";}
+});
 async function init(){
   /*
     On installe le listener AUTH AVANT de vérifier
