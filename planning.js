@@ -151,7 +151,7 @@ function planningWeekEvents(events,weekStart,days=5){
 // Supprime les cellules vides créées dans un cours long par les horaires d'autres jours.
 function fillContinuingCells(times,hasAllDayRow=false){
  const table=$('#planningGrid');
- const rows=Array.from(table.tBodies[0]?.rows||[]).slice(hasAllDayRow?1:0);
+ const rows=Array.from(table?.tBodies?.[0]?.rows||[]).slice(hasAllDayRow?1:0);
  const cells=rows.map(row=>Array.from(row.cells).slice(1));
  for(let day=0;day<DAYS.length;day++){
   for(let i=0;i<times.length;i++){
