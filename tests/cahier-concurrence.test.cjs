@@ -69,7 +69,7 @@ test('professeur : chaîne JSON ancienne conservée comme chaîne',async()=>{
  assert.equal(typeof db.value,'string');
 });
 
-function makeAtelier({db,uid='seance-originale',storedUid='seance-originale',conflict=false}={}){
+function makeAtelier({db,uid='seance-originale',storedUid='seance-originale',conflict=false,storedLinkClass='6e1'}={}){
  const messages=[],calls=[];
  const entry={titre:'Séance 1',planning_uid:storedUid,activites:[]};
  const row={id:8,contenu:{chapitres:[{titre:'Chapitre 1',seances:[entry]}]}};
@@ -86,7 +86,7 @@ function makeAtelier({db,uid='seance-originale',storedUid='seance-originale',con
    chapitre_titre:'Chapitre 1',seance_titre:'Séance 1'
   }),
   atelierClassCode:()=> 'code-simule',
-  confirm:()=>true,saveCloud:async()=>true,cloudId:'fiche-1',
+  confirm:()=>true,saveCloud:async()=>true,cloudId:'fiche-1',cloudOwner:'prof-test',user:{id:'prof-test'},
   project:{title:'Fiche'},plain:s=>String(s),escapeHtml:s=>String(s),
   cahier:{chapitres:[{titre:'Chapitre 1',seances:[{
    titre:'Séance 1',planning_uid:uid
@@ -94,7 +94,14 @@ function makeAtelier({db,uid='seance-originale',storedUid='seance-originale',con
   status:(message,error=false)=>messages.push({message,error}),
   console:{error:()=>{}},
   sb:{
-   from:table=>{assert.equal(table,'Cahier');return q},
+   from:table=>{
+     if(table==='Cahier')return q;
+     if(table==='atelier_documents')return{
+       select(){return this},eq(){return this},
+       async maybeSingle(){return{data:{classe:storedLinkClass,cahier_id:8,chapitre_index:0,seance_index:0},error:null}}
+     };
+     throw Error('Table inattendue : '+table);
+    },
    rpc:async(name,args)=>{
     calls.push({name,args});
     if(conflict)return {data:[],error:null};
@@ -128,6 +135,13 @@ test('atelier : séance déplacée détectée, aucune écriture',async()=>{
  assert.equal(a.calls.length,0);
  assert.equal(a.messages.at(-1).error,true);
  assert.match(a.messages.at(-1).message,/séance sélectionnée a changé/);
+});
+test('atelier : changement de classe sur une fiche déjà publiée refusé',async()=>{
+ const a=makeAtelier({storedLinkClass:'5e1'});
+ await a.run();
+ assert.equal(a.calls.length,0,'aucune écriture ne doit avoir lieu');
+ assert.equal(a.messages.at(-1).error,true);
+ assert.match(a.messages.at(-1).message,/Enregistrer une copie/);
 });
 test('SQL proposé : fonction exécutée sous les droits utilisateur et UPDATE conditionnel',()=>{
  const sql=read('propositions-sql/svt_cahier_cas_v1.sql');
