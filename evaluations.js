@@ -7514,7 +7514,7 @@ function ppPeriodEnd(p){
   const schoolYearStart=month>=9?calendarYear:calendarYear-1;
   if(p==="t1")return `${schoolYearStart}-11-20`;
  if(p==="t2")return `${schoolYearStart+1}-02-12`;
- if(p==="t3")return `${schoolYearStart+1}-06-04`;
+ if(p==="t3")return `${schoolYearStart+1}-06-30`;
   return "2999-12-31";
 }
 function ppStudentById(id){return ppStudents.find(s=>String(s.id)===String(id))||null}
@@ -7544,6 +7544,51 @@ async function ppDelete(table,id){const {error}=await sb.from(table).delete().eq
 function ppStatusBadges(s,stats){
   const b=[];if(stats.amenagements)b.push(`<span class="pp-badge info">🧩 ${stats.amenagements}</span>`);if(stats.contacts)b.push(`<span class="pp-badge">👪 ${stats.contacts}</span>`);if(stats.actions)b.push(`<span class="pp-badge ${stats.overdue?"danger":"warn"}">📋 ${stats.actions}</span>`);if(stats.events)b.push(`<span class="pp-badge">📝 ${stats.events}</span>`);return b.join("")||'<span class="small-note">Aucun suivi</span>';
 }
+// Synthèse des échéances du Suivi PP, sans modification des enregistrements.
+function ppDashboardPriorities(students,actions,contacts,today=ppToday()){
+ const names=new Map((students||[]).map(st=>[String(st.id),ppName(st)]));
+ const all=[];
+ (actions||[]).filter(a=>String(a.statut||"").toLowerCase()!=="termine").forEach(a=>{
+  const due=String(a.echeance||"").slice(0,10);
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(due))return;
+  all.push({kind:"actions",studentId:String(a.eleve_id||""),student:names.get(String(a.eleve_id||""))||"Élève non retrouvé",title:String(a.action||"Action à réaliser"),due});
+ });
+ (contacts||[]).forEach(c=>{
+  const due=String(c.relance_date||"").slice(0,10);
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(due))return;
+  all.push({kind:"contacts",studentId:String(c.eleve_id||""),student:names.get(String(c.eleve_id||""))||"Élève non retrouvé",title:String(c.motif||"Relance famille"),due});
+ });
+ all.sort((a,b)=>a.due.localeCompare(b.due)||a.student.localeCompare(b.student,"fr"));
+ const due=all.filter(x=>x.due<=today);
+ return {due,next:all.filter(x=>x.due>today).slice(0,5),
+  openActions:(actions||[]).filter(a=>String(a.statut||"").toLowerCase()!=="termine").length,
+  overdueActions:due.filter(x=>x.kind==="actions").length,
+  followups:due.filter(x=>x.kind==="contacts").length};
+}
+async function ppOpenPriority(id,tab){
+ await openPPStudent(id);
+ if(document.getElementById("ppStudentBody"))await ppRenderStudent(tab);
+}
+function ppDashboardPriorityHTML(summary){
+ const row=x=>'<div class="pp-item" style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">'+
+  '<div><strong>'+esc(x.student)+'</strong> · '+esc(x.kind==="contacts"?"Relance famille":"Action à mener")+
+  '<div>'+esc(x.title)+'</div><div class="small-note">'+esc(x.due.split("-").reverse().join("/"))+'</div></div>'+
+  (x.studentId?'<button type="button" onclick="ppOpenPriority('+jsArg(x.studentId)+','+jsArg(x.kind)+')">Ouvrir la fiche →</button>':"")+'</div>';
+ return '<section class="pp-section" aria-label="Bilan et priorités du professeur principal">'+
+  '<h3>📌 Priorités et relances</h3><p class="small-note">Actions non terminées et dates de relance des familles échues ou prévues aujourd’hui. Ces échéances restent visibles tant qu’elles sont renseignées.</p>'+
+  '<div class="pp-grid">'+
+  '<div class="pp-stat"><div class="n">'+summary.openActions+'</div><div class="l">Actions ouvertes</div></div>'+
+  '<div class="pp-stat"><div class="n">'+summary.overdueActions+'</div><div class="l">Actions à échéance</div></div>'+
+  '<div class="pp-stat"><div class="n">'+summary.followups+'</div><div class="l">Relances familles</div></div></div>'+
+  (summary.due.length?summary.due.slice(0,8).map(row).join("")+
+    (summary.due.length>8?'<p class="small-note">'+(summary.due.length-8)+' autre(s) échéance(s).</p>':""):
+    '<div class="pp-empty">Aucune action ni relance arrivée à échéance.</div>')+
+  (summary.next.length?'<details style="margin-top:12px"><summary>Prochaines échéances</summary>'+
+     summary.next.map(x=>'<div class="pp-item">'+esc(x.student)+' · '+esc(x.title)+
+       ' · '+esc(x.due.split("-").reverse().join("/"))+'</div>').join("")+'</details>':"")+
+  '</section>';
+}
+
 async function openPP(){
   if(!correctionAllowLeave())return;
   try{localStorage.setItem(EVAL_NAV_KEY,JSON.stringify({view:"pp",classe:ppClass,period:ppPeriod}))}catch(e){}
@@ -7558,11 +7603,12 @@ async function renderPPDashboard(){
     const students=ppClassStudents(),ids=students.map(s=>String(s.id));
     const [events,contacts,amenagements,actions]=await Promise.all([ppLoadTable(PP_TABLES.events,null,ppClass||null),ppLoadTable(PP_TABLES.contacts,null,ppClass||null),ppLoadTable(PP_TABLES.amenagements,null,ppClass||null),ppLoadTable(PP_TABLES.actions,null,ppClass||null)]);
     const start=ppPeriodStart(ppPeriod),end=ppPeriodEnd(ppPeriod),inPeriod=x=>!x.date||(String(x.date)>=start&&String(x.date)<=end);
+    const ppPriorities=ppDashboardPriorityHTML(ppDashboardPriorities(students,actions,contacts));
     const ev=events.filter(inPeriod),co=contacts.filter(inPeriod),ac=actions.filter(inPeriod),am=amenagements.filter(x=>x.actif!==false);
     const overdue=actions.filter(x=>x.statut!=="termine"&&x.echeance&&x.echeance<=ppToday()).length;
     const statsBy=new Map(ids.map(id=>[id,{events:0,contacts:0,amenagements:0,actions:0,overdue:0}]));
-    ev.forEach(x=>{const z=statsBy.get(String(x.eleve_id));if(z)z.events++});co.forEach(x=>{const z=statsBy.get(String(x.eleve_id));if(z)z.contacts++});am.forEach(x=>{const z=statsBy.get(String(x.eleve_id));if(z)z.amenagements++});ac.forEach(x=>{const z=statsBy.get(String(x.eleve_id));if(z){z.actions++;if(x.statut!=="termine"&&x.echeance&&x.echeance<=ppToday())z.overdue++}});
-    target.innerHTML=`<div class="pp-grid"><div class="pp-stat"><div class="n">${students.length}</div><div class="l">Élèves suivis</div></div><div class="pp-stat"><div class="n">${am.length}</div><div class="l">Aménagements actifs</div></div><div class="pp-stat"><div class="n">${co.length}</div><div class="l">Contacts (${ppPeriod==="year"?"année":ppPeriod.toUpperCase()})</div></div><div class="pp-stat"><div class="n">${overdue}</div><div class="l">Actions à relancer</div></div></div><section class="pp-section"><div class="entry-head"><div><h3>👥 Élèves</h3><p class="small-note">Clique sur un élève pour ouvrir sa fiche PP.</p></div><div class="row"><button type="button" onclick="openPPCouncil()">📅 Conseil de classe</button><button type="button" onclick="ppNewStudentEvent()">＋ Ajouter un suivi</button></div></div><div class="pp-student-list">${students.map(s=>`<div class="pp-student" onclick="openPPStudent('${esc(s.id)}')"><div><strong>${esc(ppName(s))}</strong><div class="small-note">${esc(s.classe||"")}</div></div><div class="pp-badges">${ppStatusBadges(s,statsBy.get(String(s.id))||{})}</div></div>`).join("")||'<div class="pp-empty">Aucun élève dans cette sélection.</div>'}</div></section>`;
+    ev.forEach(x=>{const z=statsBy.get(String(x.eleve_id));if(z)z.events++});co.forEach(x=>{const z=statsBy.get(String(x.eleve_id));if(z)z.contacts++});am.forEach(x=>{const z=statsBy.get(String(x.eleve_id));if(z)z.amenagements++});ac.forEach(x=>{const z=statsBy.get(String(x.eleve_id));if(z&&x.statut!=="termine"){z.actions++;if(x.echeance&&x.echeance<=ppToday())z.overdue++}});
+    target.innerHTML=`<div class="pp-grid"><div class="pp-stat"><div class="n">${students.length}</div><div class="l">Élèves suivis</div></div><div class="pp-stat"><div class="n">${am.length}</div><div class="l">Aménagements actifs</div></div><div class="pp-stat"><div class="n">${co.length}</div><div class="l">Contacts (${ppPeriod==="year"?"année":ppPeriod.toUpperCase()})</div></div><div class="pp-stat"><div class="n">${overdue}</div><div class="l">Actions à relancer</div></div></div>${ppPriorities}<section class="pp-section"><div class="entry-head"><div><h3>👥 Élèves</h3><p class="small-note">Clique sur un élève pour ouvrir sa fiche PP.</p></div><div class="row"><button type="button" onclick="openPPCouncil()">📅 Conseil de classe</button><button type="button" onclick="ppNewStudentEvent()">＋ Ajouter un suivi</button></div></div><div class="pp-student-list">${students.map(s=>`<div class="pp-student" onclick="openPPStudent('${esc(s.id)}')"><div><strong>${esc(ppName(s))}</strong><div class="small-note">${esc(s.classe||"")}</div></div><div class="pp-badges">${ppStatusBadges(s,statsBy.get(String(s.id))||{})}</div></div>`).join("")||'<div class="pp-empty">Aucun élève dans cette sélection.</div>'}</div></section>`;
   }catch(e){target.innerHTML=`<section class="hero error"><h3>⚠️ Suivi PP indisponible</h3><p>${esc(e.message)}</p><p class="small-note">Vérifie que les tables PP ont bien été créées dans Supabase.</p></section>`}
 }
 function ppModal(html){const d=document.createElement("div");d.className="pp-modal";d.innerHTML=`<div class="pp-modal-card">${html}</div>`;d.addEventListener("click",e=>{if(e.target===d)d.remove()});document.body.appendChild(d);return d}
