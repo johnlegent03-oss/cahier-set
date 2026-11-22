@@ -100,10 +100,14 @@ const {chromium}=require('playwright-core');
     cloudId
    };
    project.pages[0].objects[0].text='Version révisée';
+   // Une modification accidentelle de la sélection de classe ne doit jamais
+   // déplacer le document publié : les anciens liens élèves en dépendent.
+   $('linkClass').value='5e1';
    render();
    const revised=await saveCloud(false);
    const revisedStored=remote.contenu_html.includes('Version révisée');
-   return {created,revised,saved,restored,writes,revisedStored,remoteId:remote.id};
+   const assignmentPreserved=remote.classe==='6e1'&&remote.chapitre_index===0&&remote.seance_index===0&&String(remote.cahier_id)==='42';
+   return {created,revised,saved,restored,writes,revisedStored,assignmentPreserved,remoteId:remote.id};
   });
   assert.equal(result.created,true);
   assert.equal(result.revised,true);
@@ -122,6 +126,7 @@ const {chromium}=require('playwright-core');
   assert.equal(result.restored.cloudId,'fiche-test-123');
   assert.ok(result.restored.version);
   assert.equal(result.revisedStored,true);
+  assert.equal(result.assignmentPreserved,true,'l’affectation publiée doit rester inchangée même si la sélection a changé');
   console.log('OK : création, réouverture, restitution des tableaux et contexte de classe, mise à jour.');
  }finally{await browser.close()}
 })().catch(err=>{console.error(err);process.exitCode=1});
