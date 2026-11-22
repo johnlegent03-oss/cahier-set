@@ -381,31 +381,3 @@ div.behavior-roster-row {
   .pp-grade-row,.pp-sciences-field{grid-template-columns:minmax(0,1fr) 75px}
   .pp-mastery-label{grid-column:1/-1}
 }
-
-/* Graphiques du conseil PP adaptés à l'écran et au PDF ÉcoleDirecte. */
-.pp-chart-picker{display:flex;align-items:center;gap:12px;margin:10px 0 16px;flex-wrap:wrap}
-.pp-chart-picker select{min-width:220px;max-width:100%}
-.pp-student-charts{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,410px),1fr));gap:16px}
-.pp-student-charts>section,.pp-socle-visual{min-width:0;background:#fbfcfc;border:1px solid #dbe6e1;border-radius:12px;padding:12px}
-.pp-chart-scroll{overflow-x:auto;max-width:100%}
-.pp-chart-svg{display:block;width:100%;height:auto;min-width:300px}
-.pp-chart-legend{display:flex;gap:12px;flex-wrap:wrap;font-size:12px;color:#42545c;margin:6px 0 12px}
-.pp-chart-legend span{display:inline-flex;gap:6px;align-items:center}
-.pp-chart-legend i{display:inline-block;width:12px;height:12px;border-radius:2px}
-.pp-histogram{display:grid;gap:7px;margin:14px 0}
-.pp-hist-row{display:grid;grid-template-columns:minmax(95px,145px) minmax(0,1fr) 25px;align-items:center;gap:8px;font-size:13px}
-.pp-hist-track{height:13px;border-radius:8px;background:#eef3f5;overflow:hidden}
-.pp-hist-track>div{height:100%;background:#5d9dbe;border-radius:8px}
-.pp-socle-visual{margin-top:16px}
-.pp-socle-charts{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,225px),1fr));gap:12px}
-.pp-socle-chart{background:white;border:1px solid #e3e9e5;padding:12px;border-radius:10px;text-align:center}
-.pp-socle-chart strong{font-size:12px;display:block;min-height:40px;text-align:left}
-.pp-socle-pie{width:145px;max-width:80%;height:auto;margin:4px auto}
-.pp-socle-editor{grid-column:1/-1;margin-top:15px;border:1px solid #d7e6dd;border-radius:12px;padding:14px;background:#f9fcfa}
-.pp-socle-editor summary{cursor:pointer}
-.pp-socle-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,330px),1fr));gap:10px;margin-top:12px}
-.pp-socle-entry{border:1px solid #dde6df;padding:12px;border-radius:10px;background:#fff}
-.pp-socle-entry strong{font-size:13px;display:block;min-height:34px}
-.pp-socle-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
-.pp-socle-fields label{font-size:11px;min-width:0}
-.pp-socle-fields input{width:100%;max-width:100%;margin:3px 0}
