@@ -7495,6 +7495,69 @@ async function saveCorrection(evalId,correctionId,eleve,eleveId,next=false){
 const PP_TABLES={events:"PP_Events",contacts:"PP_Contacts",amenagements:"PP_Amenagements",actions:"PP_Actions",conseils:"PP_Conseils",moyennes:"PP_Moyennes"};
 const PP_DISCIPLINES=[{nom:"Français",coef:3},{nom:"Mathématiques",coef:3},{nom:"Anglais",coef:3},{nom:"Histoire-Géographie",coef:2},{nom:"Arts plastiques",coef:1},{nom:"Éducation musicale",coef:1},{nom:"EPS",coef:2}];
 const PP_SCIENCES={pc:"Physique-Chimie",svt:"SVT",coef:2};
+/* Niveaux de maîtrise distincts des moyennes, par discipline, élève et trimestre. */
+const PP_MASTERY_TABLE="PP_Maitrises";
+const PP_MASTERY_LEVELS=[
+  ["TBM","Très bonne maîtrise"],
+  ["MS","Maîtrise satisfaisante"],
+  ["MF","Maîtrise fragile"],
+  ["MI","Maîtrise insuffisante"]
+];
+function ppMasterySelect(discipline,masteries){
+  const row=(masteries||[]).find(x=>String(x.discipline)===String(discipline));
+  const selected=String(row?.niveau||"");
+  return '<label class="pp-mastery-label"><span>Maîtrise globale</span>'+
+    '<select class="pp-mastery" data-discipline="'+esc(discipline)+'" aria-label="Maîtrise globale en '+esc(discipline)+'">'+
+    '<option value="">Non renseignée</option>'+
+    PP_MASTERY_LEVELS.map(([code,title])=>'<option value="'+code+'"'+(selected===code?' selected':'')+'>'+esc(title)+'</option>').join("")+
+    '</select></label>';
+}
+async function ppLoadMasteries(studentId,period){
+  const {data,error}=await sb.from(PP_MASTERY_TABLE).select("id,discipline,niveau")
+    .eq("eleve_id",String(studentId)).eq("periode",period).eq("created_by",String(user?.id||""));
+  if(error)throw new Error("Chargement des maîtrises impossible : "+error.message);
+  return data||[];
+}
+function ppCollectMasteries(){
+  const out=[];
+  const permitted=new Set(PP_MASTERY_LEVELS.map(x=>x[0]));
+  for(const select of document.querySelectorAll(".pp-mastery")){
+    const code=String(select.value||"");
+    if(code&&!permitted.has(code))throw new Error("Niveau de maîtrise invalide.");
+    if(code)out.push({discipline:String(select.dataset.discipline||""),niveau:code});
+  }
+  return out;
+}
+async function ppPersistMasteries(student,period,masteries){
+  const current=await ppLoadMasteries(student.id,period);
+  const by=new Map();
+  for(const row of current){
+    if(by.has(row.discipline))throw new Error("Doublons de maîtrise pour "+row.discipline+".");
+    by.set(row.discipline,row);
+  }
+  const proposed=new Map((masteries||[]).map(x=>[x.discipline,x.niveau]));
+  const known=new Set([...PP_DISCIPLINES.map(x=>x.nom),PP_SCIENCES.pc,PP_SCIENCES.svt]);
+  for(const [discipline,niveau] of proposed){
+    const old=by.get(discipline);
+    if(old?.niveau===niveau)continue;
+    const values={niveau,updated_at:new Date().toISOString()};
+    const q=old
+      ?sb.from(PP_MASTERY_TABLE).update(values).eq("id",old.id)
+      :sb.from(PP_MASTERY_TABLE).insert({eleve_id:String(student.id),classe:student.classe,
+        periode:period,discipline,niveau,created_by:user.id});
+    const {data,error}=await q.select("id");
+    if(error)throw new Error("Maîtrise de "+discipline+" : "+error.message);
+    if(!data?.length)throw new Error("Enregistrement non confirmé pour "+discipline);
+  }
+  for(const [discipline,old] of by){
+    if(!known.has(discipline)||proposed.has(discipline))continue;
+    const {data,error}=await sb.from(PP_MASTERY_TABLE).delete()
+      .eq("id",old.id).eq("eleve_id",String(student.id)).eq("periode",period).select("id");
+    if(error)throw new Error("Suppression de maîtrise de "+discipline+" : "+error.message);
+    if(!data?.length)throw new Error("Suppression non confirmée pour "+discipline);
+  }
+}
+
 let ppStudents=[],ppClass="6e3",ppStudentId="",ppPeriod="year";
 function ppName(s){return `${safe(s?.prenom)} ${safe(s?.nom)}`.trim()||"Élève"}
 function ppToday(){return new Date().toISOString().slice(0,10)}
@@ -7633,7 +7696,7 @@ function ppEventInSelectedPeriod(row,period=ppPeriod){
 function ppCurrentGradeFormSnapshot(){
   const body=document.getElementById("ppStudentBody");
   if(!body||!body.querySelector(".pp-grade"))return null;
-  const inputs=[...body.querySelectorAll(".pp-grade")].map(input=>[input.dataset.discipline,input.value]);
+  const inputs=[...body.querySelectorAll(".pp-grade,.pp-mastery")].map(input=>[input.className,input.dataset.discipline,input.value]);
   return JSON.stringify(inputs);
 }
 function ppStudentHasUnsavedGrades(){
@@ -7718,16 +7781,16 @@ async function ppRenderStudent(tab="synthese"){
         :'<div class="pp-empty">Aucun point de vigilance pour cette période.</div>';
       // Le mode annuel n'a pas de moyenne trimestrielle unique à saisir.
       const gradePeriod=currentPeriod==="year"?null:currentPeriod.toUpperCase();
-      let grades=[];
-      if(gradePeriod)grades=await ppLoadGrades(studentId,gradePeriod);
+      let grades=[],masteries=[];
+      if(gradePeriod)[grades,masteries]=await Promise.all([ppLoadGrades(studentId,gradePeriod),ppLoadMasteries(studentId,gradePeriod)]);
       if(request!==ppStudentRenderRequest||!target.isConnected||studentId!==String(ppStudentId))return;
       const manualAvg=gradePeriod?ppWeightedAverage(grades):null;
-      const generated=gradePeriod?ppGenerateAppreciation(grades,student,visibleEvents):"";
+      const generated=gradePeriod?ppGenerateAppreciation(grades,student,visibleEvents,masteries):"";
       const gradeSection=gradePeriod?
         '<section class="pp-section"><div class="entry-head"><div><h3>📊 Résultats du '+esc(ppPeriodText(currentPeriod).toLowerCase())+'</h3>'+
         '<p class="small-note">Moyennes par discipline sur 20 ; les disciplines non renseignées ne comptent pas dans la moyenne générale.</p></div>'+
         '<button class="primary" type="button" onclick="ppSaveGrades()">💾 Enregistrer les moyennes</button></div>'+
-        ppGradesEditor(grades)+
+        ppGradesEditor(grades,masteries)+
         '<div class="pp-appreciation" style="margin-top:14px"><strong>💬 Proposition d’appréciation générale</strong>'+
         '<textarea id="ppGeneratedAppreciation" rows="4" style="width:100%;margin-top:8px">'+esc(generated)+'</textarea>'+
         '<div class="row" style="margin-top:8px"><button type="button" onclick="ppGenerateAndFillAppreciation()">✨ Régénérer à partir des résultats et du comportement</button></div>'+
@@ -7790,7 +7853,7 @@ function ppWeightedAverage(grades){
   }
   return coefTotal?total/coefTotal:null;
 }
-function ppGenerateAppreciation(grades,student,events=[]){
+function ppGenerateAppreciation(grades,student,events=[],masteries=[]){
   const avg=ppWeightedAverage(grades);
   let result="";
   if(avg===null) result="Résultats à compléter pour établir une appréciation générale.";
@@ -7815,15 +7878,29 @@ function ppGenerateAppreciation(grades,student,events=[]){
       result+=" "+textes.join(" ");
     }
   }
+  const levels=(masteries||[]).filter(x=>PP_MASTERY_LEVELS.some(a=>a[0]===x.niveau));
+  if(levels.length){
+    const fragile=levels.filter(x=>x.niveau==="MF"||x.niveau==="MI");
+    const positives=levels.filter(x=>x.niveau==="TBM"||x.niveau==="MS");
+    if(!fragile.length){
+      result+=" La maîtrise globale des compétences est satisfaisante à très bonne dans les disciplines renseignées.";
+    }else if(positives.length){
+      result+=" La maîtrise des compétences reste hétérogène selon les disciplines.";
+    }else{
+      result+=" La maîtrise des compétences demeure fragile ou insuffisante dans les disciplines renseignées.";
+    }
+    const subjects=fragile.map(x=>String(x.discipline||"")).filter(Boolean).slice(0,2);
+    if(subjects.length)result+=" Des progrès sont notamment attendus en "+subjects.join(" et ")+".";
+  }
   return result;
 }
-function ppGradesEditor(grades){
+function ppGradesEditor(grades,masteries=[]){
   const by=new Map(grades.map(x=>[String(x.discipline),x]));
   const pcVal=ppNumericGrade(by.get("Physique-Chimie")?.moyenne);
   const svtVal=ppNumericGrade(by.get("SVT")?.moyenne);
   const scienceAvg=(pcVal!=null&&svtVal!=null)?((Number(pcVal)+Number(svtVal))/2):null;
-  const scienceHtml=`<div class="pp-sciences"><div class="pp-sciences-title"><div><strong>Sciences</strong> <span class="small-note">2 matières, coefficient 2 chacune</span></div><span class="small-note">Moyennes École Directe séparées</span></div><div class="pp-sciences-fields"><div class="pp-sciences-field"><label>Physique-Chimie <span class="small-note">coef. 2</span></label><input class="pp-grade" data-discipline="Physique-Chimie" type="number" min="0" max="20" step="0.01" value="${pcVal==null?"":esc(pcVal)}" placeholder="/20"></div><div class="pp-sciences-field"><label>SVT <span class="small-note">coef. 2</span></label><input class="pp-grade" data-discipline="SVT" type="number" min="0" max="20" step="0.01" value="${svtVal==null?"":esc(svtVal)}" placeholder="/20"></div></div><div class="pp-sciences-average">Moyenne Sciences : <output id="ppScienceAverage">${scienceAvg==null?"—":ppFormatGrade(scienceAvg)+" /20"}</output></div><div class="small-note" style="margin-top:6px">La SVT et la Physique-Chimie sont prises en compte séparément, chacune avec un coefficient 2 dans la moyenne générale.</div></div>`;
-  return `<div class="pp-grades"><div class="small-note" style="margin-bottom:10px">Les coefficients correspondent au bulletin École Directe fourni, avec anglais coefficient 3 et SVT / Physique-Chimie coefficient 2 chacune.</div>${PP_DISCIPLINES.map(d=>{const r=by.get(d.nom)||{};return `<div class="pp-grade-row"><label>${esc(d.nom)} <span class="small-note">coef. ${d.coef}</span></label><input class="pp-grade" data-discipline="${esc(d.nom)}" type="number" min="0" max="20" step="0.01" value="${r.moyenne==null?"":esc(r.moyenne)}" placeholder="/20"></div>`}).join("")}${scienceHtml}</div>`;
+  const scienceHtml=`<div class="pp-sciences"><div class="pp-sciences-title"><div><strong>Sciences</strong> <span class="small-note">2 matières, coefficient 2 chacune</span></div><span class="small-note">Moyennes École Directe séparées</span></div><div class="pp-sciences-fields"><div class="pp-sciences-field"><label>Physique-Chimie <span class="small-note">coef. 2</span></label><input class="pp-grade" data-discipline="Physique-Chimie" type="number" min="0" max="20" step="0.01" value="${pcVal==null?"":esc(pcVal)}" placeholder="/20">${ppMasterySelect("Physique-Chimie",masteries)}</div><div class="pp-sciences-field"><label>SVT <span class="small-note">coef. 2</span></label><input class="pp-grade" data-discipline="SVT" type="number" min="0" max="20" step="0.01" value="${svtVal==null?"":esc(svtVal)}" placeholder="/20">${ppMasterySelect("SVT",masteries)}</div></div><div class="pp-sciences-average">Moyenne Sciences : <output id="ppScienceAverage">${scienceAvg==null?"—":ppFormatGrade(scienceAvg)+" /20"}</output></div><div class="small-note" style="margin-top:6px">La SVT et la Physique-Chimie sont prises en compte séparément, chacune avec un coefficient 2 dans la moyenne générale.</div></div>`;
+  return `<div class="pp-grades"><div class="small-note" style="margin-bottom:10px">Les coefficients correspondent au bulletin École Directe fourni, avec anglais coefficient 3 et SVT / Physique-Chimie coefficient 2 chacune.</div>${PP_DISCIPLINES.map(d=>{const r=by.get(d.nom)||{};return `<div class="pp-grade-row"><label>${esc(d.nom)} <span class="small-note">coef. ${d.coef}</span></label><input class="pp-grade" data-discipline="${esc(d.nom)}" type="number" min="0" max="20" step="0.01" value="${r.moyenne==null?"":esc(r.moyenne)}" placeholder="/20">${ppMasterySelect(d.nom,masteries)}</div>`}).join("")}${scienceHtml}</div>`;
 }
 function ppCollectGrades(){
   const out=[];
@@ -7900,9 +7977,10 @@ async function ppSaveGrades(){
       !confirm("Les moyennes de "+period+" sont toutes vides. Confirmer la suppression des notes renseignées ?"))return;
     if(button)button.disabled=true;
     await ppPersistGrades(student,period,grades);
+    await ppPersistMasteries(student,period,ppCollectMasteries());
     ppGradeFormSnapshot=ppCurrentGradeFormSnapshot();
     await ppRenderStudent("synthese");
-    alert("Moyennes de "+period+" enregistrées ✓");
+    alert("Moyennes et maîtrises de "+period+" enregistrées ✓");
   }catch(e){
     alert("Enregistrement incomplet : "+e.message+". Vérifie les moyennes de cette période avant une nouvelle tentative.");
   }finally{if(button?.isConnected)button.disabled=false;}
@@ -7914,7 +7992,7 @@ async function ppGenerateAndFillAppreciation(){
     // Tenir compte des moyennes en cours de saisie, sans imposer une sauvegarde.
     const grades=ppCollectGrades();
     const events=(await ppLoadTable(PP_TABLES.events,student.id)).filter(x=>ppEventInSelectedPeriod(x));
-    const txt=ppGenerateAppreciation(grades,student,events);
+    const txt=ppGenerateAppreciation(grades,student,events,ppCollectMasteries());
     const el=document.getElementById("ppGeneratedAppreciation");
     if(el)el.value=txt;
   }catch(e){alert("Génération impossible : "+e.message)}
