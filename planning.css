@@ -73,3 +73,23 @@ body.planning-page{margin:0;background:#f5f2e5;color:var(--pl-ink);font-family:I
 /* Repérer immédiatement un conseil depuis son événement enregistré. */
 .planning-event-actions{margin-top:12px}
 .planning-week-event-focused{border-color:#76549c;outline:3px solid #b8a4d8;outline-offset:2px}
+
+
+/* Phase 7 : suivi pédagogique, lecture seule jusqu'à ouverture volontaire d'un créneau. */
+.planning-followup-summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:18px 0}
+.planning-followup-metric{font:inherit;text-align:left;border:1px solid var(--pl-line);background:#fffefa;border-radius:11px;padding:14px;cursor:pointer;color:var(--pl-ink);display:flex;flex-direction:column;gap:5px}
+.planning-followup-metric:hover{background:#f1f5ea}
+.planning-followup-metric[aria-pressed="true"]{outline:2px solid #5d8863;outline-offset:0;background:#eaf2e6}
+.planning-followup-metric strong{font-size:26px;line-height:1.1;font-weight:800;color:#355c42}
+.planning-followup-metric span{font-size:12px;font-weight:650}
+.planning-followup-rows{max-height:470px;overflow:auto;border:1px solid var(--pl-line);border-radius:11px;margin-bottom:16px}
+.planning-followup-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:11px 14px;border-bottom:1px solid var(--pl-line);background:#fffefa}
+.planning-followup-row:last-child{border-bottom:0}
+.planning-followup-row strong{font-size:13px;color:#34513a}
+.planning-followup-row .planning-muted{margin:4px 0 0}
+.planning-followup-row .planning-btn{white-space:nowrap;font-size:12px;padding:7px 10px}
+.planning-followup-sessions{margin-top:14px;border-top:1px solid var(--pl-line);padding-top:15px}
+.planning-followup-sessions h3{font:700 19px Georgia,serif;color:#3b5b40;margin:0 0 7px}
+.planning-followup-unplaced{max-height:245px;overflow:auto;columns:2;column-gap:26px;padding-left:22px;font-size:13px}
+.planning-followup-unplaced li{break-inside:avoid;margin-bottom:7px}
+@media(max-width:650px){.planning-followup-row{align-items:flex-start;flex-direction:column}.planning-followup-unplaced{columns:1}}
