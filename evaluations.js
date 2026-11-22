@@ -8246,7 +8246,7 @@ function svtAccommodationKey(studentId){return 'svt.appreciation.accommodations.
 function svtAccommodationEnabled(studentId){if(!studentId)return false;try{return localStorage.getItem(svtAccommodationKey(studentId))==='1';}catch(e){return false;}}
 function svtAccommodationControl(studentId){
  if(!studentId)return '';
- return `<label style="display:flex;align-items:center;gap:7px;margin:7px 0;font-weight:normal"><input type="checkbox" data-svt-accommodation="${esc(studentId)}" ${svtAccommodationEnabled(studentId)?'checked':''}> Mentionner les aménagements dans l’appréciation</label>`;
+ return `<label class="appreciation-option"><input type="checkbox" data-svt-accommodation="${esc(studentId)}" ${svtAccommodationEnabled(studentId)?'checked':''}><span>Mentionner les aménagements dans l’appréciation</span></label>`;
 }
 document.addEventListener('change',function(event){
  const el=event.target;
