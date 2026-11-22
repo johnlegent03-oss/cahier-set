@@ -7732,15 +7732,66 @@ function ppUpdateScienceAverage(){
   if(!out)return;
   out.textContent=(pc!==null&&svt!==null)?`${ppFormatGrade((pc+svt)/2)} /20`:"—";
 }
+// Enregistrer sans suppression préalable : conserver les anciennes lignes si l'ajout échoue.
+async function ppPersistGrades(student,period,grades){
+  const existing=await ppLoadGrades(student.id,period);
+  const known=new Set([...PP_DISCIPLINES.map(d=>d.nom),PP_SCIENCES.pc,PP_SCIENCES.svt]);
+  const current=new Map();
+  (existing||[]).forEach(row=>{
+    const discipline=String(row.discipline||"");
+    if(current.has(discipline))throw new Error("Des doublons existent pour « "+discipline+" » : sauvegarde interrompue pour préserver les données.");
+    current.set(discipline,row);
+  });
+  const proposed=new Map(grades.map(g=>[g.discipline,g.moyenne]));
+  // 1. Insérer les nouvelles disciplines avant de toucher aux notes existantes.
+  for(const [discipline,moyenne] of proposed){
+    if(current.has(discipline))continue;
+    const {data,error}=await sb.from(PP_TABLES.moyennes).insert({
+      eleve_id:String(student.id),classe:student.classe,periode:period,
+      discipline,moyenne,created_by:user?.id||null
+    }).select("id");
+    if(error)throw new Error(error.message);
+    if(!data?.length)throw new Error("Ajout non confirmé pour « "+discipline+" ».");
+  }
+  // 2. Modifier directement les notes existantes, sans effacer leurs lignes.
+  for(const [discipline,moyenne] of proposed){
+    const old=current.get(discipline);
+    if(!old||ppNumericGrade(old.moyenne)===moyenne)continue;
+    if(!old.id)throw new Error("Identifiant manquant pour « "+discipline+" ».");
+    const {data,error}=await sb.from(PP_TABLES.moyennes).update({moyenne})
+      .eq("id",old.id).eq("eleve_id",String(student.id)).eq("periode",period).select("id");
+    if(error)throw new Error(error.message);
+    if(!data?.length)throw new Error("Modification non confirmée pour « "+discipline+" ».");
+  }
+  // 3. Supprimer uniquement les disciplines affichées puis volontairement vidées.
+  // Les disciplines externes ou non proposées dans le formulaire sont préservées.
+  for(const [discipline,old] of current){
+    if(!known.has(discipline)||proposed.has(discipline))continue;
+    if(!old.id)throw new Error("Identifiant manquant pour « "+discipline+" ».");
+    const {data,error}=await sb.from(PP_TABLES.moyennes).delete()
+      .eq("id",old.id).eq("eleve_id",String(student.id)).eq("periode",period).select("id");
+    if(error)throw new Error(error.message);
+    if(!data?.length)throw new Error("Suppression non confirmée pour « "+discipline+" ».");
+  }
+}
 async function ppSaveGrades(){
-  const s=ppStudentById(ppStudentId);if(!s)return;
+  const student=ppStudentById(ppStudentId);if(!student)return;
   const period=ppPeriod==="year"?"T1":ppPeriod.toUpperCase();
+  const button=document.querySelector('button[onclick="ppSaveGrades()"]');
+  if(button?.disabled)return;
   try{
     const grades=ppCollectGrades();
-    const {error:delError}=await sb.from(PP_TABLES.moyennes).delete().eq("eleve_id",String(s.id)).eq("periode",period);if(delError)throw new Error(delError.message);
-    if(grades.length){const rows=grades.map(x=>({eleve_id:String(s.id),classe:s.classe,periode:period,discipline:x.discipline,moyenne:x.moyenne,created_by:user?.id||null}));const {error}=await sb.from(PP_TABLES.moyennes).insert(rows);if(error)throw new Error(error.message);}
-    await ppRenderStudent("synthese");alert("Moyennes enregistrées ✓");
-  }catch(e){alert("Enregistrement impossible : "+e.message)}
+    const existing=await ppLoadGrades(student.id,period);
+    const known=new Set([...PP_DISCIPLINES.map(d=>d.nom),PP_SCIENCES.pc,PP_SCIENCES.svt]);
+    if(!grades.length&&existing.some(row=>known.has(row.discipline))&&
+      !confirm("Les moyennes de "+period+" sont toutes vides. Confirmer la suppression des notes renseignées ?"))return;
+    if(button)button.disabled=true;
+    await ppPersistGrades(student,period,grades);
+    await ppRenderStudent("synthese");
+    alert("Moyennes de "+period+" enregistrées ✓");
+  }catch(e){
+    alert("Enregistrement incomplet : "+e.message+". Vérifie les moyennes de cette période avant une nouvelle tentative.");
+  }finally{if(button?.isConnected)button.disabled=false;}
 }
 async function ppGenerateAndFillAppreciation(){
   const s=ppStudentById(ppStudentId);if(!s)return;
