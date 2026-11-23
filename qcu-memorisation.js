@@ -456,15 +456,21 @@
   function renderPreparedSubjects() {
     const host = $("qmSubjects");
     $("qmMemoSave").disabled = !validMemoContent(subjects);
+    const chapterTotals=new Map();
+    for(const arr of subjects)for(const q of arr)if(q.chapitre!=null){
+      const chapter=Number(q.chapitre);
+      chapterTotals.set(chapter,(chapterTotals.get(chapter)||0)+1);
+    }
     host.innerHTML = `
       <p class="muted" style="margin:12px 0">Déplace une question sur une autre pour la réordonner ou l’échanger entre deux sujets. Chaque sujet conserve cinq questions.</p>
+      ${chapterTotals.size?`<p class="muted"><strong>Répartition :</strong> ${[...chapterTotals.entries()].sort((a,b)=>a[0]-b[0]).map(([c,n])=>`Chapitre ${esc(c)} : ${n} question(s)`).join(" · ")}</p>`:""}
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px">
         ${subjects.map((arr,i)=>`<article data-qm-subject="${i}" style="border:1px solid #bbb;border-radius:10px;padding:10px;margin:0;min-width:0">
           <h4 style="margin:4px 0 10px">Sujet ${i+1}</h4>
            <small class="muted">${[...new Set(arr.map(q=>q.chapitre).filter(Boolean))].sort((a,b)=>a-b).map(c=>`Chap. ${esc(c)}`).join(" · ")}</small>
           <ol style="padding-left:28px;margin:0">${arr.map((q,j)=>`<li draggable="true" data-qm-subject="${i}" data-qm-question="${j}" style="padding:8px 6px;margin:5px 0;border:1px solid #ddd;border-radius:7px;background:var(--card-bg, #fff);cursor:grab;touch-action:pan-y">
             <span>${esc(q.question_text)}</span>
-            <small style="display:block;color:var(--muted,#666);margin-top:4px">Glisser pour déplacer</small>
+            <small style="display:block;color:var(--muted,#666);margin-top:4px">Chapitre ${esc(q.chapitre??"?")} · Glisser pour échanger</small>
           </li>`).join("")}</ol>
         </article>`).join("")}
       </div>
@@ -504,8 +510,13 @@
           const [moved] = subjects[fromSubject].splice(fromQuestion,1);
           subjects[toSubject].splice(toQuestion,0,moved);
         } else {
-          [subjects[fromSubject][fromQuestion], subjects[toSubject][toQuestion]] =
-            [subjects[toSubject][toQuestion], subjects[fromSubject][fromQuestion]];
+          const incoming=subjects[toSubject][toQuestion],outgoing=subjects[fromSubject][fromQuestion];
+          if(subjects[fromSubject].some((q,j)=>j!==fromQuestion&&String(q.id)===String(incoming.id)) ||
+             subjects[toSubject].some((q,j)=>j!==toQuestion&&String(q.id)===String(outgoing.id))){
+            alert("Échange refusé : une question ne peut pas figurer deux fois dans un même sujet.");
+            return;
+          }
+          [subjects[fromSubject][fromQuestion],subjects[toSubject][toQuestion]]=[incoming,outgoing];
         }
         renderPreparedSubjects();
       });
