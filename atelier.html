@@ -1344,7 +1344,7 @@ let classRevision=0;
 async function loadClass(){let revision=++classRevision,c=$('linkClass').value;resetContext();if(!c){await refreshBank();return}try{requireUser();status('Chargement du cahier de '+c+'…');let {data,error}=await sb.from('Cahier').select('id,classe,contenu').eq('classe',c).maybeSingle();if(revision!==classRevision)return;if(error)throw error;if(!data){status('Aucun cahier pour '+c+'. Tu peux enregistrer un document avec cette classe, sans chapitre.');await refreshBank();return}let content=data.contenu;if(typeof content==='string')content=JSON.parse(content);if(Array.isArray(content))content={chapitres:content};cahier={id:data.id,classe:c,chapitres:Array.isArray(content?.chapitres)?content.chapitres:[]};cahier.chapitres.forEach((ch,i)=>$('linkChapter').append(new Option(plain(ch.titre||ch.title||'Chapitre '+(i+1)),i)));$('linkChapter').disabled=!cahier.chapitres.length;await refreshBank();status('Cahier chargé : '+cahier.chapitres.length+' chapitre(s).')}catch(e){status(e.message,true)}}
 function loadSessions(){let ci=$('linkChapter').value;$('linkSession').replaceChildren(new Option('Sans séance',''));let ch=ci!==''?cahier?.chapitres[Number(ci)]:null,sessions=ch?.seances||ch?.sessions||[];if(!Array.isArray(sessions))sessions=[];sessions.forEach((se,i)=>$('linkSession').append(new Option(plain(se.titre||se.title||'Séance '+(i+1)),i)));$('linkSession').disabled=!sessions.length}
 function context(){let c=$('linkClass').value,ci=$('linkChapter').value,si=$('linkSession').value,ch=ci!==''?cahier?.chapitres[Number(ci)]:null,sessions=ch?.seances||ch?.sessions||[],se=si!==''?sessions[Number(si)]:null;return{classe:c||null,cahier_id:cahier&&c?String(cahier.id):null,chapitre_index:ch?Number(ci):null,seance_index:se?Number(si):null,chapitre_titre:ch?plain(ch.titre||ch.title||'Chapitre '+(Number(ci)+1)):'',seance_titre:se?plain(se.titre||se.title||'Séance '+(Number(si)+1)):''}}
-async function refreshBank(){if(!sb||!user)return;try{let previous=$('bank').value,q=sb.from('atelier_documents').select('id,titre,classe,chapitre_titre,updated_at').eq('user_id',user.id).order('updated_at',{ascending:false}).limit(200);let c=$('linkClass').value;if(c)q=q.or('classe.eq.'+c+',classe.is.null');let {data,error}=await q;if(error)throw error;$('bank').replaceChildren(new Option('Choisir un document',''));for(let d of data||[])$('bank').append(new Option((d.titre||'Sans titre')+' — '+(d.classe||'Sans classe')+' · '+(d.chapitre_titre||''),d.id));if([...$('bank').options].some(o=>o.value===previous))$('bank').value=previous}catch(e){status('Banque indisponible : '+e.message,true)}}
+async function refreshBank(){if(!sb||!user)return;try{let previous=$('bank').value,q=sb.from('atelier_documents').select('id,titre,classe,chapitre_titre,updated_at').eq('user_id',user.id).order('updated_at',{ascending:false}).limit(1000);let {data,error}=await q;if(error)throw error;$('bank').replaceChildren(new Option('Choisir un document',''));for(let d of data||[])$('bank').append(new Option((d.titre||'Sans titre')+' — '+(d.classe||'Sans classe')+' · '+(d.chapitre_titre||''),d.id));if([...$('bank').options].some(o=>o.value===previous))$('bank').value=previous}catch(e){status('Banque indisponible : '+e.message,true)}}
 async function loadCompetencies(){try{requireUser();let {data,error}=await sb.from('ProfessorCompetencies').select('nom,niveau').order('niveau').order('nom');if(error)throw error;skillBank=(data||[]).filter(s=>s.nom).map(s=>({nom:String(s.nom),niveau:String(s.niveau||'')}));renderSkills();$('skillsStatus').textContent=skillBank.length+' compétence(s) disponibles dans ta banque. Coche celles travaillées dans ce document.'}catch(e){$('skillsStatus').textContent='Banque indisponible : tes compétences sélectionnées restent disponibles.';renderSkills()}}
 async function restoreAtelierCloudContext(){if(!user||!atelierSavedNav?.classe)return;const cls=String(atelierSavedNav.classe);if(![...$('linkClass').options].some(o=>o.value===cls))return;$('linkClass').value=cls;await loadClass();if(atelierSavedNav.chapitre!==''&&atelierSavedNav.chapitre!=null){$('linkChapter').value=String(atelierSavedNav.chapitre);loadSessions();}if(atelierSavedNav.seance!==''&&atelierSavedNav.seance!=null)$('linkSession').value=String(atelierSavedNav.seance);if(atelierSavedNav.bank&&[...$('bank').options].some(o=>o.value===String(atelierSavedNav.bank)))$('bank').value=String(atelierSavedNav.bank);saveAtelierNav();}
 // Exports HTML/PDF et documents enregistrés dans le cahier.
@@ -1482,22 +1482,9 @@ async function addToSession(){
     const cx=context(),code=atelierClassCode(cx.classe);
     if(!code||!cx.cahier_id||cx.chapitre_index===null||cx.seance_index===null)throw Error('Choisis une classe, un chapitre et une séance.');
     if(!confirm('Enregistrer la fiche et ajouter uniquement son lien à la séance ?'))return;
-    // Cette fiche peut déjà être publiée : un second rattachement ne doit pas
-    // modifier ses métadonnées ni rendre les anciens liens élèves indisponibles.
-    if(cloudId&&cloudOwner===user.id){
-      etape='vérification de l’affectation actuelle';
-      const {data:stored,error:storedError}=await sb.from('atelier_documents')
-        .select('classe,cahier_id,chapitre_index,seance_index')
-        .eq('id',cloudId).eq('user_id',user.id).maybeSingle();
-      if(storedError)throw storedError;
-      if(!stored)throw Error('Fiche enregistrée introuvable : ouvre de nouveau le document dans la banque.');
-      const sameIndex=(value,index)=>value==null?index==null:Number(value)===index;
-      if(stored.classe!==cx.classe||
-         String(stored.cahier_id||'')!==String(cx.cahier_id||'')||
-         !sameIndex(stored.chapitre_index,cx.chapitre_index)||
-         !sameIndex(stored.seance_index,cx.seance_index))
-        throw Error('Cette fiche est déjà affectée à une autre classe, un autre chapitre ou une autre séance. Pour protéger ses liens élèves, utilise « Enregistrer une copie » avant de l’ajouter ici.');
-    }
+    // La fiche garde un identifiant unique et ses métadonnées d'origine.
+    // Chaque cahier/séance reçoit seulement un lien vers ce même document.
+    // Les anciens liens restent en place : aucune réaffectation destructrice.
     etape='banque de documents';
     if(!await saveCloud(false))return;
     const id=String(cloudId||'');
@@ -1547,7 +1534,7 @@ async function addToSession(){
     if(!Array.isArray(result.data)||!result.data[0]?.cahier_id){
       throw Error('Le cahier a changé pendant l’ajout du lien, ou l’accès est refusé. Le cahier n’a pas été écrasé. La fiche est conservée dans la banque ; actualise la classe puis réessaie.');
     }
-    status('Lien ajouté à la séance. Aucun contenu de fiche copié dans le cahier.');
+    status('Fiche associée à cette séance. Le même document peut être utilisé dans plusieurs classes sans créer de copie.');
   }catch(e){console.error('[Ajout du lien]',etape,e);status('Étape '+etape+' : '+(e.message||String(e)),true);}
   finally{atelierLinkBusy=false;}
 }
