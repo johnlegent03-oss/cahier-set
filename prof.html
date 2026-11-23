@@ -177,7 +177,7 @@ input:focus,select:focus{border-color:#79ad9d;box-shadow:0 0 0 3px #dff0e988}
 .rich-content img,.student-preview-body img,.print-sheet img{height:auto;max-width:100%;object-fit:contain}
 @media print{.rich-editor img{resize:none!important;overflow:visible!important;outline:0!important;cursor:default!important}}
 .rich-toolbar button{padding:6px 9px;min-width:34px;border-radius:8px;font-weight:800}.rich-toolbar select{width:auto;min-width:95px;padding:6px 8px;border-radius:8px}
-.rich-editor{min-height:105px;border:1px solid var(--b);border-top:0;border-radius:0 0 10px 10px;padding:11px;background:#fff;line-height:1.55;outline:none;overflow:auto}
+.rich-editor{position:relative;min-height:105px;border:1px solid var(--b);border-top:0;border-radius:0 0 10px 10px;padding:11px;background:#fff;line-height:1.55;outline:none;overflow:auto}
 .rich-editor [data-rich-text-box]{position:relative;cursor:default}.rich-editor [data-rich-text-box]::after{content:"";position:absolute;right:2px;bottom:2px;width:13px;height:13px;pointer-events:none;background:repeating-linear-gradient(135deg,transparent 0 3px,#68897f 3px 5px,transparent 5px 7px);clip-path:polygon(100% 0,100% 100%,0 100%)}.rich-editor [data-rich-text-input]:empty::before{content:attr(data-placeholder);color:#8c9994;pointer-events:none}.rich-editor:focus{border-color:#79ad9d;box-shadow:0 0 0 3px #dff0e988}.rich-editor:empty:before{content:attr(data-placeholder);color:#9aa3af}
 .session-problem{min-height:65px}.entry{border:1px solid #dce8e3;border-radius:13px;padding:13px;margin:12px 0;background:#fbfdfc}
 .entry-head{display:flex;align-items:center;gap:8px;justify-content:space-between;flex-wrap:wrap}.entry-date{width:170px}.entry-type{font-size:12px;font-weight:850;color:var(--a);text-transform:uppercase;letter-spacing:.06em}
@@ -807,7 +807,7 @@ function sanitizeRichHtml(value){
     const v=String(val||"").trim();
     if(!v||/[<>]|url\s*\(|javascript:|expression\s*\(|var\s*\(/i.test(v))return false;
     if(["width","height","max-width","min-width","max-height","min-height","left","top","margin","margin-left","margin-right","margin-top","margin-bottom"].includes(prop))return /^(?:-?\d+(?:\.\d+)?(?:px|%|em|rem|pt|mm|cm)?|auto|0|inherit|initial|unset)$/i.test(v);
-    if(prop==="position")return /^(?:static|relative)$/i.test(v);
+    if(prop==="position")return /^(?:static|relative|absolute)$/i.test(v);
     if(prop==="padding")return /^(?:\d+(?:\.\d+)?(?:px|%|em|rem|pt|mm|cm)?)(?:\s+\d+(?:\.\d+)?(?:px|%|em|rem|pt|mm|cm)?){0,3}$/i.test(v);
     if(prop==="border")return /^(?:none|\d+(?:\.\d+)?px\s+(?:solid|dashed|dotted)\s+(?:#[\da-f]{3,8}|[a-z]+))$/i.test(v);
     if(prop==="border-radius")return /^\d+(?:\.\d+)?(?:px|%|em|rem)?$/i.test(v);
@@ -1215,18 +1215,28 @@ function insertRichTextBox(id){
   box.className="rich-text-box";
   box.contentEditable="false";
   box.setAttribute("data-rich-text-box","1");
-  box.style.cssText="display:inline-block;position:relative;vertical-align:top;box-sizing:border-box;width:240px;height:100px;min-width:90px;min-height:55px;padding:8px;border:1px dashed #86a893;border-radius:8px;background-color:#f7faf2;resize:none;overflow:auto;margin:4px;";
+  box.style.cssText="display:block;position:absolute;box-sizing:border-box;width:240px;height:100px;min-width:90px;min-height:55px;padding:8px;border:1px dashed #86a893;border-radius:8px;background-color:#f7faf2;resize:none;overflow:auto;margin:0;";
   const input=activateRichTextBox(box);
   input.textContent="";
   input.setAttribute("data-placeholder","Écris ton texte ici…");
-  const sel=window.getSelection();
-  if(sel&&sel.rangeCount&&editor.contains(sel.anchorNode)){
-    const range=sel.getRangeAt(0);range.deleteContents();range.insertNode(box);
-  }else editor.appendChild(box);
+  // Les zones flottantes ne participent pas au flux : aucun espace fantôme.
+  // Se placer près de l'image si celle-ci laisse suffisamment de largeur.
+  const image=[...editor.querySelectorAll("img")].at(-1);
+  const imageRect=image?.getBoundingClientRect();
+  const editorRect=editor.getBoundingClientRect();
+  const imageRight=imageRect?imageRect.right-editorRect.left+editor.scrollLeft:0;
+  const spaceRight=editor.clientWidth-imageRight-20;
+  const width=Math.min(240,Math.max(90,editor.clientWidth-28));
+  box.style.width=width+"px";
+  const rightOfImage=!!image&&spaceRight>=Math.min(width,120);
+  box.style.left=(rightOfImage?imageRight+8:12)+"px";
+  box.style.top=(image?(rightOfImage?imageRect.top-editorRect.top+editor.scrollTop:imageRect.bottom-editorRect.top+editor.scrollTop+8):Math.max(12,editor.scrollHeight-100))+"px";
+  editor.appendChild(box);
+  updateRichEditorFloatingHeight(editor);
   // La sélection précédente ne doit pas remplacer la boîte fraîchement insérée.
   input.focus();
   const caret=document.createRange();caret.selectNodeContents(input);caret.collapse(false);
-  sel?.removeAllRanges();sel?.addRange(caret);
+  const sel=window.getSelection();sel?.removeAllRanges();sel?.addRange(caret);
   rememberSelection(id);scheduleAutosave();
 }
 document.addEventListener("pointerdown",e=>{
@@ -1242,6 +1252,49 @@ document.addEventListener("pointerdown",e=>{
 document.addEventListener("input",e=>{
   if(e.target.closest?.(".rich-editor [data-rich-text-box]"))scheduleAutosave();
 });
+// Préserver la hauteur utile des objets hors-flux, sans réserver la hauteur
+// d'une image entière sous la zone de texte positionnée à sa droite.
+function updateRichEditorFloatingHeight(editor){
+  if(!editor)return;
+  editor.style.minHeight="";
+  const bottom=[...editor.querySelectorAll('[data-rich-text-box],img')].reduce((max,el)=>{
+    if(getComputedStyle(el).position!=="absolute")return max;
+    return Math.max(max,el.offsetTop+el.offsetHeight+20);
+  },0);
+  if(bottom)editor.style.minHeight=Math.max(120,Math.ceil(bottom))+"px";
+}
+function prepareRichEditorFloatingBoxes(editor){
+  if(!editor)return;
+  [...editor.querySelectorAll('[data-rich-text-box]')].forEach(box=>{
+    activateRichTextBox(box);
+    if(box.style.position==="absolute")return;
+    // Compatibilité avec les zones anciennes enregistrées en position relative.
+    const editorRect=editor.getBoundingClientRect(),r=box.getBoundingClientRect();
+    const x=r.left-editorRect.left+editor.scrollLeft;
+    const y=r.top-editorRect.top+editor.scrollTop;
+    box.style.left=Math.round(x)+"px";
+    box.style.top=Math.round(y)+"px";
+    box.style.position="absolute";
+    box.style.margin="0";
+    box.style.display="block";
+  });
+  updateRichEditorFloatingHeight(editor);
+}
+const richFloatingObserver=new MutationObserver(mutations=>{
+  const editors=new Set();
+  for(const mutation of mutations){
+    for(const node of mutation.addedNodes){
+      if(node.nodeType!==1)continue;
+      if(node.matches?.(".rich-editor"))editors.add(node);
+      node.querySelectorAll?.(".rich-editor").forEach(editor=>editors.add(editor));
+      const parent=node.closest?.(".rich-editor");
+      if(parent&&(node.matches?.("[data-rich-text-box],img")||node.querySelector?.("[data-rich-text-box]")))editors.add(parent);
+    }
+  }
+  editors.forEach(editor=>requestAnimationFrame(()=>prepareRichEditorFloatingBoxes(editor)));
+});
+richFloatingObserver.observe(document.documentElement,{subtree:true,childList:true});
+
 // Déplacement par la bordure ; redimensionnement libre par le coin inférieur droit.
 // Les gestes dans le contenu ne doivent jamais déclencher un déplacement.
 let richBoxGesture=null;
@@ -1274,16 +1327,18 @@ document.addEventListener("pointermove",e=>{
     g.box.style.width=Math.max(90,g.width+dx)+"px";
     g.box.style.height=Math.max(55,g.height+dy)+"px";
   }else{
-    g.box.style.position="relative";
-    g.box.style.left=(g.left+dx)+"px";
-    g.box.style.top=(g.top+dy)+"px";
+    g.box.style.position="absolute";
+    g.box.style.left=Math.max(0,g.left+dx)+"px";
+    g.box.style.top=Math.max(0,g.top+dy)+"px";
   }
+  updateRichEditorFloatingHeight(g.box.closest(".rich-editor"));
 });
 function finishRichBoxGesture(e){
   if(!richBoxGesture||e?.pointerId!==richBoxGesture.id)return;
   const changed=richBoxGesture.moved;
+  const editor=richBoxGesture.box.closest(".rich-editor");
   richBoxGesture=null;
-  if(changed)scheduleAutosave();
+  if(changed){updateRichEditorFloatingHeight(editor);scheduleAutosave();}
 }
 document.addEventListener("pointerup",finishRichBoxGesture);
 document.addEventListener("pointercancel",finishRichBoxGesture);
