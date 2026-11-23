@@ -731,13 +731,14 @@
 
   async function createSessionForClass(classe, roster, memoSubjects, level, chapters, date_qcu, term, title) {
     const db=client(),user=window.qcuMemoUserId;
+    if(!validMemoContent(memoSubjects))return {error:"La mémorisation est invalide : vérifie le nombre de sujets et les cinq questions de chacun."};
     const automaticTerm=termForDate(date_qcu);
     if(!automaticTerm)return {error:"La date du QCU est en dehors des trois trimestres définis."};
     if(Number(term)!==automaticTerm)return {error:"Le trimestre ne correspond pas à la date du QCU."};
     const {data:s,error:se}=await db.from("qcu_sessions").insert({created_by:user,classe,trimestre:automaticTerm,titre:title,date_qcu,statut:"brouillon",niveau:level,chapitres:chapters||[]}).select().single();
     if(se)return {error:se.message};
     const subjectIds=[];
-    for(let i=0;i<4;i++){
+    for(let i=0;i<memoSubjects.length;i++){
       const code=String(i+1);
       const {data:sub,error}=await db.from("qcu_sujets").insert({created_by:user,session_id:s.id,code,titre:"Sujet "+code}).select().single();
       if(error)return {error:`${error.message} (session ${classe} déjà créée)`};
@@ -747,7 +748,7 @@
       if(qe)return {error:`${qe.message} (session ${classe} partiellement créée)`};
     }
     const attrs=[];
-    for(const student of roster)for(let i=0;i<4;i++)attrs.push({created_by:user,session_id:s.id,sujet_id:subjectIds[i],eleve_id:student.id,classe,statut:"attribue"});
+    for(const student of roster)for(let i=0;i<memoSubjects.length;i++)attrs.push({created_by:user,session_id:s.id,sujet_id:subjectIds[i],eleve_id:student.id,classe,statut:"attribue"});
     const {error:ae}=await db.from("qcu_attributions").insert(attrs);
     if(ae)return {error:`${ae.message} (sujets créés mais attributions non terminées pour ${classe})`};
     return {session:s};
@@ -806,7 +807,7 @@
         <div class="identity"><h2>FICHE-RÉPONSE</h2><p class="student"><b>${esc(st.prenom)} ${esc(st.nom)}</b></p><p class="class">${esc(st.classe)}</p></div>
         <div class="qr" data-student="${esc(st.id)}"></div>
       </div>
-      <div class="subject-line"><b>Sujet :</b>${[1,2,3,4].map(n=>`<span>○ ${n}</span>`).join("")}</div>
+      <div class="subject-line"><b>Sujet :</b><span>____________</span></div>
       <table><thead><tr><th>Q</th>${["A","B","C","D"].map(x=>`<th>${x}</th>`).join("")}</tr></thead>
       <tbody>${[1,2,3,4,5].map(n=>`<tr><th>${n}</th>${[1,2,3,4].map(()=>"<td><i></i></td>").join("")}</tr>`).join("")}</tbody></table>
     </article>`).join("")}</section>`).join("");
@@ -1043,7 +1044,8 @@
     for(const ses of sessions){
       const {data:subs,error:sue}=await db.from("qcu_sujets").select("id,code").eq("session_id",ses.id).order("code");
       if(sue){msg.textContent="Erreur de lecture des sujets : "+sue.message;return;}
-      const subjectIds=(subs||[]).map(x=>x.id); if(!subjectIds.length)continue;
+      const orderedSubjects=(subs||[]).sort((a,b)=>Number(a.code)-Number(b.code));
+       const subjectIds=orderedSubjects.map(x=>x.id); if(!subjectIds.length)continue;
       const [{data:attrs,error:ae},{data:sqs,error:qe}]=await Promise.all([
         db.from("qcu_attributions").select("id,eleve_id,sujet_id,statut").eq("session_id",ses.id),
         db.from("qcu_sujet_questions").select("id,sujet_id,question_id,chapitre_snapshot,position").in("sujet_id",subjectIds)
@@ -1063,8 +1065,8 @@
       const subjQuestions=new Map((subs||[]).map(s=>[String(s.id),(sqs||[]).filter(q=>String(q.sujet_id)===String(s.id)).sort((a,b)=>a.position-b.position)]));
       const studentRows=(roster||[]).map(st=>{
         let c=0,t=0;const cells=[];
-        for(let i=1;i<=4;i++){
-          const sub=subjByCode.get(String(i)),a=sub&&attrByStudentSubject.get(`${st.id}|${sub.id}`);
+        for(const sub of orderedSubjects){
+          const a=attrByStudentSubject.get(`${st.id}|${sub.id}`);
           if(!a||a.statut==="absent"){cells.push("ABS");continue;}
           if(a.statut!=="corrige"){cells.push("—");continue;}
           const qs=subjQuestions.get(String(sub.id))||[];let sc=0,tot=0;
@@ -1074,7 +1076,7 @@
         return {st,cells,c,t};
       });
       html+=`<details open style="margin:12px 0;border:1px solid #ddd;border-radius:9px;padding:10px"><summary><strong>${esc(ses.titre||"Mémorisation")}</strong> · ${esc(ses.niveau||"")} · T${esc(termForDate(ses.date_qcu)||"—")} · ${esc(ses.date_qcu||"")}</summary>
-        <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;margin-top:10px;font-size:.92em"><thead><tr><th style="text-align:left">Élève</th><th>Sujet 1</th><th>Sujet 2</th><th>Sujet 3</th><th>Sujet 4</th><th>Total des 4 sujets</th></tr></thead><tbody>
+        <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;margin-top:10px;font-size:.92em"><thead><tr><th style="text-align:left">Élève</th>${orderedSubjects.map(sub=>`<th>Sujet ${esc(sub.code)}</th>`).join("")}<th>Total des ${orderedSubjects.length} sujets</th></tr></thead><tbody>
         ${studentRows.map(r=>`<tr><td style="padding:6px;border-top:1px solid #ddd">${esc(names.get(String(r.st.id))||r.st.id)}</td>${r.cells.map(v=>`<td style="padding:6px;border-top:1px solid #ddd;text-align:center">${esc(v)}</td>`).join("")}<td style="padding:6px;border-top:1px solid #ddd;text-align:center"><strong>${r.t?esc(scoreLabel(r.c,r.t)):"Non évalué"}</strong></td></tr>`).join("")}
         </tbody></table></div><p class="muted">ABS = absent à ce sujet (exclu du calcul) · — = pas encore corrigé. Le total est calculé uniquement sur les sujets corrigés.</p></details>`;
       // Cumul par chapitre : seules les réponses effectivement évaluées entrent dans le dénominateur.
@@ -1262,7 +1264,7 @@
       db.from("qcu_sujets").select("id,code").eq("session_id",id).order("code")
     ]);
     if(sr.error||rr.error){sel.innerHTML='<option value="">Erreur de chargement</option>';$("qmCorrectionMsg").textContent=sr.error?.message||rr.error?.message;return;}
-    session=sr.data;subjects=rr.data||[];sel.innerHTML='<option value="">Choisir un sujet</option>'+subjects.map(x=>`<option value="${esc(x.code)}">Sujet ${esc(x.code)}</option>`).join("");sel.disabled=!subjects.length;
+    session=sr.data;subjects=(rr.data||[]).sort((a,b)=>Number(a.code)-Number(b.code));sel.innerHTML='<option value="">Choisir un sujet</option>'+subjects.map(x=>`<option value="${esc(x.code)}">Sujet ${esc(x.code)}</option>`).join("");sel.disabled=!subjects.length;
     // La suppression concerne la session sélectionnée, pas le choix du sujet.
     $("qmDeleteSession").disabled=false;
     qcuImportPreview=null;$("qmResultsFile").disabled=!subjects.length;$("qmImportPreviewBtn").disabled=true;$("qmImportConfirmBtn").disabled=true;$("qmImportPreviewHost").innerHTML="";$("qmImportMsg").textContent="";
