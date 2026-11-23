@@ -93,7 +93,7 @@ footer{text-align:center;color:var(--muted);font-size:12px;padding:0 20px 35px}
 .pp-badge.warn{background:#fff4df;color:#8a5b16}.pp-badge.danger{background:#fdeceb;color:#9a3934}.pp-badge.info{background:#eef3fb;color:#405b86}
 .pp-two{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(280px,.75fr);gap:16px;margin-top:16px}
 .pp-section{background:#fff;border:1px solid var(--line,#dfe9e2);border-radius:16px;padding:18px;margin-top:14px}
-.pp-section h3{margin:0 0 10px}.pp-grades{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.pp-grade-row{display:grid;grid-template-columns:minmax(0,1fr) 92px;align-items:center;gap:10px;min-width:0}.pp-grade-row label{min-width:0;margin:0;line-height:1.25}.pp-grade-row input{width:92px;max-width:none}.pp-sciences{grid-column:1/-1;border:1px solid var(--b);background:#f8fbf9;border-radius:12px;padding:13px}.pp-sciences-title{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap}.pp-sciences-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:10px}.pp-sciences-field{display:grid;grid-template-columns:minmax(0,1fr) 92px;align-items:center;gap:10px}.pp-sciences-field label{min-width:0;line-height:1.25}.pp-sciences-average{display:inline-flex;align-items:center;gap:6px;margin-top:10px;font-weight:700}.pp-sciences-average output{display:inline-block;min-width:68px;padding:6px 9px;border:1px solid var(--b);border-radius:8px;background:#fff;text-align:center}.pp-appreciation{background:#f7fbf8;border:1px solid #cfe2d5;border-radius:12px;padding:14px;line-height:1.5}.pp-item{border-left:3px solid #82b99a;padding:9px 12px;margin:9px 0;background:#f8fbf9;border-radius:0 10px 10px 0}.pp-item strong{display:block}.pp-item .meta{font-size:12px;color:#68756e;margin-bottom:4px}.pp-appreciation{background:#f7fbf8;border:1px solid #cfe2d5;border-radius:12px;padding:14px;line-height:1.5}.pp-item{border-left:3px solid #82b99a;padding:9px 12px;margin:9px 0;background:#f8fbf9;border-radius:0 10px 10px 0}.pp-item strong{display:block}.pp-item .meta{font-size:12px;color:#68756e;margin-bottom:4px}
+.pp-section h3{margin:0 0 10px}.pp-grades{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.pp-grade-row{display:grid;grid-template-columns:minmax(0,1fr) 92px minmax(135px,170px);align-items:center;gap:10px;min-width:0}.pp-grade-row label{min-width:0;margin:0;line-height:1.25}.pp-grade-row input{width:92px;max-width:none}.pp-sciences{grid-column:1/-1;border:1px solid var(--b);background:#f8fbf9;border-radius:12px;padding:13px}.pp-sciences-title{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap}.pp-sciences-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:10px}.pp-sciences-field{display:grid;grid-template-columns:minmax(0,1fr) 92px minmax(135px,170px);align-items:center;gap:10px}.pp-sciences-field label{min-width:0;line-height:1.25}.pp-sciences-average{display:inline-flex;align-items:center;gap:6px;margin-top:10px;font-weight:700}.pp-sciences-average output{display:inline-block;min-width:68px;padding:6px 9px;border:1px solid var(--b);border-radius:8px;background:#fff;text-align:center}.pp-appreciation{background:#f7fbf8;border:1px solid #cfe2d5;border-radius:12px;padding:14px;line-height:1.5}.pp-item{border-left:3px solid #82b99a;padding:9px 12px;margin:9px 0;background:#f8fbf9;border-radius:0 10px 10px 0}.pp-item strong{display:block}.pp-item .meta{font-size:12px;color:#68756e;margin-bottom:4px}.pp-appreciation{background:#f7fbf8;border:1px solid #cfe2d5;border-radius:12px;padding:14px;line-height:1.5}.pp-item{border-left:3px solid #82b99a;padding:9px 12px;margin:9px 0;background:#f8fbf9;border-radius:0 10px 10px 0}.pp-item strong{display:block}.pp-item .meta{font-size:12px;color:#68756e;margin-bottom:4px}
 .pp-empty{padding:14px;border:1px dashed #cbd9d0;border-radius:12px;color:#718078;text-align:center}
 .pp-tabs{display:flex;gap:7px;flex-wrap:wrap;margin-top:12px}.pp-tabs button.active{background:#176b45;color:#fff;border-color:#176b45}
 .pp-modal{position:fixed;inset:0;background:rgba(16,35,26,.45);display:flex;align-items:center;justify-content:center;padding:20px;z-index:1000}.pp-modal-card{background:#fff;border-radius:18px;max-width:720px;width:100%;max-height:90vh;overflow:auto;padding:22px;box-shadow:0 20px 60px rgba(0,0,0,.2)}
@@ -373,3 +373,28 @@ div.behavior-roster-row {
   min-width:0;
   overflow-wrap:anywhere;
 }
+
+/* Suivi PP : maîtrise par discipline, indépendante de la moyenne. */
+.pp-mastery-label{display:grid;gap:4px;font-size:12px;line-height:1.2;min-width:0}
+.pp-mastery-label select{width:100%;max-width:100%;min-width:0;margin:0;font-size:13px;padding:7px 6px}
+@media(max-width:600px){
+  .pp-grade-row,.pp-sciences-field{grid-template-columns:minmax(0,1fr) 75px}
+  .pp-mastery-label{grid-column:1/-1}
+}
+
+/* Graphiques des moyennes du conseil PP (le socle reste séparé). */
+.pp-histogram{display:grid;gap:9px;margin:18px 0}
+.pp-histogram-row{display:grid;grid-template-columns:minmax(110px,170px) minmax(0,1fr) 26px;gap:10px;align-items:center;font-size:13px}
+.pp-histogram-track{height:16px;border-radius:9px;background:#eaf0f2;overflow:hidden}
+.pp-histogram-track>div{height:100%;background:#4f96ad;border-radius:9px}
+.pp-chart-selector{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:12px 0 16px}
+.pp-chart-selector select{min-width:200px;max-width:100%}
+.pp-student-graphs{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr));gap:14px}
+.pp-chart-card{min-width:0;max-width:100%;padding:12px;border:1px solid #d9e5de;background:#fbfcfd;border-radius:14px}
+.pp-chart-scroll{overflow-x:auto;max-width:100%}
+.pp-chart-svg{display:block;width:100%;height:auto;min-width:360px}
+.pp-radar-svg{min-width:440px}
+.pp-chart-legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:#475b64;margin:7px 0 12px}
+.pp-chart-legend span{display:inline-flex;gap:5px;align-items:center}
+.pp-chart-legend i{display:inline-block;width:12px;height:12px;border-radius:2px}
+@media(max-width:620px){.pp-histogram-row{grid-template-columns:110px minmax(0,1fr) 23px;gap:5px;font-size:12px}}
