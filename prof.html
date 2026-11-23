@@ -1394,14 +1394,8 @@ function observeRichImage(img){
   if(!img)return;
   img.draggable=false;
   img.tabIndex=0;
-  // Convertir les anciennes images déplacées en position absolue :
-  // elles sortaient du flux et pouvaient apparaître hors du chapitre.
-  if(img.style.position==="absolute"){
-    img.style.position="relative";
-    img.style.left="";
-    img.style.top="";
-    img.style.zIndex="";
-  }
+  // Ne jamais réinitialiser une image déjà placée librement :
+  // sa position absolue est enregistrée et doit survivre au rechargement.
   // Les anciens blocs inline peuvent provoquer une ligne de hauteur excessive.
   if(img.style.display==="inline-block")img.style.display="block";
   if(img.dataset.resizeObserved==="1")return;
@@ -1486,6 +1480,11 @@ document.addEventListener("pointerdown",e=>{
   richImageStartTop=imgRect.top-editorRect.top+editor.scrollTop;
   richImageEditor=editor;
   movingRichImage=img;
+  // Sortir des éventuels paragraphes/éléments centrés avant de positionner.
+  // Sinon la position absolue dépend d'un autre conteneur et semble bloquée.
+  if(img.parentElement!==editor)editor.appendChild(img);
+  img.style.display="block";
+  img.style.margin="0";
   img.style.position="absolute";
   img.style.left=Math.round(richImageStartLeft)+"px";
   img.style.top=Math.round(richImageStartTop)+"px";
@@ -1498,12 +1497,14 @@ document.addEventListener("pointerdown",e=>{
 
 document.addEventListener("pointermove",e=>{
   if(!movingRichImage||!richImageEditor)return;
-  movingRichImage.style.left=(richImageStartLeft+e.clientX-richImageStartX)+"px";
-  movingRichImage.style.top=(richImageStartTop+e.clientY-richImageStartY)+"px";
+  movingRichImage.style.left=Math.max(0,richImageStartLeft+e.clientX-richImageStartX)+"px";
+  movingRichImage.style.top=Math.max(0,richImageStartTop+e.clientY-richImageStartY)+"px";
+  showRichImageHandle();
 });
 function finishRichImageMove(){
   if(!movingRichImage)return;
   movingRichImage.style.cursor="move";
+  showRichImageHandle();
   updateRichEditorFloatingHeight(richImageEditor);
   movingRichImage=null;
   richImageEditor=null;
