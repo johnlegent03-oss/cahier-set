@@ -153,3 +153,9 @@ body.planning-page{margin:0;background:#f5f2e5;color:var(--pl-ink);font-family:I
 .planning-course-links{display:flex;flex-direction:column;gap:3px;margin:4px 0}
 .planning-course-links .planning-linked-title{display:block;margin:2px 0 0}
 .planning-course-links a{color:#315940;text-decoration:underline;font-size:11px;overflow-wrap:anywhere}
+
+.planning-course-links{display:flex;flex-direction:column;gap:3px}
+.planning-course-links .planning-linked-title{overflow-wrap:anywhere}
+.planning-course-wrap .planning-open-session{display:block;font-size:11px;color:#315940;margin:3px 0 5px;overflow-wrap:anywhere}
+.planning-linked-item a{display:inline-block;font-size:11px;margin-top:3px;color:#315940}
+.planning-linked-actions button:disabled{opacity:.38;cursor:not-allowed}
