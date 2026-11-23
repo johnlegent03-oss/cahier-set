@@ -455,12 +455,13 @@
 
   function renderPreparedSubjects() {
     const host = $("qmSubjects");
-    $("qmMemoSave").disabled = !Array.isArray(subjects) || subjects.length !== 4 || subjects.some(a=>!Array.isArray(a)||a.length!==5);
+    $("qmMemoSave").disabled = !validMemoContent(subjects);
     host.innerHTML = `
-      <p class="muted" style="margin:12px 0">Déplace une question sur une autre pour la réordonner ou l’échanger entre deux sujets. Les quatre sujets conservent chacun cinq questions.</p>
+      <p class="muted" style="margin:12px 0">Déplace une question sur une autre pour la réordonner ou l’échanger entre deux sujets. Chaque sujet conserve cinq questions.</p>
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px">
         ${subjects.map((arr,i)=>`<article data-qm-subject="${i}" style="border:1px solid #bbb;border-radius:10px;padding:10px;margin:0;min-width:0">
           <h4 style="margin:4px 0 10px">Sujet ${i+1}</h4>
+           <small class="muted">${[...new Set(arr.map(q=>q.chapitre).filter(Boolean))].sort((a,b)=>a-b).map(c=>`Chap. ${esc(c)}`).join(" · ")}</small>
           <ol style="padding-left:28px;margin:0">${arr.map((q,j)=>`<li draggable="true" data-qm-subject="${i}" data-qm-question="${j}" style="padding:8px 6px;margin:5px 0;border:1px solid #ddd;border-radius:7px;background:var(--card-bg, #fff);cursor:grab;touch-action:pan-y">
             <span>${esc(q.question_text)}</span>
             <small style="display:block;color:var(--muted,#666);margin-top:4px">Glisser pour déplacer</small>
@@ -468,7 +469,7 @@
         </article>`).join("")}
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin:16px 0 8px">
-        <button type="button" id="qmExportSubjects">Exporter les 4 sujets en PDF</button>
+        <button type="button" id="qmExportSubjects">Exporter les ${subjects.length} sujets en PDF</button>
       </div>
       <p class="muted">Les sujets sont prêts. Enregistre-les dans la banque, puis utilise « Attribuer aux classes » pour créer les sessions et les fiches élèves.</p>`;
     const exportButton = $("qmExportSubjects");
@@ -512,8 +513,8 @@
   }
 
   function exportSubjectsPdf() {
-    if (!Array.isArray(subjects) || subjects.length !== 4 || subjects.some(a => !Array.isArray(a) || a.length !== 5)) {
-      return alert("Prépare d'abord les quatre sujets.");
+    if (!validMemoContent(subjects)) {
+      return alert("Prépare d'abord des sujets de cinq questions.");
     }
     const title = $("qmTitle")?.value.trim() || "Mémorisation active";
     const level = $("qmSessionLevel")?.value || "";
@@ -539,12 +540,12 @@
 
   function memoSnapshot() {
     return subjects.map((arr,i)=>arr.map((q,j)=>({
-      id:q.id ?? null, question_text:q.question_text, options:q.options,
+      id:q.id ?? null, question_text:q.question_text, options:q.options, chapitre:Number(q.chapitre)||null,
       correct_option:q.correct_option, position:j+1, subject:i+1
     })));
   }
   function validMemoContent(content) {
-    return Array.isArray(content) && content.length===4 && content.every(a=>Array.isArray(a)&&a.length===5&&a.every(q=>q&&typeof q.question_text==="string"&&q.options&&typeof q.correct_option==="string"));
+    return Array.isArray(content) && validCount(content.length) && content.every(a=>Array.isArray(a)&&a.length===5&&a.every(q=>q&&typeof q.question_text==="string"&&q.options&&typeof q.correct_option==="string"));
   }
   async function loadMemos() {
     const {data,error}=await client().from("qcu_memos").select("id,nom,niveau,chapitres,contenu,created_at,updated_at").eq("created_by",window.qcuMemoUserId).order("updated_at",{ascending:false});
@@ -555,7 +556,7 @@
     const host=$("qmMemoList"); if(!host)return;
     if(!savedMemos.length){host.innerHTML='<p class="muted">Aucune mémorisation enregistrée pour le moment.</p>';return;}
     host.innerHTML=savedMemos.map(m=>`<article style="border:1px solid #ddd;border-radius:9px;padding:10px;margin:8px 0">
-      <strong>${esc(m.nom)}</strong> <span class="muted">· ${esc(m.niveau)} · ${esc((m.chapitres||[]).join(", "))} · 4 sujets / 20 questions</span>
+      <strong>${esc(m.nom)}</strong> <span class="muted">· ${esc(m.niveau)} · ${esc((m.chapitres||[]).join(", "))} · ${esc(m.contenu?.length||0)} sujets / ${esc((m.contenu?.length||0)*5)} questions</span>
       <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">
         <button type="button" data-memo-open="${esc(m.id)}">Ouvrir / modifier</button>
         <button type="button" data-memo-duplicate="${esc(m.id)}">Dupliquer</button>
@@ -568,7 +569,7 @@
     host.querySelectorAll("[data-memo-delete]").forEach(b=>b.onclick=()=>deleteMemo(b.dataset.memoDelete));
   }
   async function saveMemo() {
-    if(!validMemoContent(subjects))return alert("Prépare d'abord quatre sujets de cinq questions.");
+    if(!validMemoContent(subjects))return alert("Prépare d'abord des sujets de cinq questions.");
     const nom=$("qmMemoName").value.trim(); if(!nom)return alert("Donne un nom à cette mémorisation.");
     const chapters=selectedSessionChapters();
     if(!chapters.length)return alert("Sélectionne au moins un chapitre pour cette mémorisation.");
@@ -586,6 +587,7 @@
     const m=savedMemos.find(x=>x.id===id);if(!m)return;
     if(!validMemoContent(m.contenu))return alert("Le contenu de cette mémorisation est incomplet ou incompatible.");
     subjects=m.contenu.map(a=>a.map(q=>({...q})));
+     $("qmSubjectCount").value=String(subjects.length);
     $("qmSessionLevel").value=m.niveau;$("qmLevel").value=m.niveau;
     if(m.chapitres?.length)$("qmChapter").value=m.chapitres[0];
     await loadSessionChapters(m.chapitres || [Number($("qmChapter").value)]);
