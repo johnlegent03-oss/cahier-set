@@ -30,6 +30,9 @@
     return term ? `Trimestre ${term}` : "hors période trimestrielle";
   }
   const levels = ["6e","5e","4e","3e"];
+  const QCU_MIN=4,QCU_MAX=20;
+  const qcuCount=()=>Number($("qmSubjectCount")?.value);
+  const validCount=n=>Number.isInteger(n)&&n>=QCU_MIN&&n<=QCU_MAX;
   let questions = [];
   let sessionQuestionPool = [];
   let students = [];
@@ -57,7 +60,7 @@
     card.className = "card"; card.id = "qcuMemoHomeCard";
     card.innerHTML = `<span class="tag">Mémorisation active</span>
       <h3>QCU — Banque et sessions</h3>
-      <p class="muted">Questions par niveau et chapitre, quatre sujets et suivi individuel.</p>
+      <p class="muted">Questions par niveau et chapitre, sujets modulables et suivi individuel.</p>
       <button class="primary" type="button" id="qcuMemoOpen">Ouvrir le module</button>`;
     grid.appendChild(card);
     $("qcuMemoOpen").onclick = open;
@@ -77,7 +80,7 @@
       <button type="button" onclick="home()">← Accueil</button>
       <section class="hero" style="margin-top:14px">
         <span class="eyebrow">Mémorisation active</span><h2>QCU — Banque de questions</h2>
-        <p>Prépare une banque commune, puis crée une session de quatre sujets de cinq questions.</p>
+        <p>Prépare une banque commune, puis génère de 4 à 20 sujets de cinq questions.</p>
       </section>
       <style>
         #content .qmm-module label{display:block;min-width:0;margin:0}
@@ -116,19 +119,20 @@
         <div class="qmm-fields">
           <label>Niveau<select id="qmSessionLevel">${levels.map(x=>`<option>${x}</option>`).join("")}</select></label>
           <label>Titre<input id="qmTitle" value="Mémorisation active"></label>
+           <label>Nombre de sujets (4 à 20)<input id="qmSubjectCount" type="number" min="4" max="20" value="8" step="1"></label>
         </div>
         <p class="muted" style="margin:8px 0 0">Aucune classe n'est nécessaire à cette étape : tu attribueras les sujets aux classes après leur enregistrement dans la banque.</p>
         <div style="margin-top:10px">
           <strong>Chapitres à inclure</strong>
-          <p class="muted" style="margin:4px 0 8px">Tu peux cocher plusieurs chapitres. Les questions de tous les chapitres sélectionnés seront mélangées pour composer les quatre sujets.</p>
+          <p class="muted" style="margin:4px 0 8px">Tu peux cocher plusieurs chapitres. Les questions sont réparties entre les chapitres sélectionnés pour composer des sujets équilibrés.</p>
           <div id="qmChapterChoices" class="qmm-chapter-grid"></div>
         </div>
         <div style="margin-top:12px;padding:12px;border:1px solid #ddd;border-radius:9px">
           <strong>Mode de génération</strong>
-          <div class="qmm-radio"><input type="radio" name="qmGenerationMode" value="auto" checked><label>Génération automatique : les quatre sujets sont composés aléatoirement.</label></div>
+          <div class="qmm-radio"><input type="radio" name="qmGenerationMode" value="auto" checked><label>Génération automatique équilibrée entre les chapitres, avec limitation des répétitions.</label></div>
           <div class="qmm-radio"><input type="radio" name="qmGenerationMode" value="custom"><label>Génération personnalisée : je choisis les questions communes et celles propres à chaque sujet.</label></div>
         </div>
-        <p class="muted">Chaque sujet comporte cinq questions. Une question commune apparaît sur les quatre sujets ; une question spécifique apparaît uniquement sur le ou les sujets cochés.</p>
+        <p class="muted">Chaque sujet comporte cinq questions. Une question commune apparaît sur tous les sujets ; une question spécifique apparaît sur les sujets cochés.</p>
         <button class="primary" id="qmCreate">Charger les questions et préparer les sujets</button>
         <div id="qmSessionMsg" class="muted" aria-live="polite"></div>
         <div id="qmCustomPicker"></div>
@@ -136,7 +140,7 @@
       </section>
       <section class="card" style="padding:18px;margin-top:14px">
         <h3>3. Banque de mémorisations enregistrées</h3>
-        <p class="muted">Enregistre les quatre sujets préparés pour les réutiliser, les modifier ou les attribuer à plusieurs classes. Une attribution crée une session indépendante par classe.</p>
+        <p class="muted">Enregistre les sujets préparés pour les réutiliser, les modifier ou les attribuer à plusieurs classes. Une attribution crée une session indépendante par classe.</p>
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
           <input id="qmMemoName" placeholder="Nom de la mémorisation (ex. Mémo 1 – 6e)" style="flex:1;min-width:220px">
           <button class="primary" id="qmMemoSave" type="button" disabled>Enregistrer les sujets préparés</button>
@@ -179,7 +183,7 @@
           <div id="qmSubjectRoster" style="margin:10px 0"></div>
           <section style="margin:12px 0;padding:14px;border:1px solid #c8d2df;border-radius:10px;background:#f8fafc">
             <h4 style="margin-top:0">Importer les résultats d'un ancien questionnaire</h4>
-            <p class="muted">Importe un fichier Excel (.xlsx) ou CSV avec une colonne Nom et quatre colonnes Sujet 1 à Sujet 4. Les réponses seront associées aux élèves et aux sujets de la mémorisation sélectionnée.</p>
+            <p class="muted">L'import des anciens fichiers concerne les sujets 1 à 4 uniquement (Nom, Sujet 1, Sujet 2, Sujet 3, Sujet 4). Les autres sujets utilisent la correction par scanner.</p>
             <label>Fichier de résultats (.xlsx ou .csv)<input id="qmResultsFile" type="file" accept=".xlsx,.csv,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" disabled></label>
             <p class="muted" style="margin:8px 0 4px">Corrigé des quatre sujets — modifiable pour chaque import :</p>
             <div class="qmm-fields">
@@ -208,7 +212,7 @@
       </section>
       <section class="card" style="padding:18px;margin-top:14px">
         <h3>5. Résultats et bilans</h3>
-        <p class="muted">Consulte les résultats des quatre sujets pour chaque mémorisation, puis le bilan cumulatif des connaissances par chapitre sur l'année.</p>
+        <p class="muted">Consulte les résultats de tous les sujets, puis le bilan cumulatif des connaissances par chapitre sur l'année.</p>
         <div class="qmm-fields" style="grid-template-columns:minmax(180px,1fr) auto;align-items:end">
           <label>Classe<select id="qmResultsClass"><option value="">Choisir une classe</option></select></label>
           <button class="primary" id="qmResultsLoad" type="button">Afficher les résultats</button>
@@ -397,6 +401,56 @@
       [result[i], result[j]] = [result[j], result[i]];
     }
     return result;
+  }
+
+  // Tirage équilibré : cinq questions distinctes par sujet, chapitres variés,
+  // nombre total de sujets réglable et refus des compositions identiques.
+  function enoughDifferentSubjects(n,count){
+    if(n<5)return false;
+    let comb=1;
+    for(let k=1;k<=5;k++){comb=comb*(n-k+1)/k;if(comb>=count)return true;}
+    return comb>=count;
+  }
+  function balancedSubjects(pool,count,fixed=[]){
+    const bank=[...new Map(pool.map(q=>[String(q.id),q])).values()];
+    if(!validCount(count))throw Error("Choisis un nombre entier de sujets entre 4 et 20.");
+    if(!enoughDifferentSubjects(bank.length,count))throw Error("Pas assez de questions pour créer autant de sujets différents. Ajoute des questions ou réduis le nombre de sujets.");
+    const questionUses=new Map(),chapterUses=new Map(),signatures=new Set(),out=[];
+    for(let i=0;i<count;i++){
+      const mandatory=[...new Map((fixed[i]||[]).map(q=>[String(q.id),q])).values()];
+      if(mandatory.length>5)throw Error(`Le sujet ${i+1} a plus de cinq questions imposées.`);
+      let candidate=null;
+      for(let attempt=0;attempt<200&&!candidate;attempt++){
+        const picked=[...mandatory],ids=new Set(picked.map(q=>String(q.id)));
+        while(picked.length<5){
+          const chapterInSubject=new Map();
+          for(const q of picked){const key=String(q.chapitre??"?");chapterInSubject.set(key,(chapterInSubject.get(key)||0)+1);}
+          let best=null,bestScore=Infinity;
+          for(const q of bank){
+            const id=String(q.id);if(ids.has(id))continue;
+            const chapter=String(q.chapitre??"?");
+            const score=(chapterInSubject.get(chapter)||0)*200
+              +(chapterUses.get(chapter)||0)*5+(questionUses.get(id)||0)*14
+              +Math.random()*Math.min(200,20+attempt*2);
+            if(score<bestScore){bestScore=score;best=q;}
+          }
+          if(!best)break;
+          picked.push(best);ids.add(String(best.id));
+        }
+        if(picked.length!==5)break;
+        const sig=picked.map(q=>String(q.id)).sort().join("|");
+        if(signatures.has(sig))continue;
+        signatures.add(sig);candidate=shuffle(picked);
+      }
+      if(!candidate)throw Error(`Impossible de créer ${count} sujets tous différents avec les contraintes choisies. Ajoute des questions ou diminue les contraintes.`);
+      out.push(candidate);
+      for(const q of candidate){
+        const id=String(q.id),chapter=String(q.chapitre??"?");
+        questionUses.set(id,(questionUses.get(id)||0)+1);
+        chapterUses.set(chapter,(chapterUses.get(chapter)||0)+1);
+      }
+    }
+    return out;
   }
 
   function renderPreparedSubjects() {
