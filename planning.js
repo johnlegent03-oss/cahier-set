@@ -204,7 +204,7 @@ function renderGrid(){
    const kind=window.PlanningKinds?.descriptor(meta.kind);
    const special=meta.kind!=='cours';
    const kindText=special?'<small class="planning-special-title">'+esc(kind.icon+' '+kind.label)
-    +(meta.detail.trim()?' — '+esc(meta.detail.trim().split(/\\r?\\n/)[0].slice(0,95)):'')+'</small>':'';
+    +(meta.detail.trim()?' — '+esc(meta.detail.trim().split(/\r?\n/)[0].slice(0,95)):'')+'</small>':'';
    const ids=linkedIds(o);
    const elements=ids.map(uid=>state.cahierSessionsByUid[o.class_name+'::'+uid]).filter(Boolean);
    const linkedHtml=elements.length?'<div class="planning-course-links">'+elements.map((item,n)=>
@@ -292,7 +292,7 @@ function renderFollowup(){
    const headline=o.kind!=='cours'
     ?'Activité : '+(window.PlanningKinds?.descriptor(o.kind).label||o.kind)
     :linked?linked.chapterTitle+' — '+linked.sessionTitle
-    :o.linked?'Séance associée au cahier':'Séance du cahier non associée';
+    :o.linked?'Élément(s) du cahier associé(s)':'Aucun élément du cahier associé';
    const classAndDate=esc(o.class_name)+' · '+esc(o.session_date)+' · '+esc(o.start_time)+'–'+esc(o.end_time);
    return '<article class="planning-followup-row"><div><strong>'+esc(headline)+'</strong>'+
     '<p class="planning-muted">'+classAndDate+' · '+esc(stageNames[o.stage]||o.stage)+'</p></div>'+
