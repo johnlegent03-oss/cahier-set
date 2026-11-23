@@ -66,7 +66,7 @@
    }
    report.sessions={total:unique.size,
     placed:[...unique.values()].filter(s=>linkedSessionIds.has(String(s.uid))).length,
-    unplaced:[...unique.values()].filter(s=>!linkedIds.has(String(s.uid)))};
+    unplaced:[...unique.values()].filter(s=>!linkedSessionIds.has(String(s.uid)))};
   }
   return report;
  }
