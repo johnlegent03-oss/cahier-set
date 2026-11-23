@@ -658,20 +658,20 @@
     if (!host) return;
     host.innerHTML = `
       <div style="margin-top:12px;padding:12px;border:1px solid #4386b5;border-radius:10px">
-        <h4 style="margin:0 0 6px">Composer les quatre sujets</h4>
-        <p class="muted">Pour chaque question, coche « Commune » pour l'imposer aux quatre sujets, ou coche un ou plusieurs sujets pour l'y imposer. Laisse les autres cases vides pour que le logiciel tire les questions au sort.</p>
+        <h4 style="margin:0 0 6px">Composer les ${qcuCount()} sujets</h4>
+        <p class="muted">Pour chaque question, coche « Commune » pour l'imposer à tous les sujets, ou coche les sujets concernés. Laisse les autres cases vides pour que le logiciel tire les questions au sort.</p>
         <div style="overflow-x:auto">
           <table style="width:100%;border-collapse:collapse;min-width:620px">
-            <thead><tr><th style="text-align:left;padding:6px">Question</th><th>Commune</th><th>Sujet 1</th><th>Sujet 2</th><th>Sujet 3</th><th>Sujet 4</th></tr></thead>
+            <thead><tr><th style="text-align:left;padding:6px">Question</th><th>Commune</th>${Array.from({length:qcuCount()},(_,i)=>`<th>Sujet ${i+1}</th>`).join("")}</tr></thead>
             <tbody>${sessionQuestionPool.map((q,i)=>`<tr style="border-top:1px solid #ddd">
-              <td style="padding:7px;max-width:360px">${esc(q.question_text)}</td>
+              <td style="padding:7px;min-width:260px">Chap. ${esc(q.chapitre)} · ${esc(q.question_text)}</td>
               <td style="text-align:center"><input type="checkbox" class="qm-force-common" data-q-index="${i}" aria-label="Question commune"></td>
-              ${[1,2,3,4].map(n=>`<td style="text-align:center"><input type="checkbox" class="qm-force-subject" data-q-index="${i}" data-subject="${n-1}" aria-label="Imposer au sujet ${n}"></td>`).join("")}
+              ${Array.from({length:qcuCount()},(_,j)=>`<td style="text-align:center;min-width:55px"><input type="checkbox" class="qm-force-subject" data-q-index="${i}" data-subject="${j}" aria-label="Imposer au sujet ${j+1}"></td>`).join("")}
             </tr>`).join("")}</tbody>
           </table>
         </div>
         <p id="qmCustomStatus" class="muted" aria-live="polite"></p>
-        <button type="button" class="primary" id="qmComposeCustom">Générer les quatre sujets avec ma sélection</button>
+        <button type="button" class="primary" id="qmComposeCustom">Générer les ${qcuCount()} sujets avec ma sélection</button>
       </div>`;
     host.querySelectorAll('.qm-force-common').forEach(el=>el.addEventListener('change',()=>{
       if(el.checked) host.querySelectorAll(`.qm-force-subject[data-q-index="${el.dataset.qIndex}"]`).forEach(x=>x.checked=false);
@@ -683,29 +683,24 @@
   }
 
   function composeCustomSubjects() {
-    const host=$("qmCustomPicker");
-    const commonIndexes=[...host.querySelectorAll('.qm-force-common:checked')].map(x=>Number(x.dataset.qIndex));
-    const specific=[0,1,2,3].map(subjectIndex=>[...host.querySelectorAll(`.qm-force-subject[data-subject="${subjectIndex}"]:checked`)].map(x=>Number(x.dataset.qIndex)));
-    const fixed=[0,1,2,3].map(i=>[...new Set([...commonIndexes,...specific[i]])]);
+    const host=$("qmCustomPicker"),count=qcuCount();
+    const commonIndexes=[...host.querySelectorAll(".qm-force-common:checked")].map(x=>Number(x.dataset.qIndex));
+    const fixed=Array.from({length:count},(_,i)=>{
+      const specific=[...host.querySelectorAll(`.qm-force-subject[data-subject="${i}"]:checked`)].map(x=>Number(x.dataset.qIndex));
+      return [...new Set([...commonIndexes,...specific])].map(j=>sessionQuestionPool[j]).filter(Boolean);
+    });
     const tooMany=fixed.findIndex(a=>a.length>5);
-    if(tooMany>=0){$("qmCustomStatus").textContent=`Le sujet ${tooMany+1} comporte déjà ${fixed[tooMany].length} questions imposées. Cinq au maximum sont possibles.`;return;}
-    const result=[];
-    for(let i=0;i<4;i++){
-      const chosen=fixed[i].map(index=>sessionQuestionPool[index]).filter(Boolean);
-      const chosenIds=new Set(chosen.map(q=>String(q.id)));
-      const remaining=shuffle(sessionQuestionPool.filter(q=>!chosenIds.has(String(q.id))));
-      const needed=5-chosen.length;
-      if(remaining.length<needed){$("qmCustomStatus").textContent=`Pas assez de questions différentes pour compléter le sujet ${i+1}. Ajoute des questions à la banque ou retire certaines questions imposées.`;return;}
-      result.push([...chosen,...remaining.slice(0,needed)]);
-    }
-    subjects=result;
-    $("qmCustomPicker").innerHTML='<p class="muted">Composition personnalisée générée. Tu peux encore déplacer ou échanger les questions dans les sujets ci-dessous.</p>';
+    if(tooMany>=0){$("qmCustomStatus").textContent=`Le sujet ${tooMany+1} comporte plus de cinq questions imposées.`;return;}
+    try{subjects=balancedSubjects(sessionQuestionPool,count,fixed);}
+    catch(error){$("qmCustomStatus").textContent=error.message;return;}
+    host.innerHTML='<p class="muted">Sujets personnalisés générés. Tu peux réorganiser les questions ci-dessous.</p>';
     renderPreparedSubjects();
-    $("qmSessionMsg").textContent=`Sujets personnalisés générés : ${commonIndexes.length} question(s) commune(s), avec les questions spécifiques choisies et un complément aléatoire.`;
+    $("qmSessionMsg").textContent=`${count} sujets personnalisés générés, avec ${commonIndexes.length} question(s) commune(s) et un complément réparti entre les chapitres.`;
   }
 
   async function prepareSubjects() {
     const db=client(), level=$("qmSessionLevel").value, chapters=selectedSessionChapters();
+    if(!validCount(qcuCount()))return alert("Choisis un nombre entier de sujets entre 4 et 20.");
     if(!chapters.length)return alert("Sélectionne au moins un chapitre.");
     if(level!==$("qmLevel").value)return alert("Le niveau de la banque et celui de la session doivent être identiques.");
     const {data:qs,error:qe}=await db.from("qcu_questions").select("*").eq("created_by",window.qcuMemoUserId)
@@ -713,6 +708,9 @@
     if(qe)return alert(qe.message);
     if((qs||[]).length<5)return alert(`Il faut au moins 5 questions actives différentes au total dans les chapitres sélectionnés pour composer un sujet de cinq questions. Il y en a ${(qs||[]).length}.`);
     sessionQuestionPool=qs||[];
+    if(!enoughDifferentSubjects(new Set(sessionQuestionPool.map(q=>String(q.id))).size,qcuCount()))
+      return alert("Impossible de composer autant de sujets différents. Ajoute des questions à la banque ou diminue le nombre de sujets.");
+    subjects=[];$("qmMemoSave").disabled=true;
     students=[];
     session=null;
     $("qmPrint").disabled=true;$("qmCameraStart").disabled=true;
@@ -725,7 +723,8 @@
     }
     $("qmCustomPicker").innerHTML="";
     const pool=shuffle(sessionQuestionPool);
-    subjects=Array.from({length:4},(_,i)=>Array.from({length:5},(_,j)=>pool[(i*5+j)%pool.length]));
+    try{subjects=balancedSubjects(pool,qcuCount());}
+    catch(error){$("qmSessionMsg").textContent=error.message;return;}
     renderPreparedSubjects();
     $("qmSessionMsg").textContent=`Chapitres ${chapters.join(", ")} · ${sessionQuestionPool.length} questions disponibles. Réorganise les questions si nécessaire, puis enregistre les sujets dans la banque.`;
   }
