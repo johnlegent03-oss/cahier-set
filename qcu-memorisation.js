@@ -1041,6 +1041,23 @@
   }
   const pct20=(correct,total)=>total?Math.round((correct/total)*2000)/100: null;
   function scoreLabel(correct,total){return total?`${correct}/${total} · ${String(pct20(correct,total)).replace(".",",")}/20`:"Non évalué";}
+  // Un groupe de 20 sujets peut produire plus de 1000 réponses.
+  // Pagination explicite pour éviter une moyenne fausse à cause de la
+  // limite par défaut de l'API Supabase.
+  async function allQcuResponses(db,subjectIds){
+    const output=[],step=800;
+    for(let offset=0;;offset+=step){
+      const {data,error}=await db.from("qcu_reponses")
+        .select("attribution_id,sujet_question_id,is_correct")
+        .in("sujet_id",subjectIds)
+        .order("attribution_id").order("sujet_question_id")
+        .range(offset,offset+step-1);
+      if(error)return {data:null,error};
+      output.push(...(data||[]));
+      if((data||[]).length<step)return {data:output,error:null};
+    }
+  }
+
   async function loadResults(){
     const host=$("qmResultsHost"), msg=$("qmResultsMsg"), classe=$("qmResultsClass").value, db=client();
     host.innerHTML=""; if(!classe){msg.textContent="Choisis une classe pour afficher ses résultats.";return;}
@@ -1062,8 +1079,8 @@
         db.from("qcu_sujet_questions").select("id,sujet_id,question_id,chapitre_snapshot,position").in("sujet_id",subjectIds)
       ]);
       if(ae||qe){msg.textContent="Erreur de lecture des attributions ou questions : "+(ae?.message||qe?.message);return;}
-      const attrIds=(attrs||[]).map(a=>a.id);
-      const {data:answers,error:ansErr}=attrIds.length?await db.from("qcu_reponses").select("attribution_id,sujet_question_id,is_correct").in("attribution_id",attrIds):{data:[],error:null};
+      const {data:answers,error:ansErr}=(attrs||[]).length
+        ?await allQcuResponses(db,subjectIds):{data:[],error:null};
       if(ansErr){msg.textContent="Erreur de lecture des réponses : "+ansErr.message;return;}
       const bankIds=[...new Set((sqs||[]).map(q=>q.question_id).filter(Boolean))];
       let bank=[];
