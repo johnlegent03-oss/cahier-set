@@ -8,8 +8,8 @@
 <style>
 /* Styles par défaut du cahier — modifiables manuellement */
 .cahier,
-.cahier * {
-  font-family: "Chalk", "Comic Sans MS", cursive, sans-serif;
+.cahier {
+  font-family: "Comic Sans MS", cursive, sans-serif;
 }
 
 .style-chapitre {
@@ -56,7 +56,7 @@
 .print-sheet .style-activite { font-size: 15px !important; font-weight: 600 !important; color: #ff8c00 !important; }
 .print-sheet .style-bilan { font-size: 16px !important; font-weight: 700 !important; color: #d00000 !important; }
 .print-sheet .cahier,
-.print-sheet .cahier * { font-family: "Chalk", "Comic Sans MS", cursive, sans-serif !important; }
+.print-sheet .cahier { font-family: "Comic Sans MS", cursive, sans-serif; }
 
 :root{--bg:#eef6f2;--card:#fff;--text:#213331;--muted:#6f807d;--a:#34796a;--a-dark:#286456;--a2:#dff0e9;--b:#d5e4de;--danger:#fff0ef;--shadow:0 12px 35px rgba(35,65,59,.08);--shadow-hover:0 16px 40px rgba(35,65,59,.14)}
 *{box-sizing:border-box}html{scroll-behavior:smooth}
@@ -447,7 +447,7 @@ button.primary,.primary{background:linear-gradient(135deg,#526fdb,#7658c9)!impor
 .rich-toolbar button:hover{transform:translateY(-1px);border-color:#8399e0}
 .rich-toolbar .palette-red{background:#fff0f0}.rich-toolbar .palette-blue{background:#edf5ff}.rich-toolbar .palette-green{background:#e9f8ee}.rich-toolbar .palette-purple{background:#f4edff}.rich-toolbar .palette-orange{background:#fff0e2}.rich-toolbar .palette-black{background:#edf0f5}.rich-toolbar .highlight-yellow{background:#fff6bd;border-color:#eadb7b}.rich-toolbar .highlight-pink{background:#ffe6f0;border-color:#f0bfd2}
 .rich-toolbar select{background:#fff;border:1px solid #cbd6f6;color:#34456d;min-height:34px;border-radius:9px}
-.rich-editor{font-family:Chalkboard,"Chalkboard SE","Comic Sans MS",cursive!important;font-size:16px;min-height:120px;padding:15px;background:linear-gradient(180deg,#fff 0%,#fffdf8 100%);border:1px solid #cbd6f6;border-top:0;border-radius:0 0 13px 13px;color:#27344b;line-height:1.7;box-shadow:inset 0 1px 3px rgba(42,62,125,.04)}
+.rich-editor{font-family:"Comic Sans MS",cursive;font-size:16px;min-height:120px;padding:15px;background:linear-gradient(180deg,#fff 0%,#fffdf8 100%);border:1px solid #cbd6f6;border-top:0;border-radius:0 0 13px 13px;color:#27344b;line-height:1.7;box-shadow:inset 0 1px 3px rgba(42,62,125,.04)}
 .rich-editor:focus{border-color:#8296e8;box-shadow:0 0 0 3px #dce5ff, inset 0 1px 3px rgba(42,62,125,.04)}
 .rich-editor h1,.rich-editor h2,.rich-editor h3{color:#3c55b4}
 .entry{background:linear-gradient(145deg,#fff,#f7f9ff)}.session-box{background:linear-gradient(145deg,#fff,#f5f8ff)}
@@ -808,10 +808,20 @@ function sanitizeRichHtml(value){
   };
   [...root.querySelectorAll("*")].forEach(el=>{
     if(!allowedTags.has(el.tagName)){el.replaceWith(...[...el.childNodes]);return;}
-    if(el.tagName==="FONT"&&el.getAttribute("color")){
+    if(el.tagName==="FONT"){
+      // execCommand(fontName/fontSize/foreColor) produit des attributs HTML
+      // face/size/color : les traduire en styles sûrs avant nettoyage.
       const color=el.getAttribute("color");
-      if(/^[#\w(),.% -]+$/.test(color))el.style.color=color;
-      el.removeAttribute("color");
+      if(color&&/^[#\w(),.% -]+$/.test(color))el.style.color=color;
+      const face=el.getAttribute("face");
+      const allowedFonts=new Set(["Comic Sans MS","Trebuchet MS","Georgia","Arial","Verdana","Courier New","Chalkboard","Chalkboard SE"]);
+      if(face&&allowedFonts.has(face.replace(/^["']|["']$/g,"").trim())){
+        el.style.fontFamily=face.replace(/^["']|["']$/g,"").trim();
+      }
+      const size=Number(el.getAttribute("size"));
+      const fontSizes={1:"10px",2:"13px",3:"16px",4:"18px",5:"24px",6:"32px",7:"40px"};
+      if(Number.isInteger(size)&&fontSizes[size])el.style.fontSize=fontSizes[size];
+      el.removeAttribute("color");el.removeAttribute("face");el.removeAttribute("size");
     }
     [...el.attributes].forEach(attr=>{
       const name=attr.name.toLowerCase();
@@ -1060,7 +1070,7 @@ function richToolbar(id){
     <button type="button" class="palette-black" onmousedown="event.preventDefault()" onclick="richCmd('${id}','foreColor','#24372a')" title="Texte noir">⚫</button>
     <button type="button" class="highlight-yellow" onmousedown="event.preventDefault()" onclick="richCmd('${id}','hiliteColor','#fff176')" title="Surligner en jaune">🟨 Surligner</button>
     <button type="button" class="highlight-pink" onmousedown="event.preventDefault()" onclick="richCmd('${id}','hiliteColor','#ffd6e7')" title="Surligner en rose">🌸</button>
-    <select class="font-choice" onchange="if(this.value)richCmd('${id}','fontName',this.value);this.selectedIndex=0" title="Police d’écriture"><option value="">✍️ Police</option><option value="Chalkboard">Chalkboard</option><option value="Chalkboard SE">Chalkboard SE</option><option value="Comic Sans MS">Comic Sans</option><option value="Trebuchet MS">Trebuchet</option><option value="Georgia">Georgia</option><option value="Arial">Arial</option><option value="Verdana">Verdana</option><option value="Courier New">Courier New</option></select>
+    <select class="font-choice" onchange="if(this.value)richCmd('${id}','fontName',this.value);this.selectedIndex=0" title="Police d’écriture"><option value="">✍️ Police</option><option value="Comic Sans MS">Comic Sans</option><option value="Trebuchet MS">Trebuchet</option><option value="Georgia">Georgia</option><option value="Arial">Arial</option><option value="Verdana">Verdana</option><option value="Courier New">Courier New</option></select>
     <select onchange="richCmd('${id}','fontSize',this.value);this.selectedIndex=0" title="Taille"><option value="">Taille</option><option value="2">Petit</option><option value="3">Normal</option><option value="5">Grand</option><option value="7">Très grand</option></select>
   </div>`;
 }
