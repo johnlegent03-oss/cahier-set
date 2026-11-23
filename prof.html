@@ -7,7 +7,6 @@
 
 <style>
 /* Styles par défaut du cahier — modifiables manuellement */
-.cahier,
 .cahier {
   font-family: "Comic Sans MS", cursive, sans-serif;
 }
@@ -55,7 +54,6 @@
 .print-sheet .style-probleme { font-size: 17px !important; font-weight: 700 !important; color: #6a0dad !important; }
 .print-sheet .style-activite { font-size: 15px !important; font-weight: 600 !important; color: #ff8c00 !important; }
 .print-sheet .style-bilan { font-size: 16px !important; font-weight: 700 !important; color: #d00000 !important; }
-.print-sheet .cahier,
 .print-sheet .cahier { font-family: "Comic Sans MS", cursive, sans-serif; }
 
 :root{--bg:#eef6f2;--card:#fff;--text:#213331;--muted:#6f807d;--a:#34796a;--a-dark:#286456;--a2:#dff0e9;--b:#d5e4de;--danger:#fff0ef;--shadow:0 12px 35px rgba(35,65,59,.08);--shadow-hover:0 16px 40px rgba(35,65,59,.14)}
@@ -648,6 +646,30 @@ body #svtDashboard .svt-today-open{background:#426849!important;color:#fff!impor
 #svtDashboard .svt-today-empty{padding:14px;background:#f3f6ed;border:1px dashed #d5ddce;border-radius:11px;color:#53684e}
 #svtDashboard .svt-today-next{font-size:14px;margin:12px 0 0;color:#53684e}
 @media(max-width:560px){#svtDashboard .svt-today-list li{grid-template-columns:65px 1fr}}
+</style>
+
+<style id="svt-prof-default-typography">
+/* Styles par défaut : hérités, pour préserver toute mise en forme manuelle. */
+html,body,body button,body select,body input,body textarea,
+body .rich-editor,body .rich-output,body .rich-content,
+body .rich-editor [data-rich-text-input] {
+  font-family:"Comic Sans MS",cursive,sans-serif!important;
+}
+/* Les mises en forme explicitement choisies dans l'éditeur restent prioritaires. */
+body .rich-editor [style*="font-family"],
+body .rich-editor font[face],
+body .rich-output [style*="font-family"],
+body .rich-content [style*="font-family"] {
+  font-family:revert-layer;
+}
+body #chTitre.rich-editor {font-size:36px;font-weight:800;color:#c62828;line-height:1.35}
+body #chProb.rich-editor {font-size:24px;font-weight:700;color:#238b45;line-height:1.45}
+body .session-title.rich-editor {font-size:24px;font-weight:700;color:#c62828;line-height:1.45}
+body .session-problem.rich-editor {font-size:24px;font-weight:700;color:#7434a6;line-height:1.45}
+body .entry[data-entry-type="bilan"] .entry-text.rich-editor {
+  font-size:20px;font-weight:700;color:#c62828;line-height:1.5;
+}
+/* Garder les tailles et couleurs des segments formatés manuellement. */
 </style>
 </head>
 <body>
