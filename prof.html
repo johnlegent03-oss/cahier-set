@@ -174,7 +174,7 @@ input:focus,select:focus{border-color:#79ad9d;box-shadow:0 0 0 3px #dff0e988}
 .rich-editor th,.rich-editor td,.rich-content th,.rich-content td{border:1px solid #9aaca5;padding:6px 8px;text-align:left;vertical-align:top;}
 .rich-editor th,.rich-content th{background:#edf5f1;font-weight:800;}
 .rich-editor ul,.rich-editor ol,.rich-content ul,.rich-content ol{padding-left:28px;margin:6px 0;}
-.rich-editor img{display:block;vertical-align:middle;max-width:100%;min-width:45px;min-height:30px;resize:both;overflow:auto;object-fit:contain;cursor:move;box-sizing:border-box;outline:1px dashed transparent;outline-offset:2px;margin:4px 0}
+.rich-editor img{display:block;vertical-align:middle;max-width:100%;min-width:45px;min-height:30px;resize:none;overflow:hidden;object-fit:contain;cursor:move;box-sizing:border-box;outline:1px dashed transparent;outline-offset:2px;margin:4px 0}.rich-editor p:has(> img:only-child),.rich-editor div:has(> img:only-child){margin-top:4px;margin-bottom:4px;line-height:normal}
 .rich-editor img:focus,.rich-editor img:hover{outline-color:#8296e8}
 .rich-content img,.student-preview-body img,.print-sheet img{height:auto;max-width:100%;object-fit:contain}
 @media print{.rich-editor img{resize:none!important;overflow:visible!important;outline:0!important;cursor:default!important}}
@@ -1113,7 +1113,7 @@ async function insertRichImage(id){
       img.alt=alt.slice(0,300);
       img.style.maxWidth="100%";
       img.style.objectFit="contain";
-      img.style.display="inline-block";
+      img.style.display="block";
       img.style.resize="both";
       img.style.overflow="auto";
       img.draggable=true;
@@ -1133,10 +1133,17 @@ async function insertRichImage(id){
       if(sel&&sel.rangeCount&&editor.contains(sel.anchorNode)){
         const range=sel.getRangeAt(0);
         range.deleteContents();
-        range.insertNode(img);
-        range.setStartAfter(img);
-        range.collapse(true);
-        sel.removeAllRanges();sel.addRange(range);
+        // Insérer l'image dans son propre bloc : pas de ligne géante créée par
+        // une image inline dans une ligne de texte (espace vide en dessous).
+        const anchor=range.startContainer.nodeType===1?range.startContainer:range.startContainer.parentElement;
+        const block=anchor?.closest?.("p,div,li");
+        if(block&&block!==editor&&editor.contains(block)&&!block.matches("[data-rich-text-box],[data-rich-text-input]")){
+          block.insertAdjacentElement("afterend",img);
+        }else{
+          range.insertNode(img);
+        }
+        const after=document.createRange();after.setStartAfter(img);after.collapse(true);
+        sel.removeAllRanges();sel.addRange(after);
       }else{
         editor.appendChild(img);
       }
@@ -1315,6 +1322,8 @@ function observeRichImage(img){
     img.style.top="";
     img.style.zIndex="";
   }
+  // Les anciens blocs inline peuvent provoquer une ligne de hauteur excessive.
+  if(img.style.display==="inline-block")img.style.display="block";
   if(img.dataset.resizeObserved==="1")return;
   img.dataset.resizeObserved="1";
   if("ResizeObserver" in window){
