@@ -749,7 +749,7 @@ async function openPlanningBulk(){
   if(!select||!proposed)return;
   const entry=proposed.items.find(x=>String(x.id)===select.dataset.occId);
   if(!entry)return;
-  const selected=proposed.availableSessions.find(session=>session.uid===select.value);
+  const selected=proposed.availableElements.find(item=>item.uid===select.value);
   if(select.value.startsWith('kind:')){
    const kind=select.value.slice(5);
    if(!window.PlanningKinds.types.some(t=>t.value===kind&&kind!=='cours')){
@@ -799,16 +799,17 @@ async function openPlanningBulk(){
   try{
    if(!state.period||fromDate<state.period.start_date||toDate>state.period.end_date)
     throw new Error('Choisis des dates comprises dans la période scolaire du planning.');
-   const sessions=await getCahierSessions(className);
+   const elements=await getCahierElements(className);
+    const sessions=elements.filter(item=>item.type==='session');
    const proposal=window.PlanningBatch.plan({
     occurrences:state.occurrences,sessions,className,fromDate,toDate,
     firstUid:String(values.get('first_uid')||''),limit:40
    });
    proposed={...proposal,periodId:state.period.id,ownerId:state.user.id,
-    baseSignature:planningBulkSignature(proposal),availableSessions:sessions};
+    baseSignature:planningBulkSignature(proposal),availableSessions:sessions,availableElements:elements};
    const sessionOptions=(chosen)=>'<option value="">— Ne pas associer ce créneau —</option>'
     +window.PlanningKinds.types.filter(t=>t.value!=='cours').map(t=>'<option value="kind:'+esc(t.value)+'">'+esc(t.icon+' '+t.label)+'</option>').join('')
-    +sessions.map(session=>'<option value="'+esc(session.uid)+'"'
+    +elements.map(session=>'<option value="'+esc(session.uid)+'"'
     +(session.uid===chosen?' selected':'')+'>'+esc(session.chapterTitle+' — '+session.sessionTitle)+'</option>').join('');
    const rows=proposal.items.map(x=>'<tr><td>'+esc(x.session_date)+'</td><td>'
     +esc(x.start_time.slice(0,5))+'–'+esc(x.end_time.slice(0,5))+'</td><td>'
@@ -822,9 +823,9 @@ async function openPlanningBulk(){
     +proposal.stats.modified+' créneau(x) modifiés manuellement ignorés. '
     +proposal.stats.cancelled+' cours annulés ou reportés ignorés, '
     +proposal.stats.exceptions+' créneau(x) particuliers ignorés.</p>'
-    +(rows?'<div class="planning-bulk-table"><table><thead><tr><th>Date</th><th>Horaire</th><th>Séance à associer (modifiable)</th></tr></thead><tbody>'+rows+'</tbody></table></div>':
+    +(rows?'<div class="planning-bulk-table"><table><thead><tr><th>Date</th><th>Horaire</th><th>Élément à associer (modifiable)</th></tr></thead><tbody>'+rows+'</tbody></table></div>':
       '<p class="planning-muted">Aucun créneau libre compatible ou aucune séance du cahier restante sur cette période.</p>')
-    +'<p class="planning-muted"><strong>Important :</strong> la répartition automatique est une suggestion. Choisis une séance, une évaluation, une intervention, une sortie ou une absence. Tu peux répéter une séance ou laisser un créneau vide. Les liens existants et les horaires restent inchangés.</p>';
+    +'<p class="planning-muted"><strong>Important :</strong> la répartition automatique est une suggestion. Choisis une séance, une évaluation, une intervention, une sortie ou une absence. Tu peux aussi choisir le germoir, la carte mentale, la fiche de mémorisation ou l’évaluation. Pour plusieurs éléments dans la même heure, ouvre ensuite le créneau dans « Ma semaine ». Les liens existants et les horaires restent inchangés.</p>';
    updateSelectedCount();
   }catch(err){notify('Prévisualisation impossible : '+err.message,true)}
  });
@@ -839,7 +840,8 @@ async function openPlanningBulk(){
    await loadPeriod();
    if(!state.period||state.period.id!==proposed.periodId||state.user.id!==proposed.ownerId)
     throw new Error('La période ou la session a changé. Refais la prévisualisation.');
-   const sessions=await getCahierSessions(proposed.className);
+   const elements=await getCahierElements(proposed.className);
+    const sessions=elements.filter(item=>item.type==='session');
    const now=window.PlanningBatch.plan({
     occurrences:state.occurrences,sessions,className:proposed.className,
     fromDate:proposed.fromDate,toDate:proposed.toDate,
@@ -847,14 +849,16 @@ async function openPlanningBulk(){
    });
    if(planningBulkSignature(now)!==proposed.baseSignature)
     throw new Error('Le planning ou les séances ont changé depuis l’aperçu. Ferme la fenêtre et recommence.');
-   const knownUids=new Set(sessions.map(session=>session.uid));
+   const knownUids=new Set(elements.map(item=>item.uid));
    if(selected.some(item=>item.uid&&!knownUids.has(item.uid)))
-    throw new Error('Une séance sélectionnée a disparu du cahier : aucune sauvegarde lancée.');
+    throw new Error('Un élément sélectionné a disparu du cahier : aucune sauvegarde lancée.');
    for(const item of selected){
     // Protection contre un changement entre deux clics/onglets : condition
     // SQL sur l’état de la ligne + refus si déjà associée.
-    const payload=item.kind==='cours'
-      ?{cahier_planning_uid:item.uid,is_modified:true}
+    const element=elements.find(candidate=>candidate.uid===item.uid);
+     const payload=item.kind==='cours'
+      ?{cahier_planning_uid:element?.type==='session'?item.uid:null,
+        notes:window.PlanningKinds.write('cours',item.originalNotes??'',item.uid?[item.uid]:[]),is_modified:true}
       :{cahier_planning_uid:null,notes:window.PlanningKinds.write(item.kind,item.detail),is_modified:true};
     let request=client().from('planning_session_occurrences')
       .update(payload)
