@@ -138,3 +138,24 @@ body.planning-page{margin:0;background:#f5f2e5;color:var(--pl-ink);font-family:I
 .planning-grid td.planning-spanning-cell{background:#f7faf2}
 .planning-grid td.planning-spanning-cell>.planning-course-wrap:only-child{display:flex;flex-direction:column;min-height:var(--planning-span-height,60px)}
 .planning-grid td.planning-spanning-cell>.planning-course-wrap:only-child>.planning-course{flex:1}
+
+/* Sélection et ordre des éléments pédagogiques dans un même créneau. */
+.planning-linked-items{display:flex;flex-direction:column;gap:7px;margin:6px 0}
+.planning-linked-item{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:9px 10px;border:1px solid var(--pl-line);background:#f5f8ee;border-radius:9px}
+.planning-linked-item strong{font-size:12px;font-weight:650}
+.planning-linked-item small{display:block;color:var(--pl-muted);font-size:11px;margin-top:2px}
+.planning-linked-item.is-missing{background:#fff0ec}
+.planning-linked-actions{display:flex;gap:3px;flex-shrink:0}
+.planning-linked-actions button{border:1px solid var(--pl-line);background:#fff;border-radius:6px;padding:4px 8px;cursor:pointer;color:var(--pl-ink)}
+.planning-add-link{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:7px}
+.planning-add-link .planning-select{flex:1;min-width:220px}
+.planning-linked-title{line-height:1.35}
+.planning-course-links{display:flex;flex-direction:column;gap:3px;margin:4px 0}
+.planning-course-links .planning-linked-title{display:block;margin:2px 0 0}
+.planning-course-links a{color:#315940;text-decoration:underline;font-size:11px;overflow-wrap:anywhere}
+
+.planning-course-links{display:flex;flex-direction:column;gap:3px}
+.planning-course-links .planning-linked-title{overflow-wrap:anywhere}
+.planning-course-wrap .planning-open-session{display:block;font-size:11px;color:#315940;margin:3px 0 5px;overflow-wrap:anywhere}
+.planning-linked-item a{display:inline-block;font-size:11px;margin-top:3px;color:#315940}
+.planning-linked-actions button:disabled{opacity:.38;cursor:not-allowed}

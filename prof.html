@@ -2719,7 +2719,11 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape')closeStudentPreview(
 async function openPlanningLinkedSession(){
   const params=new URLSearchParams(window.location.search);
   const targetClass=params.get("classe"),uid=params.get("planning_uid");
-  if(!targetClass||!uid)return false;
+  const chapterParam=params.get("planning_chapter"),part=params.get("planning_part");
+  const chapterParts=new Set(["germoir","problematique","vocabulaire","schema","memo","evaluation"]);
+  const chapterIndex=chapterParam!==null&&/^\d+$/.test(chapterParam)?Number(chapterParam):-1;
+  const chapterLink=chapterIndex>=0&&chapterParts.has(part);
+  if(!targetClass||!uid&&!chapterLink)return false;
   const targetLevel=Object.keys(CLASSES).find(n=>CLASSES[n].includes(targetClass));
   if(!targetLevel){showError("La classe indiquée dans le lien du planning est inconnue.");return true;}
   try{
@@ -2727,21 +2731,32 @@ async function openPlanningLinkedSession(){
     const data=await loadClass(targetClass);
     const chapters=data?.contenu?.chapitres||[];
     let found=null;
-    for(let i=0;i<chapters.length&&!found;i++){
-      const sessions=Array.isArray(chapters[i]?.seances)?chapters[i].seances:[];
-      const j=sessions.findIndex(session=>session?.planning_uid===uid);
-      if(j>=0)found={chapterIndex:i,sessionIndex:j};
+    if(uid){
+      for(let i=0;i<chapters.length&&!found;i++){
+        const sessions=Array.isArray(chapters[i]?.seances)?chapters[i].seances:[];
+        const j=sessions.findIndex(session=>session?.planning_uid===uid);
+        if(j>=0)found={chapterIndex:i,sessionIndex:j};
+      }
+    }else if(chapterLink&&chapterIndex<chapters.length&&!chapters[chapterIndex]?.archive){
+      found={chapterIndex,sessionIndex:-1,part};
     }
-    if(!found){showError("La séance associée n’a pas été retrouvée dans le cahier de cette classe. Vérifie que son association est toujours valide.");return true;}
+    if(!found){showError("L’élément associé n’a pas été retrouvé dans le cahier de cette classe. Vérifie que l’association est toujours valide.");return true;}
     niveau=targetLevel;classe=targetClass;currentClassData=data;currentChapterIndex=-1;
     label.textContent=`Éditeur · ${classe}`;updateQuickNav();editChapter(found.chapterIndex);
     requestAnimationFrame(()=>requestAnimationFrame(()=>{
-      const box=document.querySelectorAll('#sessions > .session-box')[found.sessionIndex];
-      if(box){svtRecordSession(box);box.classList.add('svt-session-target');box.tabIndex=-1;box.focus({preventScroll:true});box.scrollIntoView({behavior:'smooth',block:'center'});setTimeout(()=>box.classList.remove('svt-session-target'),3000);}
+      if(found.sessionIndex>=0){
+        const box=document.querySelectorAll('#sessions > .session-box')[found.sessionIndex];
+        if(box){svtRecordSession(box);box.classList.add('svt-session-target');box.tabIndex=-1;box.focus({preventScroll:true});box.scrollIntoView({behavior:'smooth',block:'center'});setTimeout(()=>box.classList.remove('svt-session-target'),3000);}
+      }else{
+        const selectors={germoir:'#chGermoir',problematique:'#chProb',vocabulaire:'#chVocabulaire',schema:'.schemaPdf',memo:'.memoPdf',evaluation:'.evaluationPdf'};
+        const input=document.querySelector(selectors[found.part]);
+        const focus=(found.part==='schema'||found.part==='memo'||found.part==='evaluation')?input?.closest('.editbox')||input:input;
+        if(focus){focus.style.outline='3px solid #7d9e67';focus.style.outlineOffset='4px';focus.scrollIntoView({behavior:'smooth',block:'center'});setTimeout(()=>{focus.style.outline='';focus.style.outlineOffset='';},3000);}
+      }
       saveNav();
     }));
     return true;
-  }catch(error){showError("Ouverture de la séance depuis le planning impossible : "+error.message);return true;}
+  }catch(error){showError("Ouverture de l’élément depuis le planning impossible : "+error.message);return true;}
 }
 
 async function restoreLastPosition(){

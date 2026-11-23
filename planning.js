@@ -87,10 +87,10 @@ async function loadPeriod(){
 }
 async function loadLinkedCahierSessions(){
  state.cahierSessionsByUid={};
- const linked=state.occurrences.filter(o=>o.cahier_planning_uid);
+ const linked=state.occurrences.filter(o=>linkedIds(o).length);
  const classes=[...new Set(linked.map(o=>o.class_name).filter(Boolean))];
  await Promise.all(classes.map(async className=>{
-  try{const sessions=await getCahierSessions(className);sessions.forEach(session=>{state.cahierSessionsByUid[session.uid]={...session,className};});}
+  try{const elements=await getCahierElements(className);elements.forEach(item=>{state.cahierSessionsByUid[className+'::'+item.uid]={...item,className};});}
   catch(error){console.warn(`Cahier ${className} non chargé pour l’affichage du planning :`,error);}
  }));
 }
@@ -194,13 +194,33 @@ function renderGrid(){
  const times=[...timeSet].sort();
  const eventHtml=e=>'<div class="planning-week-event" data-week-event-id="'+esc(e.id)+'"><strong>'+esc(e.title)+'</strong><small>'+esc(e.from)+'–'+esc(e.to)+(e.class_name?' · '+esc(e.class_name):'')+'</small>'+(e.description?'<small>'+esc(e.description)+'</small>':'')+'</div>';
  const allDayRow=events.allDay.length?'<tr><td>Toute la journée</td>'+DAYS.map((_,i)=>{const day=iso(plusDays(state.weekStart,i));return '<td>'+events.allDay.filter(e=>e.day===day).map(eventHtml).join('')+'</td>'}).join('')+'</tr>':'';
- const rows=times.map(t=>{const [a,b]=t.split('|');return `<tr><td>${a}<br>– ${b}</td>${DAYS.map((_,i)=>{const day=plusDays(state.weekStart,i);const items=occ.filter(o=>o.session_date===iso(day)&&o.start_time.slice(0,5)===a&&o.end_time.slice(0,5)===b);return `<td>${items.map(o=>{const meta=window.PlanningKinds?.read(o.notes)||{kind:'cours',detail:''};
-  const kind=window.PlanningKinds?.descriptor(meta.kind);
-  const special=meta.kind!=='cours';
-  const kindText=special?'<small class="planning-special-title">'+esc(kind.icon+' '+kind.label)
-   +(meta.detail.trim()?' — '+esc(meta.detail.trim().split(/\r?\n/)[0].slice(0,95)):'')+'</small>':'';
-  const linked=special?null:state.cahierSessionsByUid[o.cahier_planning_uid];const href=linked?`prof.html?classe=${encodeURIComponent(o.class_name)}&planning_uid=${encodeURIComponent(o.cahier_planning_uid)}`:'';const quickDone=window.PlanningCompletion?.eligible(o,iso(new Date()))?'<button type="button" class="planning-quick-done" data-quick-done="'+esc(o.id)+'" title="Confirmer ce cours comme effectué">✓ Effectué</button>':'';return `<div class="planning-course-wrap"><button class="planning-course" data-occ="${esc(o.id)}" style="--course-color:${colorFor(o.class_name)}">${esc(o.class_name||o.title||'Événement')}<small>${esc(o.start_time.slice(0,5))}–${esc(o.end_time.slice(0,5))} · ${statusLabel(o.status)}</small>${kindText}${linked?`<small class="planning-linked-title">${esc(linked.chapterTitle)} — ${esc(linked.sessionTitle)}</small>`:''}</button>${linked?`<a class="planning-open-session" href="${href}" title="Ouvrir la séance du cahier">↗ Cahier</a>`:''}${quickDone}</div>`}).join('')+events.timed.filter(e=>e.day===iso(day)&&e.from===a&&e.to===b).map(eventHtml).join('')||'<span class="planning-empty">—</span>'}</td>`}).join('')}</tr>`}).join('');
- $('#planningGrid').innerHTML=`<thead><tr><th>Horaire</th>${head}</tr></thead><tbody>${allDayRow}${rows||(!allDayRow?'<tr><td colspan="6">Aucun créneau pour cette semaine.</td></tr>':'')}</tbody>`;
+ const rows=times.map(t=>{
+ const [a,b]=t.split('|');
+ return `<tr><td>${a}<br>– ${b}</td>${DAYS.map((_,i)=>{
+  const day=plusDays(state.weekStart,i);
+  const items=occ.filter(o=>o.session_date===iso(day)&&o.start_time.slice(0,5)===a&&o.end_time.slice(0,5)===b);
+  const courses=items.map(o=>{
+   const meta=window.PlanningKinds?.read(o.notes)||{kind:'cours',detail:''};
+   const kind=window.PlanningKinds?.descriptor(meta.kind);
+   const special=meta.kind!=='cours';
+   const kindText=special?'<small class="planning-special-title">'+esc(kind.icon+' '+kind.label)
+    +(meta.detail.trim()?' — '+esc(meta.detail.trim().split(/\r?\n/)[0].slice(0,95)):'')+'</small>':'';
+   const ids=linkedIds(o);
+   const elements=ids.map(uid=>state.cahierSessionsByUid[o.class_name+'::'+uid]).filter(Boolean);
+   const linkedHtml=elements.length?'<div class="planning-course-links">'+elements.map((item,n)=>
+    '<small class="planning-linked-title">'+(ids.length>1?(n+1)+'. ':'')+esc(item.chapterTitle)+' — '+esc(item.sessionTitle)+'</small>').join('')+'</div>'
+    :ids.length?'<small class="planning-linked-title">⚠ Élément du cahier introuvable</small>':'';
+   const hrefs=elements.map(item=>'<a class="planning-open-session" href="'+esc(cahierElementHref(o.class_name,item))+'" title="Ouvrir cet élément du cahier">↗ '+esc(item.sessionTitle)+'</a>').join('');
+   const quickDone=window.PlanningCompletion?.eligible(o,iso(new Date()))?'<button type="button" class="planning-quick-done" data-quick-done="'+esc(o.id)+'" title="Confirmer ce cours comme effectué">✓ Effectué</button>':'';
+   return '<div class="planning-course-wrap"><button class="planning-course" data-occ="'+esc(o.id)+'" style="--course-color:'+colorFor(o.class_name)+'">'
+    +esc(o.class_name||o.title||'Événement')+'<small>'+esc(o.start_time.slice(0,5))+'–'+esc(o.end_time.slice(0,5))+' · '+statusLabel(o.status)+'</small>'
+    +kindText+linkedHtml+'</button>'+hrefs+quickDone+'</div>';
+  }).join('');
+  const timed=events.timed.filter(e=>e.day===iso(day)&&e.from===a&&e.to===b).map(eventHtml).join('');
+  return '<td>'+(courses+timed||'<span class="planning-empty">—</span>')+'</td>';
+ }).join('')}</tr>`;
+}).join('');
+  $('#planningGrid').innerHTML=`<thead><tr><th>Horaire</th>${head}</tr></thead><tbody>${allDayRow}${rows||(!allDayRow?'<tr><td colspan="6">Aucun créneau pour cette semaine.</td></tr>':'')}</tbody>`;
  fillContinuingCells(times,events.allDay.length>0);
  $$('#planningGrid [data-occ]').forEach(b=>b.addEventListener('click',()=>editOccurrence(b.dataset.occ)));
  $$('#planningGrid [data-quick-done]').forEach(b=>b.addEventListener('click',()=>openQuickCompletion(b.dataset.quickDone)));
@@ -272,7 +292,7 @@ function renderFollowup(){
    const headline=o.kind!=='cours'
     ?'Activité : '+(window.PlanningKinds?.descriptor(o.kind).label||o.kind)
     :linked?linked.chapterTitle+' — '+linked.sessionTitle
-    :o.linked?'Séance associée au cahier':'Séance du cahier non associée';
+    :o.linked?'Élément(s) du cahier associé(s)':'Aucun élément du cahier associé';
    const classAndDate=esc(o.class_name)+' · '+esc(o.session_date)+' · '+esc(o.start_time)+'–'+esc(o.end_time);
    return '<article class="planning-followup-row"><div><strong>'+esc(headline)+'</strong>'+
     '<p class="planning-muted">'+classAndDate+' · '+esc(stageNames[o.stage]||o.stage)+'</p></div>'+
@@ -416,17 +436,41 @@ function renderSettings(){
 function openModal(title,body,wide=false){
  $(".planning-dialog").classList.toggle("is-wide",wide);$('#planningDialogTitle').textContent=title;$('#planningDialogBody').innerHTML=body;$('#planningModal').hidden=false}
 function closeModal(){$('#planningModal').hidden=true}
-async function getCahierSessions(className){
+async function getCahierElements(className){
  const {data,error}=await client().from('Cahier').select('classe,contenu').eq('classe',className).maybeSingle();
  if(error)throw error;
  let contenu=data?.contenu??{};
- if(typeof contenu==='string'){try{contenu=JSON.parse(contenu)}catch(e){throw new Error(`Le cahier de ${className} contient un JSON illisible.`)}}
+ if(typeof contenu==='string'){try{contenu=JSON.parse(contenu)}catch(_){throw new Error('Le cahier de '+className+' contient un JSON illisible.');}}
  const chapters=Array.isArray(contenu?.chapitres)?contenu.chapitres:[];
- return chapters.flatMap((chapter,chapterIndex)=>chapter?.archive===true?[]:(Array.isArray(chapter?.seances)?chapter.seances:[]).map((session,sessionIndex)=>({
-  uid:session?.planning_uid||'',chapterIndex,sessionIndex,
-  chapterTitle:plainText(chapter?.titre)||`Chapitre ${chapterIndex+1}`,
-  sessionTitle:plainText(session?.titre)||`Séance ${sessionIndex+1}`
- })).filter(x=>x.uid));
+ const fields=[
+  {part:'germoir',label:'🌱 Germoir à idées'},
+  {part:'problematique',label:'🎯 Problématique du chapitre'},
+  {part:'vocabulaire',label:'📚 Vocabulaire du chapitre'},
+  {part:'schema',label:'🧠 Carte mentale / Schéma-bilan'},
+  {part:'memo',label:'📝 Fiche de mémorisation'},
+  {part:'evaluation',label:'✅ Évaluation de fin de chapitre'}
+ ];
+ return chapters.flatMap((ch,chapterIndex)=>{
+  if(ch?.archive===true)return [];
+  const chapterTitle=plainText(ch?.titre)||'Chapitre '+(chapterIndex+1);
+  const part=field=>({uid:'chapter:'+chapterIndex+':'+field.part,type:'chapter',part:field.part,chapterIndex,chapterTitle,sessionTitle:field.label});
+  const sessions=(Array.isArray(ch?.seances)?ch.seances:[]).map((se,sessionIndex)=>({
+   uid:se?.planning_uid||'',type:'session',chapterIndex,sessionIndex,chapterTitle,
+   sessionTitle:plainText(se?.titre)||'Séance '+(sessionIndex+1)
+  })).filter(x=>x.uid);
+  return [...fields.slice(0,3).map(part),...sessions,...fields.slice(3).map(part)];
+ });
+}
+async function getCahierSessions(className){
+ return (await getCahierElements(className)).filter(item=>item.type==='session');
+}
+function linkedIds(o){return window.PlanningKinds?.linkedIds(o)||[o.cahier_planning_uid].filter(Boolean)}
+function cahierElementHref(className,item){
+ const cls=encodeURIComponent(className||'');
+ return item.type==='session'
+  ?'prof.html?classe='+cls+'&planning_uid='+encodeURIComponent(item.uid)
+  :'prof.html?classe='+cls+'&planning_chapter='+encodeURIComponent(item.chapterIndex)
+   +'&planning_part='+encodeURIComponent(item.part);
 }
 function plainText(value){const el=document.createElement('div');el.innerHTML=String(value??'');return (el.textContent||el.innerText||'').trim()}
 /* Phase 8 : confirmation explicite du seul état, pas de modification du cahier. */
@@ -478,22 +522,104 @@ function openQuickCompletion(id){
  };
 }
 async function editOccurrence(id){
- const o=state.occurrences.find(x=>x.id===id);if(!o)return;
- let sessions=[];
- try{sessions=await getCahierSessions(o.class_name)}catch(err){notify(`Impossible de lire le cahier de ${o.class_name} : ${err.message}`,true)}
+ const o=state.occurrences.find(x=>String(x.id)===String(id));if(!o)return;
+ let elements=[];
+ try{elements=await getCahierElements(o.class_name)}
+ catch(err){notify('Impossible de lire le cahier de '+o.class_name+' : '+err.message,true);return;}
+ let selected=linkedIds(o);
+ let pickerClass=o.class_name;
+ let pickerLoading=false,changeRequest=0;
  const meta=window.PlanningKinds.read(o.notes);
- const linked=meta.kind==='cours'?sessions.find(x=>x.uid===o.cahier_planning_uid):null;
- const kindOptions=window.PlanningKinds.types.map(t=>`<option value="${esc(t.value)}" ${t.value===meta.kind?'selected':''}>${esc(t.icon+' '+t.label)}</option>`).join('');
- const linkOptions=[`<option value="">— Aucune séance associée —</option>`,...sessions.map(x=>`<option value="${esc(x.uid)}" ${x.uid===o.cahier_planning_uid?'selected':''}>${esc(x.chapterTitle)} · ${esc(x.sessionTitle)}</option>`)].join('');
- openModal('Modifier la séance',`<form id="occForm"><div class="planning-form-grid"><div class="planning-field"><label>Date</label><input class="planning-input" type="date" name="session_date" value="${esc(o.session_date)}" required></div><div class="planning-field"><label>Classe</label><select class="planning-select" name="class_name">${CLASSES.map(c=>`<option ${c===o.class_name?'selected':''}>${c}</option>`).join('')}</select></div><div class="planning-field"><label>Début</label><input class="planning-input" type="time" name="start_time" value="${esc(o.start_time.slice(0,5))}" required></div><div class="planning-field"><label>Fin</label><input class="planning-input" type="time" name="end_time" value="${esc(o.end_time.slice(0,5))}" required></div><div class="planning-field"><label>Type de créneau</label><select class="planning-select" name="kind">${kindOptions}</select></div><div class="planning-field"><label>État</label><select class="planning-select" name="status">${['planned','completed','postponed','cancelled'].map(s=>`<option value="${s}" ${s===o.status?'selected':''}>${statusLabel(s)}</option>`).join('')}</select></div><div class="planning-field full"><label>Associer à une séance du cahier (${esc(o.class_name)})</label><select class="planning-select" name="cahier_planning_uid">${linkOptions}</select><small class="planning-muted">Le lien utilise l’identifiant stable de la séance : un déplacement dans le planning ne le supprime pas.</small><a id="openLinkedSession" class="planning-btn" style="display:inline-block;width:max-content;margin-top:7px;${linked?'':'opacity:.55;pointer-events:none'}" href="${linked?`prof.html?classe=${encodeURIComponent(o.class_name)}&planning_uid=${encodeURIComponent(linked.uid)}`:'#'}">${linked?'Ouvrir la séance associée':'Aucune séance associée'}</a></div><div class="planning-field full"><label>Intitulé / notes (facultatif)</label><textarea class="planning-textarea" name="notes">${esc(meta.detail)}</textarea></div></div><div class="planning-footer"><button type="button" class="planning-btn" id="occCancel">Fermer</button><button class="planning-btn primary">Enregistrer</button></div></form>`);
+ const kindOptions=window.PlanningKinds.types.map(t=>'<option value="'+esc(t.value)+'" '+(t.value===meta.kind?'selected':'')+'>'+esc(t.icon+' '+t.label)+'</option>').join('');
+ const box='<form id="occForm"><div class="planning-form-grid">'
+  +'<div class="planning-field"><label>Date</label><input class="planning-input" type="date" name="session_date" value="'+esc(o.session_date)+'" required></div>'
+  +'<div class="planning-field"><label>Classe</label><select class="planning-select" name="class_name">'+CLASSES.map(c=>'<option '+(c===o.class_name?'selected':'')+'>'+c+'</option>').join('')+'</select></div>'
+  +'<div class="planning-field"><label>Début</label><input class="planning-input" type="time" name="start_time" value="'+esc(o.start_time.slice(0,5))+'" required></div>'
+  +'<div class="planning-field"><label>Fin</label><input class="planning-input" type="time" name="end_time" value="'+esc(o.end_time.slice(0,5))+'" required></div>'
+  +'<div class="planning-field"><label>Type de créneau</label><select class="planning-select" name="kind">'+kindOptions+'</select></div>'
+  +'<div class="planning-field"><label>État</label><select class="planning-select" name="status">'+['planned','completed','postponed','cancelled'].map(s=>'<option value="'+s+'" '+(s===o.status?'selected':'')+'>'+statusLabel(s)+'</option>').join('')+'</select></div>'
+  +'<div class="planning-field full"><label>Éléments du cahier associés (plusieurs possibles)</label>'
+  +'<small class="planning-muted">Ajoute autant de séances, de germoirs ou de parties du bilan que nécessaire. Les flèches définissent leur ordre dans ce créneau.</small>'
+  +'<div id="planningSelectedItems" class="planning-linked-items" aria-live="polite"></div>'
+  +'<div class="planning-add-link"><select class="planning-select" id="planningElementChoice" aria-label="Élément du cahier à ajouter"></select>'
+  +'<button type="button" class="planning-btn" id="planningAddLinkedElement">＋ Ajouter</button></div></div>'
+  +'<div class="planning-field full"><label>Intitulé / notes (facultatif)</label><textarea class="planning-textarea" name="notes">'+esc(meta.detail)+'</textarea></div>'
+  +'</div><div class="planning-footer"><button type="button" class="planning-btn" id="occCancel">Fermer</button>'
+  +'<button class="planning-btn primary" id="occSave">Enregistrer</button></div></form>';
+ openModal('Modifier le créneau',box,true);
+ const form=$('#occForm');
+ const renderPicker=()=>{
+  if(!form?.isConnected)return;
+  const byUid=new Map(elements.map(item=>[item.uid,item]));
+  $('#planningSelectedItems').innerHTML=selected.length?selected.map((uid,index)=>{
+   const item=byUid.get(uid);
+   const title=item?item.sessionTitle:'Élément précédemment associé introuvable';
+   const chapter=item?item.chapterTitle:uid;
+   const href=item?'<a href="'+esc(cahierElementHref(pickerClass,item))+'" target="_blank" rel="noopener">Ouvrir dans l’éditeur ↗</a>':'';
+   return '<div class="planning-linked-item'+(item?'':' is-missing')+'"><div><strong>'+(index+1)+'. '+esc(title)+'</strong>'
+    +'<small>'+esc(chapter)+'</small>'+href+'</div><div class="planning-linked-actions">'
+    +'<button type="button" data-link-action="up" data-link-index="'+index+'" '+(index===0?'disabled':'')+' title="Monter">↑</button>'
+    +'<button type="button" data-link-action="down" data-link-index="'+index+'" '+(index===selected.length-1?'disabled':'')+' title="Descendre">↓</button>'
+    +'<button type="button" data-link-action="remove" data-link-index="'+index+'" title="Retirer">✕</button></div></div>';
+  }).join(''):'<p class="planning-muted">Aucun élément associé à ce créneau.</p>';
+  const available=elements.filter(item=>!selected.includes(item.uid));
+  let lastChapter=-1;
+  let options='<option value="">— Choisir un élément du cahier —</option>';
+  for(const item of available){
+   if(item.chapterIndex!==lastChapter){if(lastChapter!==-1)options+='</optgroup>';options+='<optgroup label="'+esc(item.chapterTitle)+'">';lastChapter=item.chapterIndex;}
+   options+='<option value="'+esc(item.uid)+'">'+esc(item.sessionTitle)+'</option>';
+  }
+  if(lastChapter!==-1)options+='</optgroup>';
+  $('#planningElementChoice').innerHTML=options;
+  $('#planningElementChoice').disabled=pickerLoading||!available.length;
+  $('#planningAddLinkedElement').disabled=pickerLoading||!available.length;
+ };
+ renderPicker();
  $('#occCancel').onclick=closeModal;
- $('#occForm').onsubmit=async e=>{e.preventDefault();const f=new FormData(e.currentTarget);try{const kind=String(f.get('kind')||'cours');await query('planning_session_occurrences','update',{session_date:f.get('session_date'),class_name:f.get('class_name'),start_time:f.get('start_time'),end_time:f.get('end_time'),status:f.get('status'),notes:window.PlanningKinds.write(kind,f.get('notes')),cahier_planning_uid:kind==='cours'?(f.get('cahier_planning_uid')||null):null,is_modified:true},[['id','eq',id],['owner_id','eq',state.user.id]]);closeModal();await loadPeriod();render();notify('Séance mise à jour.')}catch(err){notify(err.message,true)}};
- const refreshOpenLink=()=>{const uid=$('#occForm [name="cahier_planning_uid"]')?.value||'';const cls=$('#occForm [name="class_name"]')?.value||'';const a=$('#openLinkedSession');if(!a)return;const active=$('#occForm [name="kind"]')?.value==='cours';const sessionSelect=$('#occForm [name="cahier_planning_uid"]');if(sessionSelect)sessionSelect.disabled=!active;const valid=!!uid&&active;a.href=valid?`prof.html?classe=${encodeURIComponent(cls)}&planning_uid=${encodeURIComponent(uid)}`:'#';a.textContent=valid?'Ouvrir la séance associée':'Aucune séance associée';a.style.opacity=valid?'1':'.55';a.style.pointerEvents=valid?'auto':'none';};
- $('#occForm [name="cahier_planning_uid"]').addEventListener('change',refreshOpenLink);
- $('#occForm [name="kind"]').addEventListener('change',refreshOpenLink);
- refreshOpenLink();
- $('#occForm [name="class_name"]').addEventListener('change',async e=>{try{const list=await getCahierSessions(e.target.value);const label=$('#occForm .planning-field.full label');if(label)label.textContent=`Associer à une séance du cahier (${e.target.value})`;const select=$('#occForm [name="cahier_planning_uid"]');select.innerHTML=`<option value="">— Aucune séance associée —</option>`+list.map(x=>`<option value="${esc(x.uid)}">${esc(x.chapterTitle)} · ${esc(x.sessionTitle)}</option>`).join('');refreshOpenLink();}catch(err){notify(`Impossible de lire le cahier : ${err.message}`,true)}});
+ $('#planningAddLinkedElement').onclick=()=>{
+  const uid=$('#planningElementChoice').value;
+  if(uid&&elements.some(item=>item.uid===uid)&&!selected.includes(uid)){selected.push(uid);renderPicker();}
+ };
+ $('#planningSelectedItems').addEventListener('click',e=>{
+  const button=e.target.closest('[data-link-action]');
+  if(!button)return;
+  const index=Number(button.dataset.linkIndex);
+  if(!Number.isInteger(index)||index<0||index>=selected.length)return;
+  if(button.dataset.linkAction==='remove')selected.splice(index,1);
+  else if(button.dataset.linkAction==='up'&&index>0)[selected[index-1],selected[index]]=[selected[index],selected[index-1]];
+  else if(button.dataset.linkAction==='down'&&index<selected.length-1)[selected[index+1],selected[index]]=[selected[index],selected[index+1]];
+  renderPicker();
+ });
+ form.elements.class_name.addEventListener('change',async e=>{
+  const request=++changeRequest,cls=e.target.value;
+  pickerClass=cls;selected=[];elements=[];pickerLoading=true;renderPicker();
+  try{
+   const next=await getCahierElements(cls);
+   if(request!==changeRequest||!form.isConnected)return;
+   elements=next;
+  }catch(error){if(request===changeRequest)notify('Impossible de lire le cahier : '+error.message,true)}
+  finally{if(request===changeRequest){pickerLoading=false;renderPicker()}}
+ });
+ form.onsubmit=async e=>{
+  e.preventDefault();
+  if(pickerLoading)return notify('Attends le chargement des éléments de la classe.',true);
+  const button=$('#occSave');button.disabled=true;
+  const f=new FormData(form);
+  try{
+   const kind=String(f.get('kind')||'cours');
+   const sessionUid=selected.find(uid=>/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(uid))||null;
+   await query('planning_session_occurrences','update',{
+    session_date:f.get('session_date'),class_name:f.get('class_name'),
+    start_time:f.get('start_time'),end_time:f.get('end_time'),
+    status:f.get('status'),notes:window.PlanningKinds.write(kind,f.get('notes'),selected),
+    cahier_planning_uid:sessionUid,is_modified:true
+   },[['id','eq',id],['owner_id','eq',state.user.id]]);
+   closeModal();await loadPeriod();render();
+   notify(selected.length+' élément(s) associé(s) au créneau et modifications enregistrées.');
+  }catch(error){notify('Enregistrement impossible : '+error.message,true);if(form.isConnected)button.disabled=false;}
+ };
 }
+
 const SCHOOL_HOLIDAYS=[
  {name:'Toussaint',start:'2026-10-17',end:'2026-11-02'},
  {name:'Noël',start:'2026-12-19',end:'2027-01-04'},
@@ -623,7 +749,7 @@ async function openPlanningBulk(){
   if(!select||!proposed)return;
   const entry=proposed.items.find(x=>String(x.id)===select.dataset.occId);
   if(!entry)return;
-  const selected=proposed.availableSessions.find(session=>session.uid===select.value);
+  const selected=proposed.availableElements.find(item=>item.uid===select.value);
   if(select.value.startsWith('kind:')){
    const kind=select.value.slice(5);
    if(!window.PlanningKinds.types.some(t=>t.value===kind&&kind!=='cours')){
@@ -673,16 +799,17 @@ async function openPlanningBulk(){
   try{
    if(!state.period||fromDate<state.period.start_date||toDate>state.period.end_date)
     throw new Error('Choisis des dates comprises dans la période scolaire du planning.');
-   const sessions=await getCahierSessions(className);
+   const elements=await getCahierElements(className);
+    const sessions=elements.filter(item=>item.type==='session');
    const proposal=window.PlanningBatch.plan({
     occurrences:state.occurrences,sessions,className,fromDate,toDate,
     firstUid:String(values.get('first_uid')||''),limit:40
    });
    proposed={...proposal,periodId:state.period.id,ownerId:state.user.id,
-    baseSignature:planningBulkSignature(proposal),availableSessions:sessions};
+    baseSignature:planningBulkSignature(proposal),availableSessions:sessions,availableElements:elements};
    const sessionOptions=(chosen)=>'<option value="">— Ne pas associer ce créneau —</option>'
     +window.PlanningKinds.types.filter(t=>t.value!=='cours').map(t=>'<option value="kind:'+esc(t.value)+'">'+esc(t.icon+' '+t.label)+'</option>').join('')
-    +sessions.map(session=>'<option value="'+esc(session.uid)+'"'
+    +elements.map(session=>'<option value="'+esc(session.uid)+'"'
     +(session.uid===chosen?' selected':'')+'>'+esc(session.chapterTitle+' — '+session.sessionTitle)+'</option>').join('');
    const rows=proposal.items.map(x=>'<tr><td>'+esc(x.session_date)+'</td><td>'
     +esc(x.start_time.slice(0,5))+'–'+esc(x.end_time.slice(0,5))+'</td><td>'
@@ -696,9 +823,9 @@ async function openPlanningBulk(){
     +proposal.stats.modified+' créneau(x) modifiés manuellement ignorés. '
     +proposal.stats.cancelled+' cours annulés ou reportés ignorés, '
     +proposal.stats.exceptions+' créneau(x) particuliers ignorés.</p>'
-    +(rows?'<div class="planning-bulk-table"><table><thead><tr><th>Date</th><th>Horaire</th><th>Séance à associer (modifiable)</th></tr></thead><tbody>'+rows+'</tbody></table></div>':
+    +(rows?'<div class="planning-bulk-table"><table><thead><tr><th>Date</th><th>Horaire</th><th>Élément à associer (modifiable)</th></tr></thead><tbody>'+rows+'</tbody></table></div>':
       '<p class="planning-muted">Aucun créneau libre compatible ou aucune séance du cahier restante sur cette période.</p>')
-    +'<p class="planning-muted"><strong>Important :</strong> la répartition automatique est une suggestion. Choisis une séance, une évaluation, une intervention, une sortie ou une absence. Tu peux répéter une séance ou laisser un créneau vide. Les liens existants et les horaires restent inchangés.</p>';
+    +'<p class="planning-muted"><strong>Important :</strong> la répartition automatique est une suggestion. Choisis une séance, une évaluation, une intervention, une sortie ou une absence. Tu peux aussi choisir le germoir, la carte mentale, la fiche de mémorisation ou l’évaluation. Pour plusieurs éléments dans la même heure, ouvre ensuite le créneau dans « Ma semaine ». Les liens existants et les horaires restent inchangés.</p>';
    updateSelectedCount();
   }catch(err){notify('Prévisualisation impossible : '+err.message,true)}
  });
@@ -713,7 +840,8 @@ async function openPlanningBulk(){
    await loadPeriod();
    if(!state.period||state.period.id!==proposed.periodId||state.user.id!==proposed.ownerId)
     throw new Error('La période ou la session a changé. Refais la prévisualisation.');
-   const sessions=await getCahierSessions(proposed.className);
+   const elements=await getCahierElements(proposed.className);
+    const sessions=elements.filter(item=>item.type==='session');
    const now=window.PlanningBatch.plan({
     occurrences:state.occurrences,sessions,className:proposed.className,
     fromDate:proposed.fromDate,toDate:proposed.toDate,
@@ -721,14 +849,16 @@ async function openPlanningBulk(){
    });
    if(planningBulkSignature(now)!==proposed.baseSignature)
     throw new Error('Le planning ou les séances ont changé depuis l’aperçu. Ferme la fenêtre et recommence.');
-   const knownUids=new Set(sessions.map(session=>session.uid));
+   const knownUids=new Set(elements.map(item=>item.uid));
    if(selected.some(item=>item.uid&&!knownUids.has(item.uid)))
-    throw new Error('Une séance sélectionnée a disparu du cahier : aucune sauvegarde lancée.');
+    throw new Error('Un élément sélectionné a disparu du cahier : aucune sauvegarde lancée.');
    for(const item of selected){
     // Protection contre un changement entre deux clics/onglets : condition
     // SQL sur l’état de la ligne + refus si déjà associée.
-    const payload=item.kind==='cours'
-      ?{cahier_planning_uid:item.uid,is_modified:true}
+    const element=elements.find(candidate=>candidate.uid===item.uid);
+     const payload=item.kind==='cours'
+      ?{cahier_planning_uid:element?.type==='session'?item.uid:null,
+        notes:window.PlanningKinds.write('cours',item.originalNotes??'',item.uid?[item.uid]:[]),is_modified:true}
       :{cahier_planning_uid:null,notes:window.PlanningKinds.write(item.kind,item.detail),is_modified:true};
     let request=client().from('planning_session_occurrences')
       .update(payload)
