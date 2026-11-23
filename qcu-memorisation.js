@@ -121,7 +121,7 @@
           <label>Titre<input id="qmTitle" value="Mémorisation active"></label>
            <label>Nombre de sujets (4 à 20)<input id="qmSubjectCount" type="number" min="4" max="20" value="8" step="1"></label>
         </div>
-        <p class="muted" style="margin:8px 0 0">Aucune classe n'est nécessaire à cette étape : tu attribueras les sujets aux classes après leur enregistrement dans la banque.</p>
+        <p class="muted" style="margin:8px 0 0">Aucune classe n'est nécessaire à cette étape : tu attribueras les sujets aux classes après leur enregistrement dans la banque. Comme auparavant, chaque élève reçoit une attribution pour chaque sujet (5 questions par sujet).</p>
         <div style="margin-top:10px">
           <strong>Chapitres à inclure</strong>
           <p class="muted" style="margin:4px 0 8px">Tu peux cocher plusieurs chapitres. Les questions sont réparties entre les chapitres sélectionnés pour composer des sujets équilibrés.</p>
