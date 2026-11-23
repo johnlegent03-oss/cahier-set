@@ -429,8 +429,8 @@
           for(const q of bank){
             const id=String(q.id);if(ids.has(id))continue;
             const chapter=String(q.chapitre??"?");
-            const score=(chapterInSubject.get(chapter)||0)*200
-              +(chapterUses.get(chapter)||0)*5+(questionUses.get(id)||0)*14
+            const score=(chapterInSubject.get(chapter)||0)*1000
+              +(chapterUses.get(chapter)||0)*50+(questionUses.get(id)||0)*3
               +Math.random()*Math.min(200,20+attempt*2);
             if(score<bestScore){bestScore=score;best=q;}
           }
