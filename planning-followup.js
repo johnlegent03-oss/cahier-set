@@ -8,6 +8,14 @@
  'use strict';
  const dateOk=s=>typeof s==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(s);
  const special=/^\[SVT:CRENEAU:v1:(evaluation|intervention|sortie|absence|autre)\](?:\r?\n|$)/;
+ const linkedIds=row=>{
+  const primary=String(row?.cahier_planning_uid||'').trim();
+  const prefix=String(row?.notes||'').replace(special,'');
+  const match=prefix.match(/^\[SVT:LIENS:v1:([^\]\r\n]+)\](?:\r?\n|$)/);
+  let ids=[];
+  if(match){try{const value=JSON.parse(decodeURIComponent(match[1]));if(Array.isArray(value))ids=value.filter(x=>typeof x==='string'&&x.length<=160)}catch(_){}}
+  return [...new Set([...ids,...(primary?[primary]:[])])];
+ };
  const kindFor=notes=>{
   const match=String(notes||'').match(special);
   return match?match[1]:'cours';
@@ -33,7 +41,7 @@
    else if(status==='planned')stage='upcoming';
    else stage='toConfirm';
    counts.total++;counts[stage]++;
-   const linked=kind==='cours'&&!!String(row.cahier_planning_uid||'').trim();
+   const linked=linkedIds(row).length>0;
    if(linked)counts.linked++;
    const missing=kind==='cours'&&['planned','completed',''].includes(status)&&!linked;
    if(missing)counts.missing++;
@@ -42,22 +50,22 @@
     start_time:String(row.start_time||'').slice(0,5),
     end_time:String(row.end_time||'').slice(0,5),
     stage,kind,status,linked,missing,
-    uid:linked?String(row.cahier_planning_uid):'',notes:String(row.notes||'')
+    uid:linked?linkedIds(row)[0]:'',notes:String(row.notes||'')
    });
   }
   rows.sort((a,b)=>a.session_date.localeCompare(b.session_date)||
    a.start_time.localeCompare(b.start_time)||a.class_name.localeCompare(b.class_name)||String(a.id).localeCompare(String(b.id)));
   const report={counts,rows};
   if(Array.isArray(sessions)&&className){
-   const linkedIds=new Set(occurrences.filter(o=>o.class_name===className&&o.cahier_planning_uid)
-    .map(o=>String(o.cahier_planning_uid)));
+   const linkedSessionIds=new Set(occurrences.filter(o=>o.class_name===className)
+    .flatMap(o=>linkedIds(o)));
    const unique=new Map();
    for(const session of sessions){
     const uid=String(session?.uid||'').trim();
     if(uid&&!unique.has(uid))unique.set(uid,session);
    }
    report.sessions={total:unique.size,
-    placed:[...unique.values()].filter(s=>linkedIds.has(String(s.uid))).length,
+    placed:[...unique.values()].filter(s=>linkedSessionIds.has(String(s.uid))).length,
     unplaced:[...unique.values()].filter(s=>!linkedIds.has(String(s.uid)))};
   }
   return report;
