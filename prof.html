@@ -1480,15 +1480,17 @@ document.addEventListener("pointerdown",e=>{
   const editorRect=editor.getBoundingClientRect();
   richImageStartX=e.clientX;
   richImageStartY=e.clientY;
-  // Déplacement en position relative : l’image reste dans le flux du chapitre.
-  richImageStartLeft=parseFloat(img.style.left)||0;
-  richImageStartTop=parseFloat(img.style.top)||0;
+  // Le déplacement retire l'image du flux : sa position d'origine ne crée pas
+  // d'espace fantôme. On capture sa position visuelle avant la conversion.
+  richImageStartLeft=imgRect.left-editorRect.left+editor.scrollLeft;
+  richImageStartTop=imgRect.top-editorRect.top+editor.scrollTop;
   richImageEditor=editor;
   movingRichImage=img;
-  img.style.position="relative";
-  img.style.left=richImageStartLeft+"px";
-  img.style.top=richImageStartTop+"px";
+  img.style.position="absolute";
+  img.style.left=Math.round(richImageStartLeft)+"px";
+  img.style.top=Math.round(richImageStartTop)+"px";
   img.style.zIndex="1";
+  updateRichEditorFloatingHeight(editor);
   img.style.cursor="grabbing";
   try{img.setPointerCapture(e.pointerId);}catch(_){}
   e.preventDefault();
@@ -1502,6 +1504,7 @@ document.addEventListener("pointermove",e=>{
 function finishRichImageMove(){
   if(!movingRichImage)return;
   movingRichImage.style.cursor="move";
+  updateRichEditorFloatingHeight(richImageEditor);
   movingRichImage=null;
   richImageEditor=null;
   scheduleAutosave();
