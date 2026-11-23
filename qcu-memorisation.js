@@ -30,6 +30,9 @@
     return term ? `Trimestre ${term}` : "hors période trimestrielle";
   }
   const levels = ["6e","5e","4e","3e"];
+  const QCU_MIN=4,QCU_MAX=20;
+  const qcuCount=()=>Number($("qmSubjectCount")?.value);
+  const validCount=n=>Number.isInteger(n)&&n>=QCU_MIN&&n<=QCU_MAX;
   let questions = [];
   let sessionQuestionPool = [];
   let students = [];
@@ -57,7 +60,7 @@
     card.className = "card"; card.id = "qcuMemoHomeCard";
     card.innerHTML = `<span class="tag">Mémorisation active</span>
       <h3>QCU — Banque et sessions</h3>
-      <p class="muted">Questions par niveau et chapitre, quatre sujets et suivi individuel.</p>
+      <p class="muted">Questions par niveau et chapitre, sujets modulables et suivi individuel.</p>
       <button class="primary" type="button" id="qcuMemoOpen">Ouvrir le module</button>`;
     grid.appendChild(card);
     $("qcuMemoOpen").onclick = open;
@@ -77,7 +80,7 @@
       <button type="button" onclick="home()">← Accueil</button>
       <section class="hero" style="margin-top:14px">
         <span class="eyebrow">Mémorisation active</span><h2>QCU — Banque de questions</h2>
-        <p>Prépare une banque commune, puis crée une session de quatre sujets de cinq questions.</p>
+        <p>Prépare une banque commune, puis génère de 4 à 20 sujets de cinq questions.</p>
       </section>
       <style>
         #content .qmm-module label{display:block;min-width:0;margin:0}
@@ -116,19 +119,20 @@
         <div class="qmm-fields">
           <label>Niveau<select id="qmSessionLevel">${levels.map(x=>`<option>${x}</option>`).join("")}</select></label>
           <label>Titre<input id="qmTitle" value="Mémorisation active"></label>
+           <label>Nombre de sujets (4 à 20)<input id="qmSubjectCount" type="number" min="4" max="20" value="8" step="1"></label>
         </div>
-        <p class="muted" style="margin:8px 0 0">Aucune classe n'est nécessaire à cette étape : tu attribueras les sujets aux classes après leur enregistrement dans la banque.</p>
+        <p class="muted" style="margin:8px 0 0">Aucune classe n'est nécessaire à cette étape : tu attribueras les sujets aux classes après leur enregistrement dans la banque. Comme auparavant, chaque élève reçoit une attribution pour chaque sujet (5 questions par sujet).</p>
         <div style="margin-top:10px">
           <strong>Chapitres à inclure</strong>
-          <p class="muted" style="margin:4px 0 8px">Tu peux cocher plusieurs chapitres. Les questions de tous les chapitres sélectionnés seront mélangées pour composer les quatre sujets.</p>
+          <p class="muted" style="margin:4px 0 8px">Tu peux cocher plusieurs chapitres. Les questions sont réparties entre les chapitres sélectionnés pour composer des sujets équilibrés.</p>
           <div id="qmChapterChoices" class="qmm-chapter-grid"></div>
         </div>
         <div style="margin-top:12px;padding:12px;border:1px solid #ddd;border-radius:9px">
           <strong>Mode de génération</strong>
-          <div class="qmm-radio"><input type="radio" name="qmGenerationMode" value="auto" checked><label>Génération automatique : les quatre sujets sont composés aléatoirement.</label></div>
+          <div class="qmm-radio"><input type="radio" name="qmGenerationMode" value="auto" checked><label>Génération automatique équilibrée entre les chapitres, avec limitation des répétitions.</label></div>
           <div class="qmm-radio"><input type="radio" name="qmGenerationMode" value="custom"><label>Génération personnalisée : je choisis les questions communes et celles propres à chaque sujet.</label></div>
         </div>
-        <p class="muted">Chaque sujet comporte cinq questions. Une question commune apparaît sur les quatre sujets ; une question spécifique apparaît uniquement sur le ou les sujets cochés.</p>
+        <p class="muted">Chaque sujet comporte cinq questions. Une question commune apparaît sur tous les sujets ; une question spécifique apparaît sur les sujets cochés.</p>
         <button class="primary" id="qmCreate">Charger les questions et préparer les sujets</button>
         <div id="qmSessionMsg" class="muted" aria-live="polite"></div>
         <div id="qmCustomPicker"></div>
@@ -136,7 +140,7 @@
       </section>
       <section class="card" style="padding:18px;margin-top:14px">
         <h3>3. Banque de mémorisations enregistrées</h3>
-        <p class="muted">Enregistre les quatre sujets préparés pour les réutiliser, les modifier ou les attribuer à plusieurs classes. Une attribution crée une session indépendante par classe.</p>
+        <p class="muted">Enregistre les sujets préparés pour les réutiliser, les modifier ou les attribuer à plusieurs classes. Une attribution crée une session indépendante par classe.</p>
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
           <input id="qmMemoName" placeholder="Nom de la mémorisation (ex. Mémo 1 – 6e)" style="flex:1;min-width:220px">
           <button class="primary" id="qmMemoSave" type="button" disabled>Enregistrer les sujets préparés</button>
@@ -179,7 +183,7 @@
           <div id="qmSubjectRoster" style="margin:10px 0"></div>
           <section style="margin:12px 0;padding:14px;border:1px solid #c8d2df;border-radius:10px;background:#f8fafc">
             <h4 style="margin-top:0">Importer les résultats d'un ancien questionnaire</h4>
-            <p class="muted">Importe un fichier Excel (.xlsx) ou CSV avec une colonne Nom et quatre colonnes Sujet 1 à Sujet 4. Les réponses seront associées aux élèves et aux sujets de la mémorisation sélectionnée.</p>
+            <p class="muted">L'import des anciens fichiers concerne les sujets 1 à 4 uniquement (Nom, Sujet 1, Sujet 2, Sujet 3, Sujet 4). Les autres sujets utilisent la correction par scanner.</p>
             <label>Fichier de résultats (.xlsx ou .csv)<input id="qmResultsFile" type="file" accept=".xlsx,.csv,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" disabled></label>
             <p class="muted" style="margin:8px 0 4px">Corrigé des quatre sujets — modifiable pour chaque import :</p>
             <div class="qmm-fields">
@@ -208,7 +212,7 @@
       </section>
       <section class="card" style="padding:18px;margin-top:14px">
         <h3>5. Résultats et bilans</h3>
-        <p class="muted">Consulte les résultats des quatre sujets pour chaque mémorisation, puis le bilan cumulatif des connaissances par chapitre sur l'année.</p>
+        <p class="muted">Consulte les résultats de tous les sujets, puis le bilan cumulatif des connaissances par chapitre sur l'année.</p>
         <div class="qmm-fields" style="grid-template-columns:minmax(180px,1fr) auto;align-items:end">
           <label>Classe<select id="qmResultsClass"><option value="">Choisir une classe</option></select></label>
           <button class="primary" id="qmResultsLoad" type="button">Afficher les résultats</button>
@@ -399,22 +403,79 @@
     return result;
   }
 
+  // Tirage équilibré : cinq questions distinctes par sujet, chapitres variés,
+  // nombre total de sujets réglable et refus des compositions identiques.
+  function enoughDifferentSubjects(n,count){
+    if(n<5)return false;
+    let comb=1;
+    for(let k=1;k<=5;k++){comb=comb*(n-k+1)/k;if(comb>=count)return true;}
+    return comb>=count;
+  }
+  function balancedSubjects(pool,count,fixed=[]){
+    const bank=[...new Map(pool.map(q=>[String(q.id),q])).values()];
+    if(!validCount(count))throw Error("Choisis un nombre entier de sujets entre 4 et 20.");
+    if(!enoughDifferentSubjects(bank.length,count))throw Error("Pas assez de questions pour créer autant de sujets différents. Ajoute des questions ou réduis le nombre de sujets.");
+    const questionUses=new Map(),chapterUses=new Map(),signatures=new Set(),out=[];
+    for(let i=0;i<count;i++){
+      const mandatory=[...new Map((fixed[i]||[]).map(q=>[String(q.id),q])).values()];
+      if(mandatory.length>5)throw Error(`Le sujet ${i+1} a plus de cinq questions imposées.`);
+      let candidate=null;
+      for(let attempt=0;attempt<200&&!candidate;attempt++){
+        const picked=[...mandatory],ids=new Set(picked.map(q=>String(q.id)));
+        while(picked.length<5){
+          const chapterInSubject=new Map();
+          for(const q of picked){const key=String(q.chapitre??"?");chapterInSubject.set(key,(chapterInSubject.get(key)||0)+1);}
+          let best=null,bestScore=Infinity;
+          for(const q of bank){
+            const id=String(q.id);if(ids.has(id))continue;
+            const chapter=String(q.chapitre??"?");
+            const score=(chapterInSubject.get(chapter)||0)*1000
+              +(chapterUses.get(chapter)||0)*50+(questionUses.get(id)||0)*3
+              +Math.random()*Math.min(200,20+attempt*2);
+            if(score<bestScore){bestScore=score;best=q;}
+          }
+          if(!best)break;
+          picked.push(best);ids.add(String(best.id));
+        }
+        if(picked.length!==5)break;
+        const sig=picked.map(q=>String(q.id)).sort().join("|");
+        if(signatures.has(sig))continue;
+        signatures.add(sig);candidate=shuffle(picked);
+      }
+      if(!candidate)throw Error(`Impossible de créer ${count} sujets tous différents avec les contraintes choisies. Ajoute des questions ou diminue les contraintes.`);
+      out.push(candidate);
+      for(const q of candidate){
+        const id=String(q.id),chapter=String(q.chapitre??"?");
+        questionUses.set(id,(questionUses.get(id)||0)+1);
+        chapterUses.set(chapter,(chapterUses.get(chapter)||0)+1);
+      }
+    }
+    return out;
+  }
+
   function renderPreparedSubjects() {
     const host = $("qmSubjects");
-    $("qmMemoSave").disabled = !Array.isArray(subjects) || subjects.length !== 4 || subjects.some(a=>!Array.isArray(a)||a.length!==5);
+    $("qmMemoSave").disabled = !validMemoContent(subjects);
+    const chapterTotals=new Map();
+    for(const arr of subjects)for(const q of arr)if(q.chapitre!=null){
+      const chapter=Number(q.chapitre);
+      chapterTotals.set(chapter,(chapterTotals.get(chapter)||0)+1);
+    }
     host.innerHTML = `
-      <p class="muted" style="margin:12px 0">Déplace une question sur une autre pour la réordonner ou l’échanger entre deux sujets. Les quatre sujets conservent chacun cinq questions.</p>
+      <p class="muted" style="margin:12px 0">Déplace une question sur une autre pour la réordonner ou l’échanger entre deux sujets. Chaque sujet conserve cinq questions.</p>
+      ${chapterTotals.size?`<p class="muted"><strong>Répartition :</strong> ${[...chapterTotals.entries()].sort((a,b)=>a[0]-b[0]).map(([c,n])=>`Chapitre ${esc(c)} : ${n} question(s)`).join(" · ")}</p>`:""}
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px">
         ${subjects.map((arr,i)=>`<article data-qm-subject="${i}" style="border:1px solid #bbb;border-radius:10px;padding:10px;margin:0;min-width:0">
           <h4 style="margin:4px 0 10px">Sujet ${i+1}</h4>
+           <small class="muted">${[...new Set(arr.map(q=>q.chapitre).filter(Boolean))].sort((a,b)=>a-b).map(c=>`Chap. ${esc(c)}`).join(" · ")}</small>
           <ol style="padding-left:28px;margin:0">${arr.map((q,j)=>`<li draggable="true" data-qm-subject="${i}" data-qm-question="${j}" style="padding:8px 6px;margin:5px 0;border:1px solid #ddd;border-radius:7px;background:var(--card-bg, #fff);cursor:grab;touch-action:pan-y">
             <span>${esc(q.question_text)}</span>
-            <small style="display:block;color:var(--muted,#666);margin-top:4px">Glisser pour déplacer</small>
+            <small style="display:block;color:var(--muted,#666);margin-top:4px">Chapitre ${esc(q.chapitre??"?")} · Glisser pour échanger</small>
           </li>`).join("")}</ol>
         </article>`).join("")}
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin:16px 0 8px">
-        <button type="button" id="qmExportSubjects">Exporter les 4 sujets en PDF</button>
+        <button type="button" id="qmExportSubjects">Exporter les ${subjects.length} sujets en PDF</button>
       </div>
       <p class="muted">Les sujets sont prêts. Enregistre-les dans la banque, puis utilise « Attribuer aux classes » pour créer les sessions et les fiches élèves.</p>`;
     const exportButton = $("qmExportSubjects");
@@ -449,8 +510,13 @@
           const [moved] = subjects[fromSubject].splice(fromQuestion,1);
           subjects[toSubject].splice(toQuestion,0,moved);
         } else {
-          [subjects[fromSubject][fromQuestion], subjects[toSubject][toQuestion]] =
-            [subjects[toSubject][toQuestion], subjects[fromSubject][fromQuestion]];
+          const incoming=subjects[toSubject][toQuestion],outgoing=subjects[fromSubject][fromQuestion];
+          if(subjects[fromSubject].some((q,j)=>j!==fromQuestion&&String(q.id)===String(incoming.id)) ||
+             subjects[toSubject].some((q,j)=>j!==toQuestion&&String(q.id)===String(outgoing.id))){
+            alert("Échange refusé : une question ne peut pas figurer deux fois dans un même sujet.");
+            return;
+          }
+          [subjects[fromSubject][fromQuestion],subjects[toSubject][toQuestion]]=[incoming,outgoing];
         }
         renderPreparedSubjects();
       });
@@ -458,8 +524,8 @@
   }
 
   function exportSubjectsPdf() {
-    if (!Array.isArray(subjects) || subjects.length !== 4 || subjects.some(a => !Array.isArray(a) || a.length !== 5)) {
-      return alert("Prépare d'abord les quatre sujets.");
+    if (!validMemoContent(subjects)) {
+      return alert("Prépare d'abord des sujets de cinq questions.");
     }
     const title = $("qmTitle")?.value.trim() || "Mémorisation active";
     const level = $("qmSessionLevel")?.value || "";
@@ -485,12 +551,12 @@
 
   function memoSnapshot() {
     return subjects.map((arr,i)=>arr.map((q,j)=>({
-      id:q.id ?? null, question_text:q.question_text, options:q.options,
+      id:q.id ?? null, question_text:q.question_text, options:q.options, chapitre:Number(q.chapitre)||null,
       correct_option:q.correct_option, position:j+1, subject:i+1
     })));
   }
   function validMemoContent(content) {
-    return Array.isArray(content) && content.length===4 && content.every(a=>Array.isArray(a)&&a.length===5&&a.every(q=>q&&typeof q.question_text==="string"&&q.options&&typeof q.correct_option==="string"));
+    return Array.isArray(content) && validCount(content.length) && content.every(a=>Array.isArray(a)&&a.length===5&&a.every(q=>q&&typeof q.question_text==="string"&&q.options&&typeof q.correct_option==="string"));
   }
   async function loadMemos() {
     const {data,error}=await client().from("qcu_memos").select("id,nom,niveau,chapitres,contenu,created_at,updated_at").eq("created_by",window.qcuMemoUserId).order("updated_at",{ascending:false});
@@ -501,7 +567,7 @@
     const host=$("qmMemoList"); if(!host)return;
     if(!savedMemos.length){host.innerHTML='<p class="muted">Aucune mémorisation enregistrée pour le moment.</p>';return;}
     host.innerHTML=savedMemos.map(m=>`<article style="border:1px solid #ddd;border-radius:9px;padding:10px;margin:8px 0">
-      <strong>${esc(m.nom)}</strong> <span class="muted">· ${esc(m.niveau)} · ${esc((m.chapitres||[]).join(", "))} · 4 sujets / 20 questions</span>
+      <strong>${esc(m.nom)}</strong> <span class="muted">· ${esc(m.niveau)} · ${esc((m.chapitres||[]).join(", "))} · ${esc(m.contenu?.length||0)} sujets / ${esc((m.contenu?.length||0)*5)} questions</span>
       <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">
         <button type="button" data-memo-open="${esc(m.id)}">Ouvrir / modifier</button>
         <button type="button" data-memo-duplicate="${esc(m.id)}">Dupliquer</button>
@@ -514,7 +580,7 @@
     host.querySelectorAll("[data-memo-delete]").forEach(b=>b.onclick=()=>deleteMemo(b.dataset.memoDelete));
   }
   async function saveMemo() {
-    if(!validMemoContent(subjects))return alert("Prépare d'abord quatre sujets de cinq questions.");
+    if(!validMemoContent(subjects))return alert("Prépare d'abord des sujets de cinq questions.");
     const nom=$("qmMemoName").value.trim(); if(!nom)return alert("Donne un nom à cette mémorisation.");
     const chapters=selectedSessionChapters();
     if(!chapters.length)return alert("Sélectionne au moins un chapitre pour cette mémorisation.");
@@ -532,6 +598,7 @@
     const m=savedMemos.find(x=>x.id===id);if(!m)return;
     if(!validMemoContent(m.contenu))return alert("Le contenu de cette mémorisation est incomplet ou incompatible.");
     subjects=m.contenu.map(a=>a.map(q=>({...q})));
+     $("qmSubjectCount").value=String(subjects.length);
     $("qmSessionLevel").value=m.niveau;$("qmLevel").value=m.niveau;
     if(m.chapitres?.length)$("qmChapter").value=m.chapitres[0];
     await loadSessionChapters(m.chapitres || [Number($("qmChapter").value)]);
@@ -602,20 +669,20 @@
     if (!host) return;
     host.innerHTML = `
       <div style="margin-top:12px;padding:12px;border:1px solid #4386b5;border-radius:10px">
-        <h4 style="margin:0 0 6px">Composer les quatre sujets</h4>
-        <p class="muted">Pour chaque question, coche « Commune » pour l'imposer aux quatre sujets, ou coche un ou plusieurs sujets pour l'y imposer. Laisse les autres cases vides pour que le logiciel tire les questions au sort.</p>
+        <h4 style="margin:0 0 6px">Composer les ${qcuCount()} sujets</h4>
+        <p class="muted">Pour chaque question, coche « Commune » pour l'imposer à tous les sujets, ou coche les sujets concernés. Laisse les autres cases vides pour que le logiciel tire les questions au sort.</p>
         <div style="overflow-x:auto">
           <table style="width:100%;border-collapse:collapse;min-width:620px">
-            <thead><tr><th style="text-align:left;padding:6px">Question</th><th>Commune</th><th>Sujet 1</th><th>Sujet 2</th><th>Sujet 3</th><th>Sujet 4</th></tr></thead>
+            <thead><tr><th style="text-align:left;padding:6px">Question</th><th>Commune</th>${Array.from({length:qcuCount()},(_,i)=>`<th>Sujet ${i+1}</th>`).join("")}</tr></thead>
             <tbody>${sessionQuestionPool.map((q,i)=>`<tr style="border-top:1px solid #ddd">
-              <td style="padding:7px;max-width:360px">${esc(q.question_text)}</td>
+              <td style="padding:7px;min-width:260px">Chap. ${esc(q.chapitre)} · ${esc(q.question_text)}</td>
               <td style="text-align:center"><input type="checkbox" class="qm-force-common" data-q-index="${i}" aria-label="Question commune"></td>
-              ${[1,2,3,4].map(n=>`<td style="text-align:center"><input type="checkbox" class="qm-force-subject" data-q-index="${i}" data-subject="${n-1}" aria-label="Imposer au sujet ${n}"></td>`).join("")}
+              ${Array.from({length:qcuCount()},(_,j)=>`<td style="text-align:center;min-width:55px"><input type="checkbox" class="qm-force-subject" data-q-index="${i}" data-subject="${j}" aria-label="Imposer au sujet ${j+1}"></td>`).join("")}
             </tr>`).join("")}</tbody>
           </table>
         </div>
         <p id="qmCustomStatus" class="muted" aria-live="polite"></p>
-        <button type="button" class="primary" id="qmComposeCustom">Générer les quatre sujets avec ma sélection</button>
+        <button type="button" class="primary" id="qmComposeCustom">Générer les ${qcuCount()} sujets avec ma sélection</button>
       </div>`;
     host.querySelectorAll('.qm-force-common').forEach(el=>el.addEventListener('change',()=>{
       if(el.checked) host.querySelectorAll(`.qm-force-subject[data-q-index="${el.dataset.qIndex}"]`).forEach(x=>x.checked=false);
@@ -627,29 +694,24 @@
   }
 
   function composeCustomSubjects() {
-    const host=$("qmCustomPicker");
-    const commonIndexes=[...host.querySelectorAll('.qm-force-common:checked')].map(x=>Number(x.dataset.qIndex));
-    const specific=[0,1,2,3].map(subjectIndex=>[...host.querySelectorAll(`.qm-force-subject[data-subject="${subjectIndex}"]:checked`)].map(x=>Number(x.dataset.qIndex)));
-    const fixed=[0,1,2,3].map(i=>[...new Set([...commonIndexes,...specific[i]])]);
+    const host=$("qmCustomPicker"),count=qcuCount();
+    const commonIndexes=[...host.querySelectorAll(".qm-force-common:checked")].map(x=>Number(x.dataset.qIndex));
+    const fixed=Array.from({length:count},(_,i)=>{
+      const specific=[...host.querySelectorAll(`.qm-force-subject[data-subject="${i}"]:checked`)].map(x=>Number(x.dataset.qIndex));
+      return [...new Set([...commonIndexes,...specific])].map(j=>sessionQuestionPool[j]).filter(Boolean);
+    });
     const tooMany=fixed.findIndex(a=>a.length>5);
-    if(tooMany>=0){$("qmCustomStatus").textContent=`Le sujet ${tooMany+1} comporte déjà ${fixed[tooMany].length} questions imposées. Cinq au maximum sont possibles.`;return;}
-    const result=[];
-    for(let i=0;i<4;i++){
-      const chosen=fixed[i].map(index=>sessionQuestionPool[index]).filter(Boolean);
-      const chosenIds=new Set(chosen.map(q=>String(q.id)));
-      const remaining=shuffle(sessionQuestionPool.filter(q=>!chosenIds.has(String(q.id))));
-      const needed=5-chosen.length;
-      if(remaining.length<needed){$("qmCustomStatus").textContent=`Pas assez de questions différentes pour compléter le sujet ${i+1}. Ajoute des questions à la banque ou retire certaines questions imposées.`;return;}
-      result.push([...chosen,...remaining.slice(0,needed)]);
-    }
-    subjects=result;
-    $("qmCustomPicker").innerHTML='<p class="muted">Composition personnalisée générée. Tu peux encore déplacer ou échanger les questions dans les sujets ci-dessous.</p>';
+    if(tooMany>=0){$("qmCustomStatus").textContent=`Le sujet ${tooMany+1} comporte plus de cinq questions imposées.`;return;}
+    try{subjects=balancedSubjects(sessionQuestionPool,count,fixed);}
+    catch(error){$("qmCustomStatus").textContent=error.message;return;}
+    host.innerHTML='<p class="muted">Sujets personnalisés générés. Tu peux réorganiser les questions ci-dessous.</p>';
     renderPreparedSubjects();
-    $("qmSessionMsg").textContent=`Sujets personnalisés générés : ${commonIndexes.length} question(s) commune(s), avec les questions spécifiques choisies et un complément aléatoire.`;
+    $("qmSessionMsg").textContent=`${count} sujets personnalisés générés, avec ${commonIndexes.length} question(s) commune(s) et un complément réparti entre les chapitres.`;
   }
 
   async function prepareSubjects() {
     const db=client(), level=$("qmSessionLevel").value, chapters=selectedSessionChapters();
+    if(!validCount(qcuCount()))return alert("Choisis un nombre entier de sujets entre 4 et 20.");
     if(!chapters.length)return alert("Sélectionne au moins un chapitre.");
     if(level!==$("qmLevel").value)return alert("Le niveau de la banque et celui de la session doivent être identiques.");
     const {data:qs,error:qe}=await db.from("qcu_questions").select("*").eq("created_by",window.qcuMemoUserId)
@@ -657,6 +719,9 @@
     if(qe)return alert(qe.message);
     if((qs||[]).length<5)return alert(`Il faut au moins 5 questions actives différentes au total dans les chapitres sélectionnés pour composer un sujet de cinq questions. Il y en a ${(qs||[]).length}.`);
     sessionQuestionPool=qs||[];
+    if(!enoughDifferentSubjects(new Set(sessionQuestionPool.map(q=>String(q.id))).size,qcuCount()))
+      return alert("Impossible de composer autant de sujets différents. Ajoute des questions à la banque ou diminue le nombre de sujets.");
+    subjects=[];$("qmMemoSave").disabled=true;
     students=[];
     session=null;
     $("qmPrint").disabled=true;$("qmCameraStart").disabled=true;
@@ -669,20 +734,22 @@
     }
     $("qmCustomPicker").innerHTML="";
     const pool=shuffle(sessionQuestionPool);
-    subjects=Array.from({length:4},(_,i)=>Array.from({length:5},(_,j)=>pool[(i*5+j)%pool.length]));
+    try{subjects=balancedSubjects(pool,qcuCount());}
+    catch(error){$("qmSessionMsg").textContent=error.message;return;}
     renderPreparedSubjects();
     $("qmSessionMsg").textContent=`Chapitres ${chapters.join(", ")} · ${sessionQuestionPool.length} questions disponibles. Réorganise les questions si nécessaire, puis enregistre les sujets dans la banque.`;
   }
 
   async function createSessionForClass(classe, roster, memoSubjects, level, chapters, date_qcu, term, title) {
     const db=client(),user=window.qcuMemoUserId;
+    if(!validMemoContent(memoSubjects))return {error:"La mémorisation est invalide : vérifie le nombre de sujets et les cinq questions de chacun."};
     const automaticTerm=termForDate(date_qcu);
     if(!automaticTerm)return {error:"La date du QCU est en dehors des trois trimestres définis."};
     if(Number(term)!==automaticTerm)return {error:"Le trimestre ne correspond pas à la date du QCU."};
     const {data:s,error:se}=await db.from("qcu_sessions").insert({created_by:user,classe,trimestre:automaticTerm,titre:title,date_qcu,statut:"brouillon",niveau:level,chapitres:chapters||[]}).select().single();
     if(se)return {error:se.message};
     const subjectIds=[];
-    for(let i=0;i<4;i++){
+    for(let i=0;i<memoSubjects.length;i++){
       const code=String(i+1);
       const {data:sub,error}=await db.from("qcu_sujets").insert({created_by:user,session_id:s.id,code,titre:"Sujet "+code}).select().single();
       if(error)return {error:`${error.message} (session ${classe} déjà créée)`};
@@ -692,7 +759,7 @@
       if(qe)return {error:`${qe.message} (session ${classe} partiellement créée)`};
     }
     const attrs=[];
-    for(const student of roster)for(let i=0;i<4;i++)attrs.push({created_by:user,session_id:s.id,sujet_id:subjectIds[i],eleve_id:student.id,classe,statut:"attribue"});
+    for(const student of roster)for(let i=0;i<memoSubjects.length;i++)attrs.push({created_by:user,session_id:s.id,sujet_id:subjectIds[i],eleve_id:student.id,classe,statut:"attribue"});
     const {error:ae}=await db.from("qcu_attributions").insert(attrs);
     if(ae)return {error:`${ae.message} (sujets créés mais attributions non terminées pour ${classe})`};
     return {session:s};
@@ -751,7 +818,7 @@
         <div class="identity"><h2>FICHE-RÉPONSE</h2><p class="student"><b>${esc(st.prenom)} ${esc(st.nom)}</b></p><p class="class">${esc(st.classe)}</p></div>
         <div class="qr" data-student="${esc(st.id)}"></div>
       </div>
-      <div class="subject-line"><b>Sujet :</b>${[1,2,3,4].map(n=>`<span>○ ${n}</span>`).join("")}</div>
+      <div class="subject-line"><b>Sujet :</b><span>____________</span></div>
       <table><thead><tr><th>Q</th>${["A","B","C","D"].map(x=>`<th>${x}</th>`).join("")}</tr></thead>
       <tbody>${[1,2,3,4,5].map(n=>`<tr><th>${n}</th>${[1,2,3,4].map(()=>"<td><i></i></td>").join("")}</tr>`).join("")}</tbody></table>
     </article>`).join("")}</section>`).join("");
@@ -974,6 +1041,23 @@
   }
   const pct20=(correct,total)=>total?Math.round((correct/total)*2000)/100: null;
   function scoreLabel(correct,total){return total?`${correct}/${total} · ${String(pct20(correct,total)).replace(".",",")}/20`:"Non évalué";}
+  // Un groupe de 20 sujets peut produire plus de 1000 réponses.
+  // Pagination explicite pour éviter une moyenne fausse à cause de la
+  // limite par défaut de l'API Supabase.
+  async function allQcuResponses(db,subjectIds){
+    const output=[],step=800;
+    for(let offset=0;;offset+=step){
+      const {data,error}=await db.from("qcu_reponses")
+        .select("attribution_id,sujet_question_id,is_correct")
+        .in("sujet_id",subjectIds)
+        .order("attribution_id").order("sujet_question_id")
+        .range(offset,offset+step-1);
+      if(error)return {data:null,error};
+      output.push(...(data||[]));
+      if((data||[]).length<step)return {data:output,error:null};
+    }
+  }
+
   async function loadResults(){
     const host=$("qmResultsHost"), msg=$("qmResultsMsg"), classe=$("qmResultsClass").value, db=client();
     host.innerHTML=""; if(!classe){msg.textContent="Choisis une classe pour afficher ses résultats.";return;}
@@ -988,14 +1072,15 @@
     for(const ses of sessions){
       const {data:subs,error:sue}=await db.from("qcu_sujets").select("id,code").eq("session_id",ses.id).order("code");
       if(sue){msg.textContent="Erreur de lecture des sujets : "+sue.message;return;}
-      const subjectIds=(subs||[]).map(x=>x.id); if(!subjectIds.length)continue;
+      const orderedSubjects=(subs||[]).sort((a,b)=>Number(a.code)-Number(b.code));
+       const subjectIds=orderedSubjects.map(x=>x.id); if(!subjectIds.length)continue;
       const [{data:attrs,error:ae},{data:sqs,error:qe}]=await Promise.all([
         db.from("qcu_attributions").select("id,eleve_id,sujet_id,statut").eq("session_id",ses.id),
         db.from("qcu_sujet_questions").select("id,sujet_id,question_id,chapitre_snapshot,position").in("sujet_id",subjectIds)
       ]);
       if(ae||qe){msg.textContent="Erreur de lecture des attributions ou questions : "+(ae?.message||qe?.message);return;}
-      const attrIds=(attrs||[]).map(a=>a.id);
-      const {data:answers,error:ansErr}=attrIds.length?await db.from("qcu_reponses").select("attribution_id,sujet_question_id,is_correct").in("attribution_id",attrIds):{data:[],error:null};
+      const {data:answers,error:ansErr}=(attrs||[]).length
+        ?await allQcuResponses(db,subjectIds):{data:[],error:null};
       if(ansErr){msg.textContent="Erreur de lecture des réponses : "+ansErr.message;return;}
       const bankIds=[...new Set((sqs||[]).map(q=>q.question_id).filter(Boolean))];
       let bank=[];
@@ -1008,8 +1093,8 @@
       const subjQuestions=new Map((subs||[]).map(s=>[String(s.id),(sqs||[]).filter(q=>String(q.sujet_id)===String(s.id)).sort((a,b)=>a.position-b.position)]));
       const studentRows=(roster||[]).map(st=>{
         let c=0,t=0;const cells=[];
-        for(let i=1;i<=4;i++){
-          const sub=subjByCode.get(String(i)),a=sub&&attrByStudentSubject.get(`${st.id}|${sub.id}`);
+        for(const sub of orderedSubjects){
+          const a=attrByStudentSubject.get(`${st.id}|${sub.id}`);
           if(!a||a.statut==="absent"){cells.push("ABS");continue;}
           if(a.statut!=="corrige"){cells.push("—");continue;}
           const qs=subjQuestions.get(String(sub.id))||[];let sc=0,tot=0;
@@ -1019,7 +1104,7 @@
         return {st,cells,c,t};
       });
       html+=`<details open style="margin:12px 0;border:1px solid #ddd;border-radius:9px;padding:10px"><summary><strong>${esc(ses.titre||"Mémorisation")}</strong> · ${esc(ses.niveau||"")} · T${esc(termForDate(ses.date_qcu)||"—")} · ${esc(ses.date_qcu||"")}</summary>
-        <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;margin-top:10px;font-size:.92em"><thead><tr><th style="text-align:left">Élève</th><th>Sujet 1</th><th>Sujet 2</th><th>Sujet 3</th><th>Sujet 4</th><th>Total des 4 sujets</th></tr></thead><tbody>
+        <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;margin-top:10px;font-size:.92em"><thead><tr><th style="text-align:left">Élève</th>${orderedSubjects.map(sub=>`<th>Sujet ${esc(sub.code)}</th>`).join("")}<th>Total des ${orderedSubjects.length} sujets</th></tr></thead><tbody>
         ${studentRows.map(r=>`<tr><td style="padding:6px;border-top:1px solid #ddd">${esc(names.get(String(r.st.id))||r.st.id)}</td>${r.cells.map(v=>`<td style="padding:6px;border-top:1px solid #ddd;text-align:center">${esc(v)}</td>`).join("")}<td style="padding:6px;border-top:1px solid #ddd;text-align:center"><strong>${r.t?esc(scoreLabel(r.c,r.t)):"Non évalué"}</strong></td></tr>`).join("")}
         </tbody></table></div><p class="muted">ABS = absent à ce sujet (exclu du calcul) · — = pas encore corrigé. Le total est calculé uniquement sur les sujets corrigés.</p></details>`;
       // Cumul par chapitre : seules les réponses effectivement évaluées entrent dans le dénominateur.
@@ -1207,7 +1292,7 @@
       db.from("qcu_sujets").select("id,code").eq("session_id",id).order("code")
     ]);
     if(sr.error||rr.error){sel.innerHTML='<option value="">Erreur de chargement</option>';$("qmCorrectionMsg").textContent=sr.error?.message||rr.error?.message;return;}
-    session=sr.data;subjects=rr.data||[];sel.innerHTML='<option value="">Choisir un sujet</option>'+subjects.map(x=>`<option value="${esc(x.code)}">Sujet ${esc(x.code)}</option>`).join("");sel.disabled=!subjects.length;
+    session=sr.data;subjects=(rr.data||[]).sort((a,b)=>Number(a.code)-Number(b.code));sel.innerHTML='<option value="">Choisir un sujet</option>'+subjects.map(x=>`<option value="${esc(x.code)}">Sujet ${esc(x.code)}</option>`).join("");sel.disabled=!subjects.length;
     // La suppression concerne la session sélectionnée, pas le choix du sujet.
     $("qmDeleteSession").disabled=false;
     qcuImportPreview=null;$("qmResultsFile").disabled=!subjects.length;$("qmImportPreviewBtn").disabled=true;$("qmImportConfirmBtn").disabled=true;$("qmImportPreviewHost").innerHTML="";$("qmImportMsg").textContent="";
