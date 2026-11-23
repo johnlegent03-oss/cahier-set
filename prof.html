@@ -651,17 +651,10 @@ body #svtDashboard .svt-today-open{background:#426849!important;color:#fff!impor
 <style id="svt-prof-default-typography">
 /* Styles par défaut : hérités, pour préserver toute mise en forme manuelle. */
 html,body,body button,body select,body input,body textarea,
-body .rich-editor,body .rich-output,body .rich-content,
-body .rich-editor [data-rich-text-input] {
+body .rich-editor,body .rich-output,body .rich-content {
   font-family:"Comic Sans MS",cursive,sans-serif!important;
 }
-/* Les mises en forme explicitement choisies dans l'éditeur restent prioritaires. */
-body .rich-editor [style*="font-family"],
-body .rich-editor font[face],
-body .rich-output [style*="font-family"],
-body .rich-content [style*="font-family"] {
-  font-family:revert-layer;
-}
+/* Le texte imbriqué hérite de Comic Sans sauf lorsqu'une police a été choisie manuellement. */
 body #chTitre.rich-editor {font-size:36px;font-weight:800;color:#c62828;line-height:1.35}
 body #chProb.rich-editor {font-size:24px;font-weight:700;color:#238b45;line-height:1.45}
 body .session-title.rich-editor {font-size:24px;font-weight:700;color:#c62828;line-height:1.45}
