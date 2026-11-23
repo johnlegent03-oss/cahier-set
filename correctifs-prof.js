@@ -207,7 +207,10 @@
       childList: true,
       subtree: true,
       attributes: true,
-      attributeFilter: ['href', 'src', 'style']
+      // Ne pas observer les styles : normalizeEditorImages() les modifie lui-même.
+      // Sinon, chaque correction déclenche le MutationObserver à nouveau,
+      // avec un risque de boucle et de sauvegardes automatiques répétées.
+      attributeFilter: ['href', 'src']
     });
 
     window.addEventListener('beforeprint', cleanEmptyPrintPages);
