@@ -180,7 +180,7 @@ input:focus,select:focus{border-color:#79ad9d;box-shadow:0 0 0 3px #dff0e988}
 @media print{.rich-editor img{resize:none!important;overflow:visible!important;outline:0!important;cursor:default!important}}
 .rich-toolbar button{padding:6px 9px;min-width:34px;border-radius:8px;font-weight:800}.rich-toolbar select{width:auto;min-width:95px;padding:6px 8px;border-radius:8px}
 .rich-editor{min-height:105px;border:1px solid var(--b);border-top:0;border-radius:0 0 10px 10px;padding:11px;background:#fff;line-height:1.55;outline:none;overflow:auto}
-.rich-editor [data-rich-text-input]:empty::before{content:attr(data-placeholder);color:#8c9994;pointer-events:none}.rich-editor:focus{border-color:#79ad9d;box-shadow:0 0 0 3px #dff0e988}.rich-editor:empty:before{content:attr(data-placeholder);color:#9aa3af}
+.rich-editor [data-rich-text-box]{position:relative;cursor:default}.rich-editor [data-rich-text-box]::after{content:"";position:absolute;right:2px;bottom:2px;width:13px;height:13px;pointer-events:none;background:repeating-linear-gradient(135deg,transparent 0 3px,#68897f 3px 5px,transparent 5px 7px);clip-path:polygon(100% 0,100% 100%,0 100%)}.rich-editor [data-rich-text-input]:empty::before{content:attr(data-placeholder);color:#8c9994;pointer-events:none}.rich-editor:focus{border-color:#79ad9d;box-shadow:0 0 0 3px #dff0e988}.rich-editor:empty:before{content:attr(data-placeholder);color:#9aa3af}
 .session-problem{min-height:65px}.entry{border:1px solid #dce8e3;border-radius:13px;padding:13px;margin:12px 0;background:#fbfdfc}
 .entry-head{display:flex;align-items:center;gap:8px;justify-content:space-between;flex-wrap:wrap}.entry-date{width:170px}.entry-type{font-size:12px;font-weight:850;color:var(--a);text-transform:uppercase;letter-spacing:.06em}
 .entry-actions{display:flex;gap:6px;align-items:center}.entry-actions button{padding:6px 9px}.entry-add{border-style:dashed;color:var(--a);background:#f7fbf9;width:100%;margin-top:5px}
@@ -1173,6 +1173,7 @@ function activateRichTextBox(box){
   input.style.outline="none";
   input.style.whiteSpace="pre-wrap";
   input.style.cursor="text";
+  input.style.userSelect="text";
   return input;
 }
 function insertRichTextBox(id){
@@ -1182,7 +1183,7 @@ function insertRichTextBox(id){
   box.className="rich-text-box";
   box.contentEditable="false";
   box.setAttribute("data-rich-text-box","1");
-  box.style.cssText="display:inline-block;position:relative;vertical-align:top;box-sizing:border-box;width:240px;min-width:120px;min-height:70px;padding:8px;border:1px dashed #86a893;border-radius:8px;background-color:#f7faf2;resize:both;overflow:auto;margin:4px;";
+  box.style.cssText="display:inline-block;position:relative;vertical-align:top;box-sizing:border-box;width:240px;height:100px;min-width:90px;min-height:55px;padding:8px;border:1px dashed #86a893;border-radius:8px;background-color:#f7faf2;resize:none;overflow:auto;margin:4px;";
   const input=activateRichTextBox(box);
   input.textContent="";
   input.setAttribute("data-placeholder","Écris ton texte ici…");
@@ -1209,28 +1210,51 @@ document.addEventListener("pointerdown",e=>{
 document.addEventListener("input",e=>{
   if(e.target.closest?.(".rich-editor [data-rich-text-box]"))scheduleAutosave();
 });
-// Déplacement par les bords : l'intérieur reste réservé à la saisie.
-let movingRichTextBox=null,richTextBoxStart=null;
+// Déplacement par la bordure ; redimensionnement libre par le coin inférieur droit.
+// Les gestes dans le contenu ne doivent jamais déclencher un déplacement.
+let richBoxGesture=null;
 document.addEventListener("pointerdown",e=>{
   const box=e.target.closest?.(".rich-editor [data-rich-text-box]");
   if(!box||e.button!==0)return;
   const r=box.getBoundingClientRect();
-  const edge=8;
-  const onBorder=e.clientX<=r.left+edge||e.clientX>=r.right-edge||e.clientY<=r.top+edge||e.clientY>=r.bottom-edge;
-  if(!onBorder)return;
-  movingRichTextBox=box;
-  richTextBoxStart={x:e.clientX,y:e.clientY,left:parseFloat(box.style.left)||0,top:parseFloat(box.style.top)||0};
-  box.style.position="relative";
+  const corner=e.clientX>=r.right-22&&e.clientY>=r.bottom-22;
+  const edge=9;
+  const border=e.clientX<=r.left+edge||e.clientX>=r.right-edge||e.clientY<=r.top+edge||e.clientY>=r.bottom-edge;
+  if(!corner&&!border)return;
+  richBoxGesture={
+    box,id:e.pointerId,mode:corner?"resize":"move",
+    x:e.clientX,y:e.clientY,width:r.width,height:r.height,
+    left:parseFloat(box.style.left)||0,top:parseFloat(box.style.top)||0,
+    moved:false
+  };
+  if(corner){
+    box.style.resize="none"; // poignée personnalisée, indépendante de la sélection
+    box.style.width=r.width+"px";
+    box.style.height=r.height+"px";
+  }
   e.preventDefault();
 });
 document.addEventListener("pointermove",e=>{
-  if(!movingRichTextBox||!richTextBoxStart)return;
-  movingRichTextBox.style.left=(richTextBoxStart.left+e.clientX-richTextBoxStart.x)+"px";
-  movingRichTextBox.style.top=(richTextBoxStart.top+e.clientY-richTextBoxStart.y)+"px";
+  const g=richBoxGesture;if(!g||e.pointerId!==g.id)return;
+  const dx=e.clientX-g.x,dy=e.clientY-g.y;
+  if(Math.abs(dx)>1||Math.abs(dy)>1)g.moved=true;
+  if(g.mode==="resize"){
+    g.box.style.width=Math.max(90,g.width+dx)+"px";
+    g.box.style.height=Math.max(55,g.height+dy)+"px";
+  }else{
+    g.box.style.position="relative";
+    g.box.style.left=(g.left+dx)+"px";
+    g.box.style.top=(g.top+dy)+"px";
+  }
 });
-function finishRichTextBoxMove(){if(!movingRichTextBox)return;movingRichTextBox=null;richTextBoxStart=null;scheduleAutosave();}
-document.addEventListener("pointerup",finishRichTextBoxMove);
-document.addEventListener("pointercancel",finishRichTextBoxMove);
+function finishRichBoxGesture(e){
+  if(!richBoxGesture||e?.pointerId!==richBoxGesture.id)return;
+  const changed=richBoxGesture.moved;
+  richBoxGesture=null;
+  if(changed)scheduleAutosave();
+}
+document.addEventListener("pointerup",finishRichBoxGesture);
+document.addEventListener("pointercancel",finishRichBoxGesture);
 
 function insertRichTable(id){
   const editor=document.getElementById(id);if(!editor)return;
@@ -1249,9 +1273,26 @@ function insertRichTable(id){
   document.execCommand('insertHTML',false,html);rememberSelection(id);scheduleAutosave();
 }
 function richCmd(id,cmd,value=null){
-  const el=document.getElementById(id);if(!el)return;restoreSelection(id);el.focus();document.execCommand(cmd,false,value);rememberSelection(id);scheduleAutosave();
+  const editor=document.getElementById(id);if(!editor)return;
+  const saved=richRanges[id];
+  const input=saved?.commonAncestorContainer?.parentElement?.closest?.("[data-rich-text-input]")
+    ||(saved?.startContainer?.nodeType===1?saved.startContainer:saved?.startContainer?.parentElement)?.closest?.("[data-rich-text-input]");
+  const target=input&&editor.contains(input)?input:editor;
+  target.focus();
+  if(saved&&editor.contains(saved.startContainer)&&editor.contains(saved.endContainer)){
+    const selection=window.getSelection();
+    selection.removeAllRanges();selection.addRange(saved);
+  }
+  document.execCommand(cmd,false,value);
+  rememberSelection(id);
+  scheduleAutosave();
 }
-document.addEventListener("selectionchange",()=>{const a=document.activeElement;if(a?.classList?.contains("rich-editor"))rememberSelection(a.id)});
+document.addEventListener("selectionchange",()=>{
+  const selection=window.getSelection();
+  const node=selection?.anchorNode;
+  const editor=(node?.nodeType===1?node:node?.parentElement)?.closest?.(".rich-editor");
+  if(editor?.id&&document.activeElement&&editor.contains(document.activeElement))rememberSelection(editor.id);
+});
 
 // Gestion des images dans l’éditeur : sélection, déplacement, redimensionnement et rognage.
 let selectedRichImage = null;
