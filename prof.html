@@ -2720,6 +2720,7 @@ async function openPlanningLinkedSession(){
   const params=new URLSearchParams(window.location.search);
   const targetClass=params.get("classe"),uid=params.get("planning_uid");
   const chapterParam=params.get("planning_chapter"),part=params.get("planning_part");
+  const atelierDoc=params.get("planning_atelier_doc");
   const chapterParts=new Set(["germoir","problematique","vocabulaire","schema","memo","evaluation"]);
   const chapterIndex=chapterParam!==null&&/^\d+$/.test(chapterParam)?Number(chapterParam):-1;
   const chapterLink=chapterIndex>=0&&chapterParts.has(part);
@@ -2746,7 +2747,17 @@ async function openPlanningLinkedSession(){
     requestAnimationFrame(()=>requestAnimationFrame(()=>{
       if(found.sessionIndex>=0){
         const box=document.querySelectorAll('#sessions > .session-box')[found.sessionIndex];
-        if(box){svtRecordSession(box);box.classList.add('svt-session-target');box.tabIndex=-1;box.focus({preventScroll:true});box.scrollIntoView({behavior:'smooth',block:'center'});setTimeout(()=>box.classList.remove('svt-session-target'),3000);}
+        if(box){
+          svtRecordSession(box);
+          const activity=atelierDoc?[...box.querySelectorAll('.entry[data-entry-type="activite"]')]
+            .find(entry=>entry.dataset.atelierDocumentId===atelierDoc):null;
+          const target=activity||box;
+          target.classList.add('svt-session-target');
+          target.tabIndex=-1;
+          target.focus({preventScroll:true});
+          target.scrollIntoView({behavior:'smooth',block:'center'});
+          setTimeout(()=>target.classList.remove('svt-session-target'),3000);
+        }
       }else{
         const selectors={germoir:'#chGermoir',problematique:'#chProb',vocabulaire:'#chVocabulaire',schema:'.schemaPdf',memo:'.memoPdf',evaluation:'.evaluationPdf'};
         const input=document.querySelector(selectors[found.part]);
