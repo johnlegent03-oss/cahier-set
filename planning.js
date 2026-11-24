@@ -69,7 +69,7 @@ async function loadPeriod(){
  const today=iso(new Date());
  state.period=rows.find(p=>p.start_date<=today&&p.end_date>=today)||rows.sort((a,b)=>b.start_date.localeCompare(a.start_date))[0]||null;
  if(!state.period){
-  state.slots=[];state.occurrences=[];state.events=[];state.cahierSessionsByUid={};state.atelierActivitiesBySession={};state.atelierActivitiesBySession={};
+  state.slots=[];state.occurrences=[];state.events=[];state.cahierSessionsByUid={};state.atelierActivitiesBySession={};
   state.followupSessions=null;state.followupLoadedClass='';state.followupRequest++;state.followupLoading=false;
  state.remarksRows=null;state.remarksLoading=false;state.remarksError='';state.remarksRequest++;
   state.tab='settings';
@@ -86,7 +86,7 @@ async function loadPeriod(){
  await loadLinkedCahierSessions();
 }
 async function loadLinkedCahierSessions(){
- state.cahierSessionsByUid={};
+ state.cahierSessionsByUid={};state.atelierActivitiesBySession={};
  const linked=state.occurrences.filter(o=>linkedIds(o).length);
  const classes=[...new Set(linked.map(o=>o.class_name).filter(Boolean))];
  await Promise.all(classes.map(async className=>{
