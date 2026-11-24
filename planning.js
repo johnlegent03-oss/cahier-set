@@ -5,7 +5,7 @@ const $ = (s,root=document) => root.querySelector(s);
 const $$ = (s,root=document) => [...root.querySelectorAll(s)];
 const CLASSES = ['6e1','6e2','6e3','6e4','6e5','5e1','5e3','5e5','3e2','3e3'];
 const DAYS = ['Lundi','Mardi','Mercredi','Jeudi','Vendredi'];
-const state = {user:null,period:null,slots:[],occurrences:[],events:[],cahierSessionsByUid:{},weekStart:mondayOf(new Date()),weekPattern:'',view:'week',tab:'planning',busy:false,
+const state = {user:null,period:null,slots:[],occurrences:[],events:[],cahierSessionsByUid:{},atelierActivitiesBySession:{},weekStart:mondayOf(new Date()),weekPattern:'',view:'week',tab:'planning',busy:false,
  followupClass:'',followupFilter:'missing',followupSessions:null,followupLoadedClass:'',followupLoading:false,followupError:'',followupRequest:0,quickDoneBusy:false,remarksRows:null,remarksLoading:false,remarksError:'',remarksRequest:0,remarksFrom:'',remarksTo:''};
 const NAV_KEY='svt.planning.navigation.v1';
 function savePlanningNav(){if(!state.user)return;try{localStorage.setItem(NAV_KEY+':'+state.user.id,JSON.stringify({weekStart:iso(state.weekStart),tab:state.tab,weekPattern:state.weekPattern,scrollY:window.scrollY||0}));}catch(e){}}
@@ -69,7 +69,7 @@ async function loadPeriod(){
  const today=iso(new Date());
  state.period=rows.find(p=>p.start_date<=today&&p.end_date>=today)||rows.sort((a,b)=>b.start_date.localeCompare(a.start_date))[0]||null;
  if(!state.period){
-  state.slots=[];state.occurrences=[];state.events=[];state.cahierSessionsByUid={};
+  state.slots=[];state.occurrences=[];state.events=[];state.cahierSessionsByUid={};state.atelierActivitiesBySession={};state.atelierActivitiesBySession={};
   state.followupSessions=null;state.followupLoadedClass='';state.followupRequest++;state.followupLoading=false;
  state.remarksRows=null;state.remarksLoading=false;state.remarksError='';state.remarksRequest++;
   state.tab='settings';
@@ -90,7 +90,14 @@ async function loadLinkedCahierSessions(){
  const linked=state.occurrences.filter(o=>linkedIds(o).length);
  const classes=[...new Set(linked.map(o=>o.class_name).filter(Boolean))];
  await Promise.all(classes.map(async className=>{
-  try{const elements=await getCahierElements(className);elements.forEach(item=>{state.cahierSessionsByUid[className+'::'+item.uid]={...item,className};});}
+  try{const elements=await getCahierElements(className);elements.forEach(item=>{
+    const linked={...item,className};
+    state.cahierSessionsByUid[className+'::'+item.uid]=linked;
+    if(item.type==='atelier-activity'){
+     const key=className+'::'+item.sessionUid;
+     (state.atelierActivitiesBySession[key]||(state.atelierActivitiesBySession[key]=[])).push(linked);
+    }
+   });}
   catch(error){console.warn(`Cahier ${className} non chargé pour l’affichage du planning :`,error);}
  }));
 }
@@ -206,7 +213,13 @@ function renderGrid(){
    const kindText=special?'<small class="planning-special-title">'+esc(kind.icon+' '+kind.label)
     +(meta.detail.trim()?' — '+esc(meta.detail.trim().split(/\r?\n/)[0].slice(0,95)):'')+'</small>':'';
    const ids=linkedIds(o);
-   const elements=ids.map(uid=>state.cahierSessionsByUid[o.class_name+'::'+uid]).filter(Boolean);
+   const explicit=new Set(ids);
+   const elements=ids.flatMap(uid=>{
+    const item=state.cahierSessionsByUid[o.class_name+'::'+uid];
+    if(!item)return [];
+    return item.type==='session'?[item,...(state.atelierActivitiesBySession[o.class_name+'::'+item.uid]||[])
+     .filter(child=>!explicit.has(child.uid))]:[item];
+   });
    const linkedHtml=elements.length?'<div class="planning-course-links">'+elements.map((item,n)=>
     '<small class="planning-linked-title">'+(ids.length>1?(n+1)+'. ':'')+esc(item.chapterTitle)+' — '+esc(item.type==='atelier-activity'?item.parentSessionTitle+' / '+item.sessionTitle:item.sessionTitle)+'</small>').join('')+'</div>'
     :ids.length?'<small class="planning-linked-title">⚠ Élément du cahier introuvable</small>':'';
@@ -576,7 +589,7 @@ async function editOccurrence(id){
   +'<div class="planning-field"><label>Type de créneau</label><select class="planning-select" name="kind">'+kindOptions+'</select></div>'
   +'<div class="planning-field"><label>État</label><select class="planning-select" name="status">'+['planned','completed','postponed','cancelled'].map(s=>'<option value="'+s+'" '+(s===o.status?'selected':'')+'>'+statusLabel(s)+'</option>').join('')+'</select></div>'
   +'<div class="planning-field full"><label>Éléments du cahier associés (plusieurs possibles)</label>'
-  +'<small class="planning-muted">Ajoute autant de séances, de germoirs ou de parties du bilan que nécessaire. Les fiches liées depuis l’atelier figurent sous chaque séance. Les flèches définissent leur ordre dans ce créneau.</small>'
+  +'<small class="planning-muted">Ajoute des séances, des fiches de l’atelier ou des éléments de bilan. Les fiches liées à une séance apparaissent automatiquement dans la semaine, même sans sélection individuelle. Les fiches liées depuis l’atelier figurent sous chaque séance. Les flèches définissent leur ordre dans ce créneau.</small>'
   +'<div id="planningSelectedItems" class="planning-linked-items" aria-live="polite"></div>'
   +'<div class="planning-add-link"><select class="planning-select" id="planningElementChoice" aria-label="Élément du cahier à ajouter"></select>'
   +'<button type="button" class="planning-btn" id="planningAddLinkedElement">＋ Ajouter</button></div></div>'
