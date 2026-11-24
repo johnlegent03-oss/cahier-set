@@ -436,6 +436,25 @@ function renderSettings(){
 function openModal(title,body,wide=false){
  $(".planning-dialog").classList.toggle("is-wide",wide);$('#planningDialogTitle').textContent=title;$('#planningDialogBody').innerHTML=body;$('#planningModal').hidden=false}
 function closeModal(){$('#planningModal').hidden=true}
+function atelierActivityInfo(entry){
+ const docId=String(entry?.atelier_document_id||entry?.atelierDocumentId||'').trim();
+ if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(docId))return null;
+ const wrapper=document.createElement('div');wrapper.innerHTML=String(entry?.texte||'');
+ const expected=new URL('fiche.html',window.location.href);
+ let ficheHref='',title='';
+ for(const anchor of wrapper.querySelectorAll('a[href]')){
+  let url;
+  try{url=new URL(anchor.getAttribute('href'),window.location.href)}catch(_){continue}
+  if(url.origin!==expected.origin||url.pathname!==expected.pathname||url.searchParams.get('doc')!==docId)continue;
+  const code=url.searchParams.get('code');
+  if(!code)continue;
+  ficheHref='fiche.html?code='+encodeURIComponent(code)+'&doc='+encodeURIComponent(docId);
+  title=String(anchor.textContent||'').trim();break;
+ }
+ if(!title)title=String(wrapper.textContent||'').trim();
+ title=title.replace(/\s*[—–-]\s*Ouvrir la fiche\s*[↗➜→]*\s*$/i,'').replace(/\s+/g,' ').trim();
+ return {docId,title:(title||'Fiche d’activité de l’atelier').slice(0,125),ficheHref};
+}
 async function getCahierElements(className){
  const {data,error}=await client().from('Cahier').select('classe,contenu').eq('classe',className).maybeSingle();
  if(error)throw error;
@@ -454,10 +473,22 @@ async function getCahierElements(className){
   if(ch?.archive===true)return [];
   const chapterTitle=plainText(ch?.titre)||'Chapitre '+(chapterIndex+1);
   const part=field=>({uid:'chapter:'+chapterIndex+':'+field.part,type:'chapter',part:field.part,chapterIndex,chapterTitle,sessionTitle:field.label});
-  const sessions=(Array.isArray(ch?.seances)?ch.seances:[]).map((se,sessionIndex)=>({
-   uid:se?.planning_uid||'',type:'session',chapterIndex,sessionIndex,chapterTitle,
-   sessionTitle:plainText(se?.titre)||'Séance '+(sessionIndex+1)
-  })).filter(x=>x.uid);
+  const sessions=(Array.isArray(ch?.seances)?ch.seances:[]).flatMap((se,sessionIndex)=>{
+   const sessionUid=String(se?.planning_uid||'').trim();
+   if(!sessionUid)return [];
+   const sessionTitle=plainText(se?.titre)||'Séance '+(sessionIndex+1);
+   const session={uid:sessionUid,type:'session',chapterIndex,sessionIndex,chapterTitle,sessionTitle};
+   const seenDocuments=new Set();
+   const activities=(Array.isArray(se?.activites)?se.activites:[]).flatMap(entry=>{
+    const info=atelierActivityInfo(entry);
+    if(!info||seenDocuments.has(info.docId))return [];
+    seenDocuments.add(info.docId);
+    return [{uid:'atelier:'+sessionUid+':'+info.docId,type:'atelier-activity',chapterIndex,sessionIndex,
+     chapterTitle,sessionUid,docId:info.docId,ficheHref:info.ficheHref,
+     parentSessionTitle:sessionTitle,sessionTitle:'🧪 '+info.title}];
+   });
+   return [session,...activities];
+  });
   return [...fields.slice(0,3).map(part),...sessions,...fields.slice(3).map(part)];
  });
 }
@@ -467,10 +498,16 @@ async function getCahierSessions(className){
 function linkedIds(o){return window.PlanningKinds?.linkedIds(o)||[o.cahier_planning_uid].filter(Boolean)}
 function cahierElementHref(className,item){
  const cls=encodeURIComponent(className||'');
- return item.type==='session'
-  ?'prof.html?classe='+cls+'&planning_uid='+encodeURIComponent(item.uid)
-  :'prof.html?classe='+cls+'&planning_chapter='+encodeURIComponent(item.chapterIndex)
-   +'&planning_part='+encodeURIComponent(item.part);
+ if(item.type==='session')return 'prof.html?classe='+cls+'&planning_uid='+encodeURIComponent(item.uid);
+ if(item.type==='atelier-activity')return item.ficheHref||'atelier.html?doc='+encodeURIComponent(item.docId);
+ return 'prof.html?classe='+cls+'&planning_chapter='+encodeURIComponent(item.chapterIndex)+'&planning_part='+encodeURIComponent(item.part);
+}
+function atelierEditHref(item){
+ return item?.type==='atelier-activity'?'atelier.html?doc='+encodeURIComponent(item.docId):'';
+}
+function atelierSessionHref(className,item){
+ return item?.type==='atelier-activity'?'prof.html?classe='+encodeURIComponent(className)
+  +'&planning_uid='+encodeURIComponent(item.sessionUid)+'&planning_atelier_doc='+encodeURIComponent(item.docId):'';
 }
 function plainText(value){const el=document.createElement('div');el.innerHTML=String(value??'');return (el.textContent||el.innerText||'').trim()}
 /* Phase 8 : confirmation explicite du seul état, pas de modification du cahier. */
