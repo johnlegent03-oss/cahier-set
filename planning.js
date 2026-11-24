@@ -208,9 +208,9 @@ function renderGrid(){
    const ids=linkedIds(o);
    const elements=ids.map(uid=>state.cahierSessionsByUid[o.class_name+'::'+uid]).filter(Boolean);
    const linkedHtml=elements.length?'<div class="planning-course-links">'+elements.map((item,n)=>
-    '<small class="planning-linked-title">'+(ids.length>1?(n+1)+'. ':'')+esc(item.chapterTitle)+' — '+esc(item.sessionTitle)+'</small>').join('')+'</div>'
+    '<small class="planning-linked-title">'+(ids.length>1?(n+1)+'. ':'')+esc(item.chapterTitle)+' — '+esc(item.type==='atelier-activity'?item.parentSessionTitle+' / '+item.sessionTitle:item.sessionTitle)+'</small>').join('')+'</div>'
     :ids.length?'<small class="planning-linked-title">⚠ Élément du cahier introuvable</small>':'';
-   const hrefs=elements.map(item=>'<a class="planning-open-session" href="'+esc(cahierElementHref(o.class_name,item))+'" title="Ouvrir cet élément du cahier">↗ '+esc(item.sessionTitle)+'</a>').join('');
+   const hrefs=elements.map(item=>'<a class="planning-open-session" href="'+esc(cahierElementHref(o.class_name,item))+'" title="'+esc(item.type==='atelier-activity'?'Ouvrir la fiche de l’atelier':'Ouvrir cet élément du cahier')+'">↗ '+esc(item.sessionTitle)+'</a>').join('');
    const quickDone=window.PlanningCompletion?.eligible(o,iso(new Date()))?'<button type="button" class="planning-quick-done" data-quick-done="'+esc(o.id)+'" title="Confirmer ce cours comme effectué">✓ Effectué</button>':'';
    return '<div class="planning-course-wrap"><button class="planning-course" data-occ="'+esc(o.id)+'" style="--course-color:'+colorFor(o.class_name)+'">'
     +esc(o.class_name||o.title||'Événement')+'<small>'+esc(o.start_time.slice(0,5))+'–'+esc(o.end_time.slice(0,5))+' · '+statusLabel(o.status)+'</small>'
@@ -287,7 +287,7 @@ function renderFollowup(){
  const list='<p class="planning-muted">'+all.length+' créneau(x) correspondant(s)'+
   (all.length>max?' · '+max+' premiers affichés':'')+' — année scolaire en cours.</p>'+
   (visible.length?'<div class="planning-followup-rows">'+visible.map(o=>{
-   const linked=state.cahierSessionsByUid[o.uid]||
+   const linked=state.cahierSessionsByUid[o.class_name+'::'+o.uid]||
     (state.followupLoadedClass===o.class_name?(state.followupSessions||[]).find(s=>s.uid===o.uid):null);
    const headline=o.kind!=='cours'
     ?'Activité : '+(window.PlanningKinds?.descriptor(o.kind).label||o.kind)
@@ -576,7 +576,7 @@ async function editOccurrence(id){
   +'<div class="planning-field"><label>Type de créneau</label><select class="planning-select" name="kind">'+kindOptions+'</select></div>'
   +'<div class="planning-field"><label>État</label><select class="planning-select" name="status">'+['planned','completed','postponed','cancelled'].map(s=>'<option value="'+s+'" '+(s===o.status?'selected':'')+'>'+statusLabel(s)+'</option>').join('')+'</select></div>'
   +'<div class="planning-field full"><label>Éléments du cahier associés (plusieurs possibles)</label>'
-  +'<small class="planning-muted">Ajoute autant de séances, de germoirs ou de parties du bilan que nécessaire. Les flèches définissent leur ordre dans ce créneau.</small>'
+  +'<small class="planning-muted">Ajoute autant de séances, de germoirs ou de parties du bilan que nécessaire. Les fiches liées depuis l’atelier figurent sous chaque séance. Les flèches définissent leur ordre dans ce créneau.</small>'
   +'<div id="planningSelectedItems" class="planning-linked-items" aria-live="polite"></div>'
   +'<div class="planning-add-link"><select class="planning-select" id="planningElementChoice" aria-label="Élément du cahier à ajouter"></select>'
   +'<button type="button" class="planning-btn" id="planningAddLinkedElement">＋ Ajouter</button></div></div>'
@@ -592,7 +592,11 @@ async function editOccurrence(id){
    const item=byUid.get(uid);
    const title=item?item.sessionTitle:'Élément précédemment associé introuvable';
    const chapter=item?item.chapterTitle:uid;
-   const href=item?'<a href="'+esc(cahierElementHref(pickerClass,item))+'" target="_blank" rel="noopener">Ouvrir dans l’éditeur ↗</a>':'';
+   const href=item?(item.type==='atelier-activity'
+   ?'<a href="'+esc(cahierElementHref(pickerClass,item))+'" target="_blank" rel="noopener">Ouvrir la fiche ↗</a> · '
+    +'<a href="'+esc(atelierEditHref(item))+'" target="_blank" rel="noopener">Modifier dans l’atelier ↗</a> · '
+    +'<a href="'+esc(atelierSessionHref(pickerClass,item))+'" target="_blank" rel="noopener">Voir dans la séance ↗</a>'
+   :'<a href="'+esc(cahierElementHref(pickerClass,item))+'" target="_blank" rel="noopener">Ouvrir dans l’éditeur ↗</a>'):'';
    return '<div class="planning-linked-item'+(item?'':' is-missing')+'"><div><strong>'+(index+1)+'. '+esc(title)+'</strong>'
     +'<small>'+esc(chapter)+'</small>'+href+'</div><div class="planning-linked-actions">'
     +'<button type="button" data-link-action="up" data-link-index="'+index+'" '+(index===0?'disabled':'')+' title="Monter">↑</button>'
@@ -604,7 +608,7 @@ async function editOccurrence(id){
   let options='<option value="">— Choisir un élément du cahier —</option>';
   for(const item of available){
    if(item.chapterIndex!==lastChapter){if(lastChapter!==-1)options+='</optgroup>';options+='<optgroup label="'+esc(item.chapterTitle)+'">';lastChapter=item.chapterIndex;}
-   options+='<option value="'+esc(item.uid)+'">'+esc(item.sessionTitle)+'</option>';
+   options+='<option value="'+esc(item.uid)+'">'+esc(item.type==='atelier-activity'?'　↳ '+item.sessionTitle:item.sessionTitle)+'</option>';
   }
   if(lastChapter!==-1)options+='</optgroup>';
   $('#planningElementChoice').innerHTML=options;
@@ -847,7 +851,7 @@ async function openPlanningBulk(){
    const sessionOptions=(chosen)=>'<option value="">— Ne pas associer ce créneau —</option>'
     +window.PlanningKinds.types.filter(t=>t.value!=='cours').map(t=>'<option value="kind:'+esc(t.value)+'">'+esc(t.icon+' '+t.label)+'</option>').join('')
     +elements.map(session=>'<option value="'+esc(session.uid)+'"'
-    +(session.uid===chosen?' selected':'')+'>'+esc(session.chapterTitle+' — '+session.sessionTitle)+'</option>').join('');
+    +(session.uid===chosen?' selected':'')+'>'+esc(session.chapterTitle+' — '+(session.type==='atelier-activity'?session.parentSessionTitle+' / ':'')+session.sessionTitle)+'</option>').join('');
    const rows=proposal.items.map(x=>'<tr><td>'+esc(x.session_date)+'</td><td>'
     +esc(x.start_time.slice(0,5))+'–'+esc(x.end_time.slice(0,5))+'</td><td>'
     +'<select class="planning-select planning-bulk-choice" data-occ-id="'+esc(x.id)+'"'
@@ -862,7 +866,7 @@ async function openPlanningBulk(){
     +proposal.stats.exceptions+' créneau(x) particuliers ignorés.</p>'
     +(rows?'<div class="planning-bulk-table"><table><thead><tr><th>Date</th><th>Horaire</th><th>Élément à associer (modifiable)</th></tr></thead><tbody>'+rows+'</tbody></table></div>':
       '<p class="planning-muted">Aucun créneau libre compatible ou aucune séance du cahier restante sur cette période.</p>')
-    +'<p class="planning-muted"><strong>Important :</strong> la répartition automatique est une suggestion. Choisis une séance, une évaluation, une intervention, une sortie ou une absence. Tu peux aussi choisir le germoir, la carte mentale, la fiche de mémorisation ou l’évaluation. Pour plusieurs éléments dans la même heure, ouvre ensuite le créneau dans « Ma semaine ». Les liens existants et les horaires restent inchangés.</p>';
+    +'<p class="planning-muted"><strong>Important :</strong> la répartition automatique est une suggestion. Choisis une séance, une évaluation, une intervention, une sortie ou une absence. Tu peux aussi choisir le germoir, la carte mentale, la fiche de mémorisation ou l’évaluation. Les fiches de l’atelier liées à une séance sont proposées séparément. Pour plusieurs éléments dans la même heure, ouvre ensuite le créneau dans « Ma semaine ». Les liens existants et les horaires restent inchangés.</p>';
    updateSelectedCount();
   }catch(err){notify('Prévisualisation impossible : '+err.message,true)}
  });
