@@ -20,6 +20,10 @@
  <button type="button" class="trame-btn" id="trameAddChapter">＋ Ajouter un chapitre</button>
 </section>
 <p class="trame-helper">Modifie ici les intitulés <strong>théoriques</strong> et relie les activités déjà enregistrées dans ton atelier. La trame ne modifie aucun cahier d'élèves et n'impose aucune date. Tu pourras ensuite importer sa structure dans une classe ou l'utiliser dans ton planning.</p>
+<details class="trame-setup"><summary>Première utilisation : installer le stockage Supabase</summary>
+ <p>Cette bibliothèque nécessite une table privée <code>svt_trames</code>, distincte des cahiers. Ouvre <strong>Supabase → SQL Editor</strong>, colle et exécute le script ci-dessous une seule fois. La trame pourra ensuite être enregistrée et réutilisée dans les autres pages du site.</p>
+ <p><a href="propositions-sql/svt_trames.sql" target="_blank" rel="noopener">Afficher le script SQL d'installation</a></p>
+</details>
 <section id="trameChapters" class="trame-chapters" aria-label="Chapitres et séances"><p>Chargement de ta trame…</p></section>
 </main>
 <div id="trameBankModal" class="trame-modal" hidden>
