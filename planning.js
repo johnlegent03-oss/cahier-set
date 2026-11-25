@@ -51,17 +51,65 @@ async function query(table,method='select',payload=null,filters=[]){
  }
  return data||[];
 }
+/* Mise à jour ciblée de l'ancien créneau du jeudi pour les 6e3.
+   Les occurrences déjà générées gardent leurs identifiants, liens, notes et états.
+   Ne modifie jamais un cours déplacé à un autre horaire ou un autre jour. */
+async function correctThursday6e3Start(){
+ if(!state.period||!state.user)return {slots:0,courses:0};
+ const candidates=state.slots.filter(slot=>Number(slot.weekday)===4
+  &&slot.class_name==='6e3'
+  &&String(slot.end_time||'').slice(0,5)==='11:30'
+  &&['10:20','10:40'].includes(String(slot.start_time||'').slice(0,5)));
+ let fixedSlots=0,fixedCourses=0;
+ for(const slot of candidates){
+  const outdated=state.occurrences.filter(occ=>String(occ.slot_id||'')===String(slot.id)
+   &&occ.class_name==='6e3'
+   &&String(occ.start_time||'').slice(0,5)==='10:20'
+   &&String(occ.end_time||'').slice(0,5)==='11:30'
+   &&dateFrom(occ.session_date).getDay()===4);
+  for(let offset=0;offset<outdated.length;offset+=100){
+   const ids=outdated.slice(offset,offset+100).map(occ=>occ.id);
+   const {data,error}=await client().from('planning_session_occurrences')
+    .update({start_time:'10:40:00'})
+    .eq('owner_id',state.user.id).eq('period_id',state.period.id)
+    .eq('slot_id',slot.id).eq('class_name','6e3')
+    .eq('start_time','10:20:00').eq('end_time','11:30:00')
+    .in('id',ids).select('id');
+   if(error)throw new Error('Correction des cours du jeudi impossible : '+error.message);
+   fixedCourses+=(data||[]).length;
+  }
+  if(String(slot.start_time||'').slice(0,5)==='10:20'){
+   const {data,error}=await client().from('planning_slots')
+    .update({start_time:'10:40:00'})
+    .eq('id',slot.id).eq('owner_id',state.user.id)
+    .eq('period_id',state.period.id).eq('weekday',4)
+    .eq('class_name','6e3').eq('start_time','10:20:00')
+    .eq('end_time','11:30:00').select('id');
+   if(error)throw new Error('Correction du créneau récurrent impossible : '+error.message);
+   fixedSlots+=(data||[]).length;
+  }
+ }
+ if(fixedSlots||fixedCourses)await loadPeriod();
+ return {slots:fixedSlots,courses:fixedCourses};
+}
 async function init(){
  document.body.classList.add('planning-page');
  try{
   const {data:{session},error}=await client().auth.getSession();if(error)throw error;
   if(!session?.user)throw new Error('Session professeur absente. Connecte-toi depuis l’espace professeur.');
   state.user=session.user;
-  await loadPeriod();restorePlanningNav();
+  await loadPeriod();
+   let timetableCorrection={slots:0,courses:0};
+   try{timetableCorrection=await correctThursday6e3Start();}
+   catch(error){console.error('Correction du jeudi 6e3 :',error);notify(error.message||'Impossible de corriger le créneau du jeudi 6e3.',true);}
+   restorePlanningNav();
   // Ne pas masquer les étapes de configuration derrière un planning vide.
   if(!state.period||!state.slots.length||!state.occurrences.length)state.tab='settings';
   if(!state.weekPattern)state.weekPattern=weekPatternFor(state.weekStart);
-  render();if(Number.isFinite(state._restoreScroll))requestAnimationFrame(()=>{window.scrollTo({top:state._restoreScroll,left:0,behavior:'auto'});savePlanningNav();delete state._restoreScroll;});
+  render();
+   if(timetableCorrection.slots||timetableCorrection.courses)
+    notify('Jeudi 6e3 corrigé : 10h40–11h30. '+timetableCorrection.courses+' cours existant(s) mis à jour, sans modifier leurs associations.');
+   if(Number.isFinite(state._restoreScroll))requestAnimationFrame(()=>{window.scrollTo({top:state._restoreScroll,left:0,behavior:'auto'});savePlanningNav();delete state._restoreScroll;});
  }catch(e){notify(e.message||'Impossible de charger le Planning.',true)}
 }
 async function loadPeriod(){
@@ -702,7 +750,7 @@ const DEFAULT_SLOTS = [
  // Jeudi
  [4,'08:30','09:25','6e5','AB'],
  [4,'09:25','10:20','3e3','AB'],
- [4,'10:20','11:30','6e3','AB'],
+ [4,'10:40','11:30','6e3','AB'],
  [4,'11:30','12:25','6e3','AB'],
  [4,'13:45','14:40','6e3','AB'],
  [4,'15:50','16:45','6e2','AB'],
