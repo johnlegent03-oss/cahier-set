@@ -276,7 +276,7 @@ function renderGrid(){
    const linkedHtml=elements.length?'<div class="planning-course-links">'+elements.map((item,n)=>
     '<small class="planning-linked-title">'+(ids.length>1?(n+1)+'. ':'')+esc(item.chapterTitle)+' — '+esc(item.type==='atelier-activity'?item.parentSessionTitle+' / '+item.sessionTitle:item.sessionTitle)+'</small>').join('')+'</div>'
     :ids.length?'<small class="planning-linked-title">⚠ Élément du cahier introuvable</small>':'';
-   const hrefs=elements.map(item=>'<a class="planning-open-session" href="'+esc(cahierElementHref(o.class_name,item))+'" title="'+esc(item.type==='atelier-activity'?'Ouvrir la fiche de l’atelier':'Ouvrir cet élément du cahier')+'">↗ '+esc(item.sessionTitle)+'</a>').join('');
+   const hrefs=elements.map(item=>'<a class="planning-open-session" href="'+esc(cahierElementHref(o.class_name,item))+'" title="'+esc(item.type==='atelier-bank'?'Ouvrir la fiche dans l’atelier':item.type==='atelier-activity'?'Ouvrir la fiche de l’atelier':'Ouvrir cet élément du cahier')+'">↗ '+esc(item.sessionTitle)+'</a>').join('');
    const quickDone=window.PlanningCompletion?.eligible(o,iso(new Date()))?'<button type="button" class="planning-quick-done" data-quick-done="'+esc(o.id)+'" title="Confirmer ce cours comme effectué">✓ Effectué</button>':'';
    return '<div class="planning-course-wrap"><button class="planning-course" data-occ="'+esc(o.id)+'" style="--course-color:'+colorFor(o.class_name)+'">'
     +esc(o.class_name||o.title||'Événement')+'<small>'+esc(o.start_time.slice(0,5))+'–'+esc(o.end_time.slice(0,5))+' · '+statusLabel(o.status)+'</small>'
@@ -708,8 +708,10 @@ async function editOccurrence(id){
   +'<div class="planning-draft-add"><select class="planning-select" id="planningDraftType" aria-label="Type de préparation"><option value="seance">📘 Séance à prévoir</option><option value="activite">🧪 Activité à prévoir</option></select>'
   +'<input class="planning-input" id="planningDraftTitle" type="text" maxlength="160" placeholder="Ex. Séance 4 — Comprendre la digestion" aria-label="Intitulé de la préparation">'
   +'<button type="button" class="planning-btn" id="planningDraftAdd">＋ Prévoir</button></div></div>'
-  +'<div class="planning-field full"><label>Éléments du cahier associés (plusieurs possibles)</label>'
-  +'<small class="planning-muted">Ajoute des séances, des fiches de l’atelier ou des éléments de bilan. Les fiches liées à une séance apparaissent automatiquement dans la semaine, même sans sélection individuelle. Les fiches liées depuis l’atelier figurent sous chaque séance. Les flèches définissent leur ordre dans ce créneau.</small>'
+  +'<div class="planning-field full"><label>Associer des éléments existants : cahier OU banque de l’atelier</label>'
+  +'<small class="planning-muted">Choisis directement une fiche déjà enregistrée dans ton atelier, même si elle n’a pas encore été publiée dans le cahier. Plusieurs activités peuvent être associées au même créneau, sans publication automatique.</small>'
+ +'<input id="planningElementSearch" class="planning-input" type="search" placeholder="Rechercher une fiche de l’atelier, une séance, une classe…" aria-label="Rechercher dans le cahier et la banque de l’atelier">'
+ +'<small id="planningElementCount" class="planning-muted" aria-live="polite"></small>'
   +'<div id="planningSelectedItems" class="planning-linked-items" aria-live="polite"></div>'
   +'<div class="planning-add-link"><select class="planning-select" id="planningElementChoice" aria-label="Élément du cahier à ajouter"></select>'
   +'<button type="button" class="planning-btn" id="planningAddLinkedElement">＋ Ajouter</button></div></div>'
@@ -724,24 +726,35 @@ async function editOccurrence(id){
   $('#planningSelectedItems').innerHTML=selected.length?selected.map((uid,index)=>{
    const item=byUid.get(uid);
    const title=item?item.sessionTitle:'Élément précédemment associé introuvable';
-   const chapter=item?item.chapterTitle:uid;
-   const href=item?(item.type==='atelier-activity'
-   ?'<a href="'+esc(cahierElementHref(pickerClass,item))+'" target="_blank" rel="noopener">Ouvrir la fiche ↗</a> · '
-    +'<a href="'+esc(atelierEditHref(item))+'" target="_blank" rel="noopener">Modifier dans l’atelier ↗</a> · '
-    +'<a href="'+esc(atelierSessionHref(pickerClass,item))+'" target="_blank" rel="noopener">Voir dans la séance ↗</a>'
-   :'<a href="'+esc(cahierElementHref(pickerClass,item))+'" target="_blank" rel="noopener">Ouvrir dans l’éditeur ↗</a>'):'';
+   const chapter=item?item.chapterTitle+(item.type==='atelier-bank'&&item.atelierClass?' · enregistrée pour '+item.atelierClass:''):uid;
+   const href=item?(item.type==='atelier-bank'
+    ?'<a href="'+esc(cahierElementHref(pickerClass,item))+'" target="_blank" rel="noopener">Ouvrir dans l’atelier ↗</a>'
+    :item.type==='atelier-activity'
+     ?'<a href="'+esc(cahierElementHref(pickerClass,item))+'" target="_blank" rel="noopener">Ouvrir la fiche ↗</a> · '
+      +'<a href="'+esc(atelierEditHref(item))+'" target="_blank" rel="noopener">Modifier dans l’atelier ↗</a> · '
+      +'<a href="'+esc(atelierSessionHref(pickerClass,item))+'" target="_blank" rel="noopener">Voir dans la séance ↗</a>'
+     :'<a href="'+esc(cahierElementHref(pickerClass,item))+'" target="_blank" rel="noopener">Ouvrir dans l’éditeur ↗</a>'):'';
    return '<div class="planning-linked-item'+(item?'':' is-missing')+'"><div><strong>'+(index+1)+'. '+esc(title)+'</strong>'
     +'<small>'+esc(chapter)+'</small>'+href+'</div><div class="planning-linked-actions">'
     +'<button type="button" data-link-action="up" data-link-index="'+index+'" '+(index===0?'disabled':'')+' title="Monter">↑</button>'
     +'<button type="button" data-link-action="down" data-link-index="'+index+'" '+(index===selected.length-1?'disabled':'')+' title="Descendre">↓</button>'
     +'<button type="button" data-link-action="remove" data-link-index="'+index+'" title="Retirer">✕</button></div></div>';
   }).join(''):'<p class="planning-muted">Aucun élément associé à ce créneau.</p>';
-  const available=elements.filter(item=>!selected.includes(item.uid));
+  const search=String($('#planningElementSearch').value||'').trim().toLocaleLowerCase('fr-FR');
+  const allAvailable=elements.filter(item=>!selected.includes(item.uid));
+  const available=allAvailable.filter(item=>!search||[
+   item.sessionTitle,item.chapterTitle,item.atelierClass,item.atelierChapter,item.parentSessionTitle
+  ].some(text=>String(text||'').toLocaleLowerCase('fr-FR').includes(search)));
+  $('#planningElementCount').textContent=available.length+' élément(s) trouvé(s)'+
+   (search?' sur '+allAvailable.length+' disponibles':'')+
+   (state.atelierBankError?' · Banque de l’atelier indisponible : '+state.atelierBankError:'');
   let lastChapter=-1;
-  let options='<option value="">— Choisir un élément du cahier —</option>';
+  let options='<option value="">— Sélectionner une séance ou une fiche de l’atelier —</option>';
   for(const item of available){
    if(item.chapterIndex!==lastChapter){if(lastChapter!==-1)options+='</optgroup>';options+='<optgroup label="'+esc(item.chapterTitle)+'">';lastChapter=item.chapterIndex;}
-   options+='<option value="'+esc(item.uid)+'">'+esc(item.type==='atelier-activity'?'　↳ '+item.sessionTitle:item.sessionTitle)+'</option>';
+   options+='<option value="'+esc(item.uid)+'">'+esc(item.type==='atelier-activity'
+    ?'　↳ '+item.sessionTitle
+    :item.sessionTitle+(item.type==='atelier-bank'&&item.atelierClass?' · '+item.atelierClass:''))+'</option>';
   }
   if(lastChapter!==-1)options+='</optgroup>';
   $('#planningElementChoice').innerHTML=options;
@@ -764,7 +777,7 @@ async function editOccurrence(id){
     +'<label class="planning-draft-field">Intitulé<input class="planning-input" maxlength="160" data-draft-field="title" data-draft-index="'+index+'" value="'+esc(item.title)+'"></label>'
     +'<label class="planning-draft-field">Notes facultatives (objectif, matériel, déroulement…)<textarea class="planning-textarea" rows="2" maxlength="1500" data-draft-field="detail" data-draft-index="'+index+'">'+esc(item.detail)+'</textarea></label>'
     +'<div class="planning-draft-connect"><select class="planning-select" data-draft-target="'+index+'" aria-label="Choisir l’élément du cahier qui remplace cette préparation" '+(!available.length?'disabled':'')+'>'+options+'</select>'
-    +'<button class="planning-btn" type="button" data-draft-action="connect" data-draft-index="'+index+'" '+(!available.length?'disabled':'')+'>Remplacer par le lien du cahier</button></div></div>'
+    +'<button class="planning-btn" type="button" data-draft-action="connect" data-draft-index="'+index+'" '+(!available.length?'disabled':'')+'>Remplacer par un élément existant</button></div></div>'
   ).join(''):'<p class="planning-muted">Aucune préparation. Tu peux commencer même si tu n’as encore rien créé dans le cahier.</p>';
   $('#planningDraftAdd').disabled=drafts.length>=60;
  };
@@ -795,13 +808,14 @@ async function editOccurrence(id){
   else if(action==='connect'){
    const uid=$('#planningDraftItems').querySelector('[data-draft-target="'+index+'"]')?.value;
    if(!uid||selected.includes(uid)||!elements.some(item=>item.uid===uid))
-    return notify('Sélectionne une séance ou une activité existante dans le cahier.',true);
-   if(drafts[index].detail.trim()&&!confirm('Cette préparation contient des notes. Les remplacer par le lien du cahier effacera ces notes privées. Continuer ?'))return;
+    return notify('Sélectionne une séance du cahier ou une fiche existante dans l’atelier.',true);
+   if(drafts[index].detail.trim()&&!confirm('Cette préparation contient des notes. Les remplacer par un lien existant effacera ces notes privées. Continuer ?'))return;
    selected.push(uid);drafts.splice(index,1);renderPicker();
   }
   renderDrafts();
  });
  renderPicker();
+ $('#planningElementSearch').addEventListener('input',renderPicker);
  $('#occCancel').onclick=closeModal;
  $('#planningAddLinkedElement').onclick=()=>{
   const uid=$('#planningElementChoice').value;
