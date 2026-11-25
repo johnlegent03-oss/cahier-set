@@ -277,10 +277,16 @@ function renderGrid(){
     return item.type==='session'?[item,...(state.atelierActivitiesBySession[o.class_name+'::'+item.uid]||[])
      .filter(child=>!explicit.has(child.uid))]:[item];
    });
-   const linkedHtml=elements.length?'<div class="planning-course-links">'+elements.map((item,n)=>
+   const seenDocuments=new Set();
+   const displayed=elements.filter(item=>{
+    if(!['atelier-bank','atelier-activity'].includes(item.type))return true;
+    if(seenDocuments.has(item.docId))return false;
+    seenDocuments.add(item.docId);return true;
+   });
+   const linkedHtml=displayed.length?'<div class="planning-course-links">'+displayed.map((item,n)=>
     '<small class="planning-linked-title">'+(ids.length>1?(n+1)+'. ':'')+esc(item.chapterTitle)+' — '+esc(item.type==='atelier-activity'?item.parentSessionTitle+' / '+item.sessionTitle:item.sessionTitle)+'</small>').join('')+'</div>'
     :ids.length?'<small class="planning-linked-title">⚠ Élément du cahier introuvable</small>':'';
-   const hrefs=elements.map(item=>'<a class="planning-open-session" href="'+esc(cahierElementHref(o.class_name,item))+'" title="'+esc(item.type==='atelier-bank'?'Ouvrir la fiche dans l’atelier':item.type==='atelier-activity'?'Ouvrir la fiche de l’atelier':'Ouvrir cet élément du cahier')+'">↗ '+esc(item.sessionTitle)+'</a>').join('');
+   const hrefs=displayed.map(item=>'<a class="planning-open-session" href="'+esc(cahierElementHref(o.class_name,item))+'" title="'+esc(item.type==='atelier-bank'?'Ouvrir la fiche dans l’atelier':item.type==='atelier-activity'?'Ouvrir la fiche de l’atelier':'Ouvrir cet élément du cahier')+'">↗ '+esc(item.sessionTitle)+'</a>').join('');
    const quickDone=window.PlanningCompletion?.eligible(o,iso(new Date()))?'<button type="button" class="planning-quick-done" data-quick-done="'+esc(o.id)+'" title="Confirmer ce cours comme effectué">✓ Effectué</button>':'';
    return '<div class="planning-course-wrap"><button class="planning-course" data-occ="'+esc(o.id)+'" style="--course-color:'+colorFor(o.class_name)+'">'
     +esc(o.class_name||o.title||'Événement')+'<small>'+esc(o.start_time.slice(0,5))+'–'+esc(o.end_time.slice(0,5))+' · '+statusLabel(o.status)+'</small>'
