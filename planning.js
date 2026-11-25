@@ -5,7 +5,7 @@ const $ = (s,root=document) => root.querySelector(s);
 const $$ = (s,root=document) => [...root.querySelectorAll(s)];
 const CLASSES = ['6e1','6e2','6e3','6e4','6e5','5e1','5e3','5e5','3e2','3e3'];
 const DAYS = ['Lundi','Mardi','Mercredi','Jeudi','Vendredi'];
-const state = {user:null,period:null,slots:[],occurrences:[],events:[],cahierSessionsByUid:{},atelierActivitiesBySession:{},weekStart:mondayOf(new Date()),weekPattern:'',view:'week',tab:'planning',busy:false,
+const state = {user:null,period:null,slots:[],occurrences:[],events:[],cahierSessionsByUid:{},atelierActivitiesBySession:{},atelierBankPromise:null,atelierBankError:'',weekStart:mondayOf(new Date()),weekPattern:'',view:'week',tab:'planning',busy:false,
  followupClass:'',followupFilter:'missing',followupSessions:null,followupLoadedClass:'',followupLoading:false,followupError:'',followupRequest:0,quickDoneBusy:false,remarksRows:null,remarksLoading:false,remarksError:'',remarksRequest:0,remarksFrom:'',remarksTo:''};
 const NAV_KEY='svt.planning.navigation.v1';
 function savePlanningNav(){if(!state.user)return;try{localStorage.setItem(NAV_KEY+':'+state.user.id,JSON.stringify({weekStart:iso(state.weekStart),tab:state.tab,weekPattern:state.weekPattern,scrollY:window.scrollY||0}));}catch(e){}}
@@ -113,11 +113,12 @@ async function init(){
  }catch(e){notify(e.message||'Impossible de charger le Planning.',true)}
 }
 async function loadPeriod(){
+ state.atelierBankPromise=null;state.atelierBankError='';
  const rows=await query('planning_periods','select',null,[['owner_id','eq',state.user.id]]);
  const today=iso(new Date());
  state.period=rows.find(p=>p.start_date<=today&&p.end_date>=today)||rows.sort((a,b)=>b.start_date.localeCompare(a.start_date))[0]||null;
  if(!state.period){
-  state.slots=[];state.occurrences=[];state.events=[];state.cahierSessionsByUid={};state.atelierActivitiesBySession={};
+  state.slots=[];state.occurrences=[];state.events=[];state.cahierSessionsByUid={};state.atelierActivitiesBySession={};state.atelierBankPromise=null;state.atelierBankError='';
   state.followupSessions=null;state.followupLoadedClass='';state.followupRequest++;state.followupLoading=false;
  state.remarksRows=null;state.remarksLoading=false;state.remarksError='';state.remarksRequest++;
   state.tab='settings';
@@ -138,7 +139,11 @@ async function loadLinkedCahierSessions(){
  const linked=state.occurrences.filter(o=>linkedIds(o).length);
  const classes=[...new Set(linked.map(o=>o.class_name).filter(Boolean))];
  await Promise.all(classes.map(async className=>{
-  try{const elements=await getCahierElements(className);elements.forEach(item=>{
+  try{
+   const neededBankIds=new Set(linked.filter(o=>o.class_name===className).flatMap(o=>linkedIds(o))
+    .filter(uid=>uid.startsWith('atelier-doc:')));
+   const elements=await getPlanningElements(className);elements.forEach(item=>{
+    if(item.type==='atelier-bank'&&!neededBankIds.has(item.uid))return;
     const linked={...item,className};
     state.cahierSessionsByUid[className+'::'+item.uid]=linked;
     if(item.type==='atelier-activity'){
@@ -272,10 +277,16 @@ function renderGrid(){
     return item.type==='session'?[item,...(state.atelierActivitiesBySession[o.class_name+'::'+item.uid]||[])
      .filter(child=>!explicit.has(child.uid))]:[item];
    });
-   const linkedHtml=elements.length?'<div class="planning-course-links">'+elements.map((item,n)=>
+   const seenDocuments=new Set();
+   const displayed=elements.filter(item=>{
+    if(!['atelier-bank','atelier-activity'].includes(item.type))return true;
+    if(seenDocuments.has(item.docId))return false;
+    seenDocuments.add(item.docId);return true;
+   });
+   const linkedHtml=displayed.length?'<div class="planning-course-links">'+displayed.map((item,n)=>
     '<small class="planning-linked-title">'+(ids.length>1?(n+1)+'. ':'')+esc(item.chapterTitle)+' — '+esc(item.type==='atelier-activity'?item.parentSessionTitle+' / '+item.sessionTitle:item.sessionTitle)+'</small>').join('')+'</div>'
     :ids.length?'<small class="planning-linked-title">⚠ Élément du cahier introuvable</small>':'';
-   const hrefs=elements.map(item=>'<a class="planning-open-session" href="'+esc(cahierElementHref(o.class_name,item))+'" title="'+esc(item.type==='atelier-activity'?'Ouvrir la fiche de l’atelier':'Ouvrir cet élément du cahier')+'">↗ '+esc(item.sessionTitle)+'</a>').join('');
+   const hrefs=displayed.map(item=>'<a class="planning-open-session" href="'+esc(cahierElementHref(o.class_name,item))+'" title="'+esc(item.type==='atelier-bank'?'Ouvrir la fiche dans l’atelier':item.type==='atelier-activity'?'Ouvrir la fiche de l’atelier':'Ouvrir cet élément du cahier')+'">↗ '+esc(item.sessionTitle)+'</a>').join('');
    const quickDone=window.PlanningCompletion?.eligible(o,iso(new Date()))?'<button type="button" class="planning-quick-done" data-quick-done="'+esc(o.id)+'" title="Confirmer ce cours comme effectué">✓ Effectué</button>':'';
    return '<div class="planning-course-wrap"><button class="planning-course" data-occ="'+esc(o.id)+'" style="--course-color:'+colorFor(o.class_name)+'">'
     +esc(o.class_name||o.title||'Événement')+'<small>'+esc(o.start_time.slice(0,5))+'–'+esc(o.end_time.slice(0,5))+' · '+statusLabel(o.status)+'</small>'
@@ -522,6 +533,65 @@ function atelierActivityInfo(entry){
  title=title.replace(/\s*[—–-]\s*Ouvrir la fiche\s*[↗➜→]*\s*$/i,'').replace(/\s+/g,' ').trim();
  return {docId,title:(title||'Fiche d’activité de l’atelier').slice(0,125),ficheHref};
 }
+/* Les fiches de la banque sont accessibles au professeur avant d'être
+   liées au cahier des élèves. Une requête mutualisée évite de relire toute
+   la banque pour chaque classe figurant dans la semaine. */
+function getAtelierBankElements(){
+ if(!state.user?.id)return Promise.resolve([]);
+ if(!state.atelierBankPromise){
+  state.atelierBankPromise=(async()=>{
+   const rows=[],pageSize=500;
+   for(let offset=0;offset<3000;offset+=pageSize){
+    const {data,error}=await client().from('atelier_documents')
+     .select('id,titre,classe,chapitre_titre,document_type,updated_at')
+     .eq('user_id',state.user.id).order('updated_at',{ascending:false})
+     .range(offset,offset+pageSize-1);
+    if(error)throw new Error('Lecture de la banque de l’atelier : '+error.message);
+    const page=data||[];
+    rows.push(...page);
+    if(page.length<pageSize)break;
+   }
+   const seen=new Set();
+   return rows.flatMap(doc=>{
+    const id=String(doc?.id||'').trim();
+    if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)||seen.has(id))return [];
+    seen.add(id);
+    const title=String(doc.titre||'').trim()||'Document sans titre';
+    const iconByType={activite:'🧪',germoir:'🌱',exercice:'✏️',evaluation:'📝',bilan:'🧠',correction:'📄'};
+    const icon=iconByType[String(doc.document_type||'').trim()]||'📄';
+    const atelierClass=String(doc.classe||'').trim();
+    return [{uid:'atelier-doc:'+id,type:'atelier-bank',docId:id,
+     chapterIndex:999999,chapterTitle:'🧪 Banque de l’atelier',
+     sessionTitle:icon+' '+title.slice(0,140),
+     atelierClass,atelierChapter:String(doc.chapitre_titre||'').trim(),
+     documentType:String(doc.document_type||'').trim()}];
+   });
+  })().catch(error=>{
+   state.atelierBankPromise=null;
+   state.atelierBankError=error.message||String(error);
+   throw error;
+  });
+ }
+ return state.atelierBankPromise;
+}
+/* Réunit uniquement dans le planning les séances publiées et les documents
+   personnels de l'atelier. Aucune écriture dans le cahier des élèves. */
+async function getPlanningElements(className){
+ const [cahier,bank]=await Promise.allSettled([getCahierElements(className),getAtelierBankElements()]);
+ if(cahier.status==='rejected'&&bank.status==='rejected')
+  throw new Error('Cahier et atelier indisponibles : '+cahier.reason.message+' ; '+bank.reason.message);
+ if(cahier.status==='rejected')console.warn('Cahier indisponible, banque de l’atelier conservée :',cahier.reason);
+ if(bank.status==='rejected'){
+  console.warn('Banque de l’atelier indisponible, cahier conservé :',bank.reason);
+  state.atelierBankError=bank.reason.message||'Banque indisponible';
+ }
+ const all=bank.status==='fulfilled'?bank.value:[];
+ const sorted=all.slice().sort((a,b)=>{
+  const priority=row=>row.atelierClass===className?0:!row.atelierClass?1:2;
+  return priority(a)-priority(b);
+ });
+ return [...(cahier.status==='fulfilled'?cahier.value:[]),...sorted];
+}
 async function getCahierElements(className){
  const {data,error}=await client().from('Cahier').select('classe,contenu').eq('classe',className).maybeSingle();
  if(error)throw error;
@@ -566,11 +636,12 @@ function linkedIds(o){return window.PlanningKinds?.linkedIds(o)||[o.cahier_plann
 function cahierElementHref(className,item){
  const cls=encodeURIComponent(className||'');
  if(item.type==='session')return 'prof.html?classe='+cls+'&planning_uid='+encodeURIComponent(item.uid);
+ if(item.type==='atelier-bank')return 'atelier.html?doc='+encodeURIComponent(item.docId);
  if(item.type==='atelier-activity')return item.ficheHref||'atelier.html?doc='+encodeURIComponent(item.docId);
  return 'prof.html?classe='+cls+'&planning_chapter='+encodeURIComponent(item.chapterIndex)+'&planning_part='+encodeURIComponent(item.part);
 }
 function atelierEditHref(item){
- return item?.type==='atelier-activity'?'atelier.html?doc='+encodeURIComponent(item.docId):'';
+ return ['atelier-activity','atelier-bank'].includes(item?.type)?'atelier.html?doc='+encodeURIComponent(item.docId):'';
 }
 function atelierSessionHref(className,item){
  return item?.type==='atelier-activity'?'prof.html?classe='+encodeURIComponent(className)
@@ -628,7 +699,7 @@ function openQuickCompletion(id){
 async function editOccurrence(id){
  const o=state.occurrences.find(x=>String(x.id)===String(id));if(!o)return;
  let elements=[];
- try{elements=await getCahierElements(o.class_name)}
+ try{elements=await getPlanningElements(o.class_name)}
  catch(err){notify('Cahier indisponible pour '+o.class_name+' : '+err.message+'. Tu peux néanmoins préparer librement ce créneau.',true);}
  let selected=linkedIds(o);
  let pickerClass=o.class_name;
@@ -649,8 +720,10 @@ async function editOccurrence(id){
   +'<div class="planning-draft-add"><select class="planning-select" id="planningDraftType" aria-label="Type de préparation"><option value="seance">📘 Séance à prévoir</option><option value="activite">🧪 Activité à prévoir</option></select>'
   +'<input class="planning-input" id="planningDraftTitle" type="text" maxlength="160" placeholder="Ex. Séance 4 — Comprendre la digestion" aria-label="Intitulé de la préparation">'
   +'<button type="button" class="planning-btn" id="planningDraftAdd">＋ Prévoir</button></div></div>'
-  +'<div class="planning-field full"><label>Éléments du cahier associés (plusieurs possibles)</label>'
-  +'<small class="planning-muted">Ajoute des séances, des fiches de l’atelier ou des éléments de bilan. Les fiches liées à une séance apparaissent automatiquement dans la semaine, même sans sélection individuelle. Les fiches liées depuis l’atelier figurent sous chaque séance. Les flèches définissent leur ordre dans ce créneau.</small>'
+  +'<div class="planning-field full"><label>Associer des éléments existants : cahier OU banque de l’atelier</label>'
+  +'<small class="planning-muted">Choisis directement une fiche déjà enregistrée dans ton atelier, même si elle n’a pas encore été publiée dans le cahier. Plusieurs activités peuvent être associées au même créneau, sans publication automatique.</small>'
+ +'<input id="planningElementSearch" class="planning-input" type="search" placeholder="Rechercher une fiche de l’atelier, une séance, une classe…" aria-label="Rechercher dans le cahier et la banque de l’atelier">'
+ +'<small id="planningElementCount" class="planning-muted" aria-live="polite"></small>'
   +'<div id="planningSelectedItems" class="planning-linked-items" aria-live="polite"></div>'
   +'<div class="planning-add-link"><select class="planning-select" id="planningElementChoice" aria-label="Élément du cahier à ajouter"></select>'
   +'<button type="button" class="planning-btn" id="planningAddLinkedElement">＋ Ajouter</button></div></div>'
@@ -665,24 +738,35 @@ async function editOccurrence(id){
   $('#planningSelectedItems').innerHTML=selected.length?selected.map((uid,index)=>{
    const item=byUid.get(uid);
    const title=item?item.sessionTitle:'Élément précédemment associé introuvable';
-   const chapter=item?item.chapterTitle:uid;
-   const href=item?(item.type==='atelier-activity'
-   ?'<a href="'+esc(cahierElementHref(pickerClass,item))+'" target="_blank" rel="noopener">Ouvrir la fiche ↗</a> · '
-    +'<a href="'+esc(atelierEditHref(item))+'" target="_blank" rel="noopener">Modifier dans l’atelier ↗</a> · '
-    +'<a href="'+esc(atelierSessionHref(pickerClass,item))+'" target="_blank" rel="noopener">Voir dans la séance ↗</a>'
-   :'<a href="'+esc(cahierElementHref(pickerClass,item))+'" target="_blank" rel="noopener">Ouvrir dans l’éditeur ↗</a>'):'';
+   const chapter=item?item.chapterTitle+(item.type==='atelier-bank'&&item.atelierClass?' · enregistrée pour '+item.atelierClass:''):uid;
+   const href=item?(item.type==='atelier-bank'
+    ?'<a href="'+esc(cahierElementHref(pickerClass,item))+'" target="_blank" rel="noopener">Ouvrir dans l’atelier ↗</a>'
+    :item.type==='atelier-activity'
+     ?'<a href="'+esc(cahierElementHref(pickerClass,item))+'" target="_blank" rel="noopener">Ouvrir la fiche ↗</a> · '
+      +'<a href="'+esc(atelierEditHref(item))+'" target="_blank" rel="noopener">Modifier dans l’atelier ↗</a> · '
+      +'<a href="'+esc(atelierSessionHref(pickerClass,item))+'" target="_blank" rel="noopener">Voir dans la séance ↗</a>'
+     :'<a href="'+esc(cahierElementHref(pickerClass,item))+'" target="_blank" rel="noopener">Ouvrir dans l’éditeur ↗</a>'):'';
    return '<div class="planning-linked-item'+(item?'':' is-missing')+'"><div><strong>'+(index+1)+'. '+esc(title)+'</strong>'
     +'<small>'+esc(chapter)+'</small>'+href+'</div><div class="planning-linked-actions">'
     +'<button type="button" data-link-action="up" data-link-index="'+index+'" '+(index===0?'disabled':'')+' title="Monter">↑</button>'
     +'<button type="button" data-link-action="down" data-link-index="'+index+'" '+(index===selected.length-1?'disabled':'')+' title="Descendre">↓</button>'
     +'<button type="button" data-link-action="remove" data-link-index="'+index+'" title="Retirer">✕</button></div></div>';
   }).join(''):'<p class="planning-muted">Aucun élément associé à ce créneau.</p>';
-  const available=elements.filter(item=>!selected.includes(item.uid));
+  const search=String($('#planningElementSearch').value||'').trim().toLocaleLowerCase('fr-FR');
+  const allAvailable=elements.filter(item=>!selected.includes(item.uid));
+  const available=allAvailable.filter(item=>!search||[
+   item.sessionTitle,item.chapterTitle,item.atelierClass,item.atelierChapter,item.parentSessionTitle
+  ].some(text=>String(text||'').toLocaleLowerCase('fr-FR').includes(search)));
+  $('#planningElementCount').textContent=available.length+' élément(s) trouvé(s)'+
+   (search?' sur '+allAvailable.length+' disponibles':'')+
+   (state.atelierBankError?' · Banque de l’atelier indisponible : '+state.atelierBankError:'');
   let lastChapter=-1;
-  let options='<option value="">— Choisir un élément du cahier —</option>';
+  let options='<option value="">— Sélectionner une séance ou une fiche de l’atelier —</option>';
   for(const item of available){
    if(item.chapterIndex!==lastChapter){if(lastChapter!==-1)options+='</optgroup>';options+='<optgroup label="'+esc(item.chapterTitle)+'">';lastChapter=item.chapterIndex;}
-   options+='<option value="'+esc(item.uid)+'">'+esc(item.type==='atelier-activity'?'　↳ '+item.sessionTitle:item.sessionTitle)+'</option>';
+   options+='<option value="'+esc(item.uid)+'">'+esc(item.type==='atelier-activity'
+    ?'　↳ '+item.sessionTitle
+    :item.sessionTitle+(item.type==='atelier-bank'&&item.atelierClass?' · '+item.atelierClass:''))+'</option>';
   }
   if(lastChapter!==-1)options+='</optgroup>';
   $('#planningElementChoice').innerHTML=options;
@@ -705,7 +789,7 @@ async function editOccurrence(id){
     +'<label class="planning-draft-field">Intitulé<input class="planning-input" maxlength="160" data-draft-field="title" data-draft-index="'+index+'" value="'+esc(item.title)+'"></label>'
     +'<label class="planning-draft-field">Notes facultatives (objectif, matériel, déroulement…)<textarea class="planning-textarea" rows="2" maxlength="1500" data-draft-field="detail" data-draft-index="'+index+'">'+esc(item.detail)+'</textarea></label>'
     +'<div class="planning-draft-connect"><select class="planning-select" data-draft-target="'+index+'" aria-label="Choisir l’élément du cahier qui remplace cette préparation" '+(!available.length?'disabled':'')+'>'+options+'</select>'
-    +'<button class="planning-btn" type="button" data-draft-action="connect" data-draft-index="'+index+'" '+(!available.length?'disabled':'')+'>Remplacer par le lien du cahier</button></div></div>'
+    +'<button class="planning-btn" type="button" data-draft-action="connect" data-draft-index="'+index+'" '+(!available.length?'disabled':'')+'>Remplacer par un élément existant</button></div></div>'
   ).join(''):'<p class="planning-muted">Aucune préparation. Tu peux commencer même si tu n’as encore rien créé dans le cahier.</p>';
   $('#planningDraftAdd').disabled=drafts.length>=60;
  };
@@ -736,13 +820,14 @@ async function editOccurrence(id){
   else if(action==='connect'){
    const uid=$('#planningDraftItems').querySelector('[data-draft-target="'+index+'"]')?.value;
    if(!uid||selected.includes(uid)||!elements.some(item=>item.uid===uid))
-    return notify('Sélectionne une séance ou une activité existante dans le cahier.',true);
-   if(drafts[index].detail.trim()&&!confirm('Cette préparation contient des notes. Les remplacer par le lien du cahier effacera ces notes privées. Continuer ?'))return;
+    return notify('Sélectionne une séance du cahier ou une fiche existante dans l’atelier.',true);
+   if(drafts[index].detail.trim()&&!confirm('Cette préparation contient des notes. Les remplacer par un lien existant effacera ces notes privées. Continuer ?'))return;
    selected.push(uid);drafts.splice(index,1);renderPicker();
   }
   renderDrafts();
  });
  renderPicker();
+ $('#planningElementSearch').addEventListener('input',renderPicker);
  $('#occCancel').onclick=closeModal;
  $('#planningAddLinkedElement').onclick=()=>{
   const uid=$('#planningElementChoice').value;
@@ -762,7 +847,7 @@ async function editOccurrence(id){
   const request=++changeRequest,cls=e.target.value;
   pickerClass=cls;selected=[];elements=[];pickerLoading=true;renderPicker();renderDrafts();
   try{
-   const next=await getCahierElements(cls);
+   const next=await getPlanningElements(cls);
    if(request!==changeRequest||!form.isConnected)return;
    elements=next;
   }catch(error){if(request===changeRequest)notify('Impossible de lire le cahier : '+error.message,true)}
@@ -985,7 +1070,7 @@ async function openPlanningBulk(){
   try{
    if(!state.period||fromDate<state.period.start_date||toDate>state.period.end_date)
     throw new Error('Choisis des dates comprises dans la période scolaire du planning.');
-   const elements=await getCahierElements(className);
+   const elements=await getPlanningElements(className);
     const sessions=elements.filter(item=>item.type==='session');
    const proposal=window.PlanningBatch.plan({
     occurrences:state.occurrences,sessions,className,fromDate,toDate,
@@ -993,11 +1078,13 @@ async function openPlanningBulk(){
    });
    proposed={...proposal,periodId:state.period.id,ownerId:state.user.id,
     baseSignature:planningBulkSignature(proposal),availableSessions:sessions,availableElements:elements};
+   const bankForBulk=elements.filter(item=>item.type==='atelier-bank').slice(0,120);
+   const optionsForBulk=[...elements.filter(item=>item.type!=='atelier-bank'),...bankForBulk];
    const sessionOptions=(chosen)=>'<option value="">— Ne pas associer ce créneau —</option>'
     +'<option value="draft:seance">✏️ Prévoir une séance libre (privée)</option>'
     +'<option value="draft:activite">🧪 Prévoir une activité libre (privée)</option>'
     +window.PlanningKinds.types.filter(t=>t.value!=='cours').map(t=>'<option value="kind:'+esc(t.value)+'">'+esc(t.icon+' '+t.label)+'</option>').join('')
-    +elements.map(session=>'<option value="'+esc(session.uid)+'"'
+    +optionsForBulk.map(session=>'<option value="'+esc(session.uid)+'"'
     +(session.uid===chosen?' selected':'')+'>'+esc(session.chapterTitle+' — '+(session.type==='atelier-activity'?session.parentSessionTitle+' / ':'')+session.sessionTitle)+'</option>').join('');
    const rows=proposal.items.map(x=>'<tr><td>'+esc(x.session_date)+'</td><td>'
     +esc(x.start_time.slice(0,5))+'–'+esc(x.end_time.slice(0,5))+'</td><td>'
@@ -1013,7 +1100,7 @@ async function openPlanningBulk(){
     +proposal.stats.exceptions+' créneau(x) particuliers ignorés.</p>'
     +(rows?'<div class="planning-bulk-table"><table><thead><tr><th>Date</th><th>Horaire</th><th>Élément à associer (modifiable)</th></tr></thead><tbody>'+rows+'</tbody></table></div>':
       '<p class="planning-muted">Aucun créneau libre compatible sur cette période.</p>')
-    +'<p class="planning-muted"><strong>Important :</strong> la répartition automatique est une suggestion. Tu peux préparer une séance ou activité libre sans la publier aux élèves, ou choisir une séance, une évaluation, une intervention, une sortie ou une absence. Tu peux aussi choisir le germoir, la carte mentale, la fiche de mémorisation ou l’évaluation. Les fiches de l’atelier liées à une séance sont proposées séparément. Pour plusieurs éléments dans la même heure, ouvre ensuite le créneau dans « Ma semaine ». Les liens existants et les horaires restent inchangés.</p>';
+    +'<p class="planning-muted"><strong>Important :</strong> la répartition automatique est une suggestion. Tu peux préparer une séance ou activité libre sans la publier aux élèves, ou choisir une séance, une évaluation, une intervention, une sortie ou une absence. Tu peux aussi choisir le germoir, la carte mentale, la fiche de mémorisation ou l’évaluation. Les fiches de l’atelier liées à une séance sont proposées séparément. Tu peux aussi choisir une fiche déjà enregistrée dans la banque de l’atelier, sans la publier dans le cahier. Les 120 premières fiches sont proposées ici ; pour rechercher dans toute ta banque ou associer plusieurs éléments au même cours, ouvre le créneau dans « Ma semaine ». Les liens existants et les horaires restent inchangés.</p>';
    updateSelectedCount();
   }catch(err){notify('Prévisualisation impossible : '+err.message,true)}
  });
@@ -1030,7 +1117,7 @@ async function openPlanningBulk(){
    await loadPeriod();
    if(!state.period||state.period.id!==proposed.periodId||state.user.id!==proposed.ownerId)
     throw new Error('La période ou la session a changé. Refais la prévisualisation.');
-   const elements=await getCahierElements(proposed.className);
+   const elements=await getPlanningElements(proposed.className);
     const sessions=elements.filter(item=>item.type==='session');
    const now=window.PlanningBatch.plan({
     occurrences:state.occurrences,sessions,className:proposed.className,
