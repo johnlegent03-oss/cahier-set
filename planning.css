@@ -159,3 +159,23 @@ body.planning-page{margin:0;background:#f5f2e5;color:var(--pl-ink);font-family:I
 .planning-course-wrap .planning-open-session{display:block;font-size:11px;color:#315940;margin:3px 0 5px;overflow-wrap:anywhere}
 .planning-linked-item a{display:inline-block;font-size:11px;margin-top:3px;color:#315940}
 .planning-linked-actions button:disabled{opacity:.38;cursor:not-allowed}
+
+/* Préparations de cours privées : indépendantes du cahier publié aux élèves. */
+.planning-preparation{border:1px solid #d7dfd3;background:#f8faf4;padding:12px;border-radius:12px}
+.planning-preparation>label{font-size:14px;color:#375d45}
+.planning-draft-items{display:flex;flex-direction:column;gap:10px;margin:10px 0}
+.planning-draft-item{border:1px solid #d8e2d1;border-left:4px solid #7c9b73;border-radius:9px;padding:11px;background:#fffefa;display:flex;flex-direction:column;gap:10px}
+.planning-draft-item-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.planning-draft-item-head strong{color:#36563d;font-size:13px}
+.planning-draft-field{display:flex;flex-direction:column;gap:5px;font-size:12px;font-weight:700}
+.planning-draft-field .planning-textarea{min-height:54px;font-weight:400}
+.planning-draft-add,.planning-draft-connect{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.planning-draft-add .planning-input{flex:2 1 250px}
+.planning-draft-add .planning-select{flex:0 1 175px}
+.planning-draft-connect{border-top:1px dashed var(--pl-line);padding-top:10px}
+.planning-draft-connect .planning-select{flex:2 1 240px;min-width:0}
+.planning-draft-connect .planning-btn{font-size:12px}
+.planning-draft-status{color:#72582f!important;font-weight:750!important}
+.planning-course-drafts{border-left:3px solid #af985b;background:#faf4e5;border-radius:4px;padding:4px 7px;margin-top:6px;overflow-wrap:anywhere}
+.planning-course-drafts .planning-draft-title{font-size:11px;color:#5b553e}
+@media(max-width:650px){.planning-draft-add .planning-select,.planning-draft-add .planning-input,.planning-draft-connect .planning-select{flex-basis:100%;min-width:0}}
