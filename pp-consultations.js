@@ -40,6 +40,44 @@ const privateBox=card(output,'Réponses nominatives — confidentiel');el('p','N
 }catch(err){status.textContent='Consultation indisponible : '+err.message+'\nVérifie l’installation SQL et ta connexion sécurisée.';}finally{busy=false;period.disabled=y.disabled=false;}}
 btn(nav,'Actualiser',refresh);period.addEventListener('change',refresh);y.addEventListener('change',refresh);await refresh();
 }
-function install(){const dashboard=document.getElementById('ppDashboard');if(!dashboard||document.getElementById('ppqAdmin'))return;const mount=el('section',null);mount.id='ppqAdmin';dashboard.before(mount);const c=card(mount,'Préparation du conseil de classe');btn(c,'Consultation des élèves – questionnaire et résultats',()=>{mount.replaceChildren();admin();});}
-if(document.getElementById('ppqStudent'))student();else{const watch=new MutationObserver(install);watch.observe(document.body,{childList:true,subtree:true});install();}
+function openConsultation(){
+ const dashboard=document.getElementById('ppDashboard');
+ const root=dashboard?.parentElement||document.getElementById('content');
+ if(!root)return;
+ let mount=document.getElementById('ppqAdmin');
+ if(!mount){mount=el('section',null);mount.id='ppqAdmin';if(dashboard)dashboard.before(mount);else root.append(mount);}
+ mount.replaceChildren();
+ admin();
+ mount.scrollIntoView({behavior:'smooth',block:'start'});
+}
+function install(){
+ const dashboard=document.getElementById('ppDashboard');
+ if(!dashboard)return;
+ const council=dashboard.querySelector('button[onclick*="openPPCouncil"]');
+ if(council&&!dashboard.querySelector('[data-ppq-launch]')){
+  const button=btn(council.parentElement,'🗳 Consultation des élèves',openConsultation);
+  button.setAttribute('data-ppq-launch','1');
+  council.after(button);
+ }
+ if(!document.getElementById('ppqAdmin')){
+  const mount=el('section',null);mount.id='ppqAdmin';dashboard.before(mount);
+  const c=card(mount,'Préparation du conseil de classe');
+  btn(c,'Consultation des élèves – questionnaire et résultats',openConsultation);
+ }
+}
+if(document.getElementById('ppqStudent'))student();else{
+ window.ppOpenConsultation=openConsultation;
+ window.ppInstallConsultation=install;
+ const watch=new MutationObserver(install);
+ watch.observe(document.body,{childList:true,subtree:true});
+ if(typeof window.openPP==='function'){
+   const original=window.openPP;
+   window.openPP=async function(...args){const result=await original.apply(this,args);install();return result;};
+ }
+ if(typeof window.renderPPDashboard==='function'){
+   const originalRender=window.renderPPDashboard;
+   window.renderPPDashboard=async function(...args){const result=await originalRender.apply(this,args);install();return result;};
+ }
+ install();
+}
 })();
