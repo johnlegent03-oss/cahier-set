@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Activité interactive · SVT</title>
+<style>html,body{margin:0;height:100%;font-family:system-ui,sans-serif;background:#f4f7f5;color:#23483c}body{display:flex;flex-direction:column}header{padding:12px 18px;background:#23483c;color:white;display:flex;justify-content:space-between;align-items:center;gap:12px}header button{font:inherit;border:0;border-radius:6px;padding:6px 12px;cursor:pointer}iframe{flex:1;min-height:0;border:0;width:100%;background:white}#status{padding:20px} [hidden]{display:none!important}</style>
+<script src="config.js"></script></head><body><header><strong>SVT · Activité interactive</strong><button id="restart" hidden>Recommencer</button></header><p id="status" role="status">Chargement de l’activité…</p><iframe id="activity" title="Activité pédagogique interactive" sandbox="allow-scripts" referrerpolicy="no-referrer" hidden></iframe>
+<script>
+(async function(){
+  const frame=document.getElementById("activity"),status=document.getElementById("status"),restart=document.getElementById("restart");
+  try{
+    const url=new URL(new URLSearchParams(location.search).get("source")||"");
+    const base=new URL(SUPABASE_URL);
+    if(url.origin!==base.origin||!url.pathname.startsWith("/storage/v1/object/public/documents/")||!/\.html?$/i.test(url.pathname)||url.username||url.password)throw Error("Adresse de document invalide.");
+    const response=await fetch(url.href,{credentials:"omit",redirect:"error",referrerPolicy:"no-referrer"});
+    if(!response.ok)throw Error("Document indisponible ("+response.status+").");
+    const source=await response.text();
+    if(source.length>10*1024*1024)throw Error("Document trop volumineux.");
+    const policy="<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; media-src data: blob:; connect-src 'none'; form-action 'none'; base-uri 'none'\">";
+    // Prepend before any untrusted script or markup. The iframe has an opaque origin.
+    const html="<!doctype html>"+policy+source.replace(/^\s*<!doctype[^>]*>/i,"");
+    const load=()=>{frame.srcdoc=html;};
+    restart.addEventListener("click",load);load();frame.hidden=false;status.hidden=true;restart.hidden=false;
+  }catch(error){status.textContent="Impossible d’ouvrir cette activité : "+error.message;}
+})();
+</script></body></html>
