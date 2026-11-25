@@ -5,7 +5,7 @@ const $ = (s,root=document) => root.querySelector(s);
 const $$ = (s,root=document) => [...root.querySelectorAll(s)];
 const CLASSES = ['6e1','6e2','6e3','6e4','6e5','5e1','5e3','5e5','3e2','3e3'];
 const DAYS = ['Lundi','Mardi','Mercredi','Jeudi','Vendredi'];
-const state = {user:null,period:null,slots:[],occurrences:[],events:[],cahierSessionsByUid:{},atelierActivitiesBySession:{},weekStart:mondayOf(new Date()),weekPattern:'',view:'week',tab:'planning',busy:false,
+const state = {user:null,period:null,slots:[],occurrences:[],events:[],cahierSessionsByUid:{},atelierActivitiesBySession:{},atelierBankPromise:null,atelierBankError:'',weekStart:mondayOf(new Date()),weekPattern:'',view:'week',tab:'planning',busy:false,
  followupClass:'',followupFilter:'missing',followupSessions:null,followupLoadedClass:'',followupLoading:false,followupError:'',followupRequest:0,quickDoneBusy:false,remarksRows:null,remarksLoading:false,remarksError:'',remarksRequest:0,remarksFrom:'',remarksTo:''};
 const NAV_KEY='svt.planning.navigation.v1';
 function savePlanningNav(){if(!state.user)return;try{localStorage.setItem(NAV_KEY+':'+state.user.id,JSON.stringify({weekStart:iso(state.weekStart),tab:state.tab,weekPattern:state.weekPattern,scrollY:window.scrollY||0}));}catch(e){}}
@@ -113,11 +113,12 @@ async function init(){
  }catch(e){notify(e.message||'Impossible de charger le Planning.',true)}
 }
 async function loadPeriod(){
+ state.atelierBankPromise=null;state.atelierBankError='';
  const rows=await query('planning_periods','select',null,[['owner_id','eq',state.user.id]]);
  const today=iso(new Date());
  state.period=rows.find(p=>p.start_date<=today&&p.end_date>=today)||rows.sort((a,b)=>b.start_date.localeCompare(a.start_date))[0]||null;
  if(!state.period){
-  state.slots=[];state.occurrences=[];state.events=[];state.cahierSessionsByUid={};state.atelierActivitiesBySession={};
+  state.slots=[];state.occurrences=[];state.events=[];state.cahierSessionsByUid={};state.atelierActivitiesBySession={};state.atelierBankPromise=null;state.atelierBankError='';
   state.followupSessions=null;state.followupLoadedClass='';state.followupRequest++;state.followupLoading=false;
  state.remarksRows=null;state.remarksLoading=false;state.remarksError='';state.remarksRequest++;
   state.tab='settings';
@@ -138,7 +139,7 @@ async function loadLinkedCahierSessions(){
  const linked=state.occurrences.filter(o=>linkedIds(o).length);
  const classes=[...new Set(linked.map(o=>o.class_name).filter(Boolean))];
  await Promise.all(classes.map(async className=>{
-  try{const elements=await getCahierElements(className);elements.forEach(item=>{
+  try{const elements=await getPlanningElements(className);elements.forEach(item=>{
     const linked={...item,className};
     state.cahierSessionsByUid[className+'::'+item.uid]=linked;
     if(item.type==='atelier-activity'){
@@ -522,6 +523,63 @@ function atelierActivityInfo(entry){
  title=title.replace(/\s*[—–-]\s*Ouvrir la fiche\s*[↗➜→]*\s*$/i,'').replace(/\s+/g,' ').trim();
  return {docId,title:(title||'Fiche d’activité de l’atelier').slice(0,125),ficheHref};
 }
+/* Les fiches de la banque sont accessibles au professeur avant d'être
+   liées au cahier des élèves. Une requête mutualisée évite de relire toute
+   la banque pour chaque classe figurant dans la semaine. */
+function getAtelierBankElements(){
+ if(!state.user?.id)return Promise.resolve([]);
+ if(!state.atelierBankPromise){
+  state.atelierBankPromise=(async()=>{
+   const rows=[],pageSize=500;
+   for(let offset=0;offset<3000;offset+=pageSize){
+    const {data,error}=await client().from('atelier_documents')
+     .select('id,titre,classe,chapitre_titre,document_type,updated_at')
+     .eq('user_id',state.user.id).order('updated_at',{ascending:false})
+     .range(offset,offset+pageSize-1);
+    if(error)throw new Error('Lecture de la banque de l’atelier : '+error.message);
+    const page=data||[];
+    rows.push(...page);
+    if(page.length<pageSize)break;
+   }
+   const seen=new Set();
+   return rows.flatMap(doc=>{
+    const id=String(doc?.id||'').trim();
+    if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)||seen.has(id))return [];
+    seen.add(id);
+    const title=String(doc.titre||'').trim()||'Document sans titre';
+    const atelierClass=String(doc.classe||'').trim();
+    return [{uid:'atelier-doc:'+id,type:'atelier-bank',docId:id,
+     chapterIndex:999999,chapterTitle:'🧪 Banque de l’atelier',
+     sessionTitle:'🧪 '+title.slice(0,140),
+     atelierClass,atelierChapter:String(doc.chapitre_titre||'').trim(),
+     documentType:String(doc.document_type||'').trim()}];
+   });
+  })().catch(error=>{
+   state.atelierBankPromise=null;
+   state.atelierBankError=error.message||String(error);
+   throw error;
+  });
+ }
+ return state.atelierBankPromise;
+}
+/* Réunit uniquement dans le planning les séances publiées et les documents
+   personnels de l'atelier. Aucune écriture dans le cahier des élèves. */
+async function getPlanningElements(className){
+ const [cahier,bank]=await Promise.allSettled([getCahierElements(className),getAtelierBankElements()]);
+ if(cahier.status==='rejected'&&bank.status==='rejected')
+  throw new Error('Cahier et atelier indisponibles : '+cahier.reason.message+' ; '+bank.reason.message);
+ if(cahier.status==='rejected')console.warn('Cahier indisponible, banque de l’atelier conservée :',cahier.reason);
+ if(bank.status==='rejected'){
+  console.warn('Banque de l’atelier indisponible, cahier conservé :',bank.reason);
+  state.atelierBankError=bank.reason.message||'Banque indisponible';
+ }
+ const all=bank.status==='fulfilled'?bank.value:[];
+ const sorted=all.slice().sort((a,b)=>{
+  const priority=row=>row.atelierClass===className?0:!row.atelierClass?1:2;
+  return priority(a)-priority(b);
+ });
+ return [...(cahier.status==='fulfilled'?cahier.value:[]),...sorted];
+}
 async function getCahierElements(className){
  const {data,error}=await client().from('Cahier').select('classe,contenu').eq('classe',className).maybeSingle();
  if(error)throw error;
@@ -566,11 +624,12 @@ function linkedIds(o){return window.PlanningKinds?.linkedIds(o)||[o.cahier_plann
 function cahierElementHref(className,item){
  const cls=encodeURIComponent(className||'');
  if(item.type==='session')return 'prof.html?classe='+cls+'&planning_uid='+encodeURIComponent(item.uid);
+ if(item.type==='atelier-bank')return 'atelier.html?doc='+encodeURIComponent(item.docId);
  if(item.type==='atelier-activity')return item.ficheHref||'atelier.html?doc='+encodeURIComponent(item.docId);
  return 'prof.html?classe='+cls+'&planning_chapter='+encodeURIComponent(item.chapterIndex)+'&planning_part='+encodeURIComponent(item.part);
 }
 function atelierEditHref(item){
- return item?.type==='atelier-activity'?'atelier.html?doc='+encodeURIComponent(item.docId):'';
+ return ['atelier-activity','atelier-bank'].includes(item?.type)?'atelier.html?doc='+encodeURIComponent(item.docId):'';
 }
 function atelierSessionHref(className,item){
  return item?.type==='atelier-activity'?'prof.html?classe='+encodeURIComponent(className)
@@ -628,7 +687,7 @@ function openQuickCompletion(id){
 async function editOccurrence(id){
  const o=state.occurrences.find(x=>String(x.id)===String(id));if(!o)return;
  let elements=[];
- try{elements=await getCahierElements(o.class_name)}
+ try{elements=await getPlanningElements(o.class_name)}
  catch(err){notify('Cahier indisponible pour '+o.class_name+' : '+err.message+'. Tu peux néanmoins préparer librement ce créneau.',true);}
  let selected=linkedIds(o);
  let pickerClass=o.class_name;
@@ -762,7 +821,7 @@ async function editOccurrence(id){
   const request=++changeRequest,cls=e.target.value;
   pickerClass=cls;selected=[];elements=[];pickerLoading=true;renderPicker();renderDrafts();
   try{
-   const next=await getCahierElements(cls);
+   const next=await getPlanningElements(cls);
    if(request!==changeRequest||!form.isConnected)return;
    elements=next;
   }catch(error){if(request===changeRequest)notify('Impossible de lire le cahier : '+error.message,true)}
@@ -985,7 +1044,7 @@ async function openPlanningBulk(){
   try{
    if(!state.period||fromDate<state.period.start_date||toDate>state.period.end_date)
     throw new Error('Choisis des dates comprises dans la période scolaire du planning.');
-   const elements=await getCahierElements(className);
+   const elements=await getPlanningElements(className);
     const sessions=elements.filter(item=>item.type==='session');
    const proposal=window.PlanningBatch.plan({
     occurrences:state.occurrences,sessions,className,fromDate,toDate,
@@ -1030,7 +1089,7 @@ async function openPlanningBulk(){
    await loadPeriod();
    if(!state.period||state.period.id!==proposed.periodId||state.user.id!==proposed.ownerId)
     throw new Error('La période ou la session a changé. Refais la prévisualisation.');
-   const elements=await getCahierElements(proposed.className);
+   const elements=await getPlanningElements(proposed.className);
     const sessions=elements.filter(item=>item.type==='session');
    const now=window.PlanningBatch.plan({
     occurrences:state.occurrences,sessions,className:proposed.className,
