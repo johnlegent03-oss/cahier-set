@@ -2538,6 +2538,92 @@ function exportCahierPDF(){
      openCahierExportTab(`Cahier de SVT — ${classe||"Classe"}`,intro+pages);
   }catch(e){alert("Export du cahier impossible : "+e.message);}
 }
+/* Import volontaire depuis une trame commune : les titres restent modifiables
+   par classe et les liens vers les fiches ne sont publiés que sur demande. */
+async function chooseTrameContent(mode,level){
+ if(!window.SvtTrame)throw new Error("Le module de trame n’est pas chargé.");
+ if(!user?.id)throw new Error("Connecte-toi dans l’espace professeur.");
+ const {data}=await window.SvtTrame.read(sb,user.id,level);
+ const rows=mode==="chapter"
+  ?data.chapitres.map(ch=>({id:ch.id,title:ch.titre||"Chapitre"}))
+  :data.chapitres.flatMap(ch=>ch.seances.map(se=>({id:se.id,title:(ch.titre||"Chapitre")+" — "+(se.titre||"Séance")})));
+ if(!rows.length)throw new Error("La trame de "+level+" est vide. Crée d’abord des chapitres et séances dans Trame pédagogique.");
+ const dialog=document.createElement("dialog");
+ dialog.style.cssText="width:min(590px,calc(100% - 24px));border:1px solid #b9d0be;border-radius:14px;padding:22px;box-shadow:0 20px 80px #1a302c44";
+ const options=rows.map(row=>'<option value="'+esc(row.id)+'">'+esc(row.title)+'</option>').join("");
+ dialog.innerHTML='<form method="dialog" id="svtTrameImportForm" style="display:grid;gap:13px">'
+  +'<h2 style="margin:0">📚 Importer depuis la trame '+esc(level)+'</h2>'
+  +'<p style="margin:0;font-size:13px;color:#647363">Le titre pourra être adapté dans cette classe. La trame et les autres classes ne seront pas modifiées.</p>'
+  +'<label>Élément de la trame<select class="input" name="id" style="display:block;width:100%;margin-top:5px;padding:10px" required>'+options+'</select></label>'
+  +'<label>Titre personnalisé pour cette classe (facultatif)<input name="customTitle" maxlength="180" style="display:block;width:100%;margin-top:5px;padding:10px" placeholder="Sinon, garder le titre de référence"></label>'
+  +'<label style="display:flex;gap:10px;align-items:start"><input name="includeActivities" type="checkbox" style="margin-top:3px"> Ajouter maintenant les liens des activités de l’atelier au cahier des élèves</label>'
+  +'<p style="font-size:12px;color:#865f35;margin:0">Sans cette case, seule la structure et les intitulés sont importés. Avec cette case, les fiches choisies deviennent visibles dans le cahier de la classe. Aucune fiche de l’atelier n’est dupliquée.</p>'
+  +'<div style="display:flex;justify-content:flex-end;flex-wrap:wrap;gap:8px"><button type="button" id="svtTrameCancel">Annuler</button>'
+  +'<button type="submit" class="primary">Importer dans le cahier</button></div></form>';
+ document.body.appendChild(dialog);
+ return await new Promise(resolve=>{
+  let finished=false;
+  function finish(value){if(finished)return;finished=true;dialog.close();dialog.remove();resolve(value)}
+  dialog.addEventListener("cancel",e=>{e.preventDefault();finish(null)});
+  dialog.querySelector("#svtTrameCancel").onclick=()=>finish(null);
+  dialog.querySelector("form").onsubmit=e=>{
+   e.preventDefault();const f=new FormData(e.currentTarget);
+   const choice={id:String(f.get("id")||""),customTitle:String(f.get("customTitle")||"").trim(),includeActivities:f.has("includeActivities")};
+   if(!choice.id)return;
+   finish(choice);
+  };
+  dialog.showModal();
+ });
+}
+let trameImportBusy=false;
+async function importTrameChapter(){
+ if(trameImportBusy||!classe||!currentClassData)return;
+ trameImportBusy=true;const targetClass=classe;
+ try{
+  const level=window.SvtTrame.levelForClass(targetClass);
+  if(!level)throw new Error("Niveau de classe incompatible.");
+  const choice=await chooseTrameContent("chapter",level);if(!choice)return;
+  if(targetClass!==classe)throw new Error("La classe a changé pendant la sélection.");
+  const {data}=await window.SvtTrame.read(sb,user.id,level);
+  const chapter=window.SvtTrame.findChapter(data,choice.id);
+  if(!chapter)throw new Error("Chapitre introuvable dans la trame actualisée.");
+  if(!confirm("Ajouter le chapitre « "+(choice.customTitle||chapter.titre)+" » au cahier de "+targetClass+" ?"+
+   (choice.includeActivities?" Les liens des fiches seront publiés aux élèves.":" Les activités ne seront pas encore publiées.")))return;
+  const prepared=window.SvtTrame.toCahierChapter(chapter,targetClass,choice.includeActivities);
+  if(choice.customTitle)prepared.titre=window.SvtTrame.escapeHtml(choice.customTitle);
+  const newChapter=normalizeChapter(prepared);
+  currentClassData.contenu.chapitres.push(newChapter);
+  try{currentClassData.id=await saveClass(targetClass,currentClassData.contenu,currentClassData.id)}
+  catch(error){currentClassData.contenu.chapitres.pop();throw error}
+  currentChapterIndex=currentClassData.contenu.chapitres.length-1;saveNav();editChapter(currentChapterIndex);
+ }catch(error){alert("Import depuis la trame impossible : "+(error.message||error))}
+ finally{trameImportBusy=false}
+}
+async function importTrameSession(chapterIndex){
+ if(trameImportBusy||!classe||!currentClassData)return;
+ trameImportBusy=true;const targetClass=classe;
+ try{
+  const level=window.SvtTrame.levelForClass(targetClass);
+  if(!level)throw new Error("Niveau de classe incompatible.");
+  const choice=await chooseTrameContent("session",level);if(!choice)return;
+  if(targetClass!==classe||chapterIndex!==currentChapterIndex)throw new Error("Le chapitre a changé pendant la sélection.");
+  const {data}=await window.SvtTrame.read(sb,user.id,level);
+  const ref=window.SvtTrame.findSession(data,choice.id);
+  if(!ref)throw new Error("Séance introuvable dans la trame actualisée.");
+  if(!confirm("Ajouter la séance « "+(choice.customTitle||ref.session.titre)+" » au cahier de "+targetClass+" ?"+
+   (choice.includeActivities?" Les liens des fiches seront publiés aux élèves.":" Les activités ne seront pas encore publiées.")))return;
+  if(await saveChapter(chapterIndex)!==true)return;
+  const ch=normalizeChapter(currentClassData.contenu.chapitres[chapterIndex]);
+  const prepared=window.SvtTrame.toCahierSession(ref.session,targetClass,choice.includeActivities);
+  if(choice.customTitle)prepared.titre=window.SvtTrame.escapeHtml(choice.customTitle);
+  ch.seances.push(normalizeSession({...prepared,planning_uid:createPlanningUid()}));
+  currentClassData.contenu.chapitres[chapterIndex]=ch;
+  try{currentClassData.id=await saveClass(targetClass,currentClassData.contenu,currentClassData.id)}
+  catch(error){ch.seances.pop();currentClassData.contenu.chapitres[chapterIndex]=ch;throw error}
+  currentChapterIndex=chapterIndex;saveNav();editChapter(chapterIndex);
+ }catch(error){alert("Import de séance impossible : "+(error.message||error))}
+ finally{trameImportBusy=false}
+}
 async function newChapter(){
   try{if(!currentClassData)currentClassData=await loadClass(classe);currentClassData.contenu.chapitres.push(normalizeChapter({titre:"Nouveau chapitre",problematique:"",germoir:"",seances:[]}));currentClassData.id=await saveClass(classe,currentClassData.contenu,currentClassData.id);const i=currentClassData.contenu.chapitres.length-1;currentChapterIndex=i;saveNav();editChapter(i)}
   catch(e){alert("Impossible d'ajouter le chapitre : "+e.message)}
