@@ -260,6 +260,10 @@ function renderGrid(){
    const special=meta.kind!=='cours';
    const kindText=special?'<small class="planning-special-title">'+esc(kind.icon+' '+kind.label)
     +(meta.detail.trim()?' — '+esc(meta.detail.trim().split(/\r?\n/)[0].slice(0,95)):'')+'</small>':'';
+   const draftHtml=meta.drafts?.length
+    ?'<div class="planning-course-drafts"><small class="planning-draft-status">✏️ Préparation privée · non publiée</small>'
+     +meta.drafts.map(item=>'<small class="planning-draft-title">'+esc((item.type==='seance'?'📘 Séance : ':'🧪 Activité : ')+item.title)+'</small>').join('')+'</div>'
+    :'';
    const ids=linkedIds(o);
    const explicit=new Set(ids);
    const elements=ids.flatMap(uid=>{
@@ -275,7 +279,7 @@ function renderGrid(){
    const quickDone=window.PlanningCompletion?.eligible(o,iso(new Date()))?'<button type="button" class="planning-quick-done" data-quick-done="'+esc(o.id)+'" title="Confirmer ce cours comme effectué">✓ Effectué</button>':'';
    return '<div class="planning-course-wrap"><button class="planning-course" data-occ="'+esc(o.id)+'" style="--course-color:'+colorFor(o.class_name)+'">'
     +esc(o.class_name||o.title||'Événement')+'<small>'+esc(o.start_time.slice(0,5))+'–'+esc(o.end_time.slice(0,5))+' · '+statusLabel(o.status)+'</small>'
-    +kindText+linkedHtml+'</button>'+hrefs+quickDone+'</div>';
+    +kindText+draftHtml+linkedHtml+'</button>'+hrefs+quickDone+'</div>';
   }).join('');
   const timed=events.timed.filter(e=>e.day===iso(day)&&e.from===a&&e.to===b).map(eventHtml).join('');
   return '<td>'+(courses+timed||'<span class="planning-empty">—</span>')+'</td>';
@@ -623,11 +627,12 @@ async function editOccurrence(id){
  const o=state.occurrences.find(x=>String(x.id)===String(id));if(!o)return;
  let elements=[];
  try{elements=await getCahierElements(o.class_name)}
- catch(err){notify('Impossible de lire le cahier de '+o.class_name+' : '+err.message,true);return;}
+ catch(err){notify('Cahier indisponible pour '+o.class_name+' : '+err.message+'. Tu peux néanmoins préparer librement ce créneau.',true);}
  let selected=linkedIds(o);
  let pickerClass=o.class_name;
  let pickerLoading=false,changeRequest=0;
  const meta=window.PlanningKinds.read(o.notes);
+ let drafts=window.PlanningKinds.normalizeDrafts(meta.drafts);
  const kindOptions=window.PlanningKinds.types.map(t=>'<option value="'+esc(t.value)+'" '+(t.value===meta.kind?'selected':'')+'>'+esc(t.icon+' '+t.label)+'</option>').join('');
  const box='<form id="occForm"><div class="planning-form-grid">'
   +'<div class="planning-field"><label>Date</label><input class="planning-input" type="date" name="session_date" value="'+esc(o.session_date)+'" required></div>'
@@ -636,6 +641,12 @@ async function editOccurrence(id){
   +'<div class="planning-field"><label>Fin</label><input class="planning-input" type="time" name="end_time" value="'+esc(o.end_time.slice(0,5))+'" required></div>'
   +'<div class="planning-field"><label>Type de créneau</label><select class="planning-select" name="kind">'+kindOptions+'</select></div>'
   +'<div class="planning-field"><label>État</label><select class="planning-select" name="status">'+['planned','completed','postponed','cancelled'].map(s=>'<option value="'+s+'" '+(s===o.status?'selected':'')+'>'+statusLabel(s)+'</option>').join('')+'</select></div>'
+  +'<div class="planning-field full planning-preparation"><label>✏️ Préparer à l’avance — sans créer de séance dans le cahier des élèves</label>'
+  +'<small class="planning-muted">Rédige une ou plusieurs séances ou activités prévisionnelles. Elles restent uniquement dans ton planning professeur et ne sont pas visibles par les élèves. Tu pourras ensuite les relier aux éléments du cahier.</small>'
+  +'<div id="planningDraftItems" class="planning-draft-items" aria-live="polite"></div>'
+  +'<div class="planning-draft-add"><select class="planning-select" id="planningDraftType" aria-label="Type de préparation"><option value="seance">📘 Séance à prévoir</option><option value="activite">🧪 Activité à prévoir</option></select>'
+  +'<input class="planning-input" id="planningDraftTitle" type="text" maxlength="160" placeholder="Ex. Séance 4 — Comprendre la digestion" aria-label="Intitulé de la préparation">'
+  +'<button type="button" class="planning-btn" id="planningDraftAdd">＋ Prévoir</button></div></div>'
   +'<div class="planning-field full"><label>Éléments du cahier associés (plusieurs possibles)</label>'
   +'<small class="planning-muted">Ajoute des séances, des fiches de l’atelier ou des éléments de bilan. Les fiches liées à une séance apparaissent automatiquement dans la semaine, même sans sélection individuelle. Les fiches liées depuis l’atelier figurent sous chaque séance. Les flèches définissent leur ordre dans ce créneau.</small>'
   +'<div id="planningSelectedItems" class="planning-linked-items" aria-live="polite"></div>'
