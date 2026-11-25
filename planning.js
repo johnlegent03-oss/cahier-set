@@ -139,7 +139,11 @@ async function loadLinkedCahierSessions(){
  const linked=state.occurrences.filter(o=>linkedIds(o).length);
  const classes=[...new Set(linked.map(o=>o.class_name).filter(Boolean))];
  await Promise.all(classes.map(async className=>{
-  try{const elements=await getPlanningElements(className);elements.forEach(item=>{
+  try{
+   const neededBankIds=new Set(linked.filter(o=>o.class_name===className).flatMap(o=>linkedIds(o))
+    .filter(uid=>uid.startsWith('atelier-doc:')));
+   const elements=await getPlanningElements(className);elements.forEach(item=>{
+    if(item.type==='atelier-bank'&&!neededBankIds.has(item.uid))return;
     const linked={...item,className};
     state.cahierSessionsByUid[className+'::'+item.uid]=linked;
     if(item.type==='atelier-activity'){
