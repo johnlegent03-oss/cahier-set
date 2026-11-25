@@ -687,6 +687,58 @@ async function editOccurrence(id){
   $('#planningElementChoice').disabled=pickerLoading||!available.length;
   $('#planningAddLinkedElement').disabled=pickerLoading||!available.length;
  };
+ const renderDrafts=()=>{
+  if(!form?.isConnected)return;
+  const available=elements.filter(item=>!selected.includes(item.uid));
+  const options='<option value="">— Choisir un élément du cahier —</option>'
+   +available.map(item=>'<option value="'+esc(item.uid)+'">'
+     +esc(item.chapterTitle+' — '+(item.type==='atelier-activity'?item.parentSessionTitle+' / ':'')+item.sessionTitle)+'</option>').join('');
+  $('#planningDraftItems').innerHTML=drafts.length?drafts.map((item,index)=>
+   '<div class="planning-draft-item" data-draft-index="'+index+'">'
+    +'<div class="planning-draft-item-head"><strong>'+(item.type==='seance'?'📘 Séance prévisionnelle':'🧪 Activité prévisionnelle')+'</strong>'
+    +'<div class="planning-linked-actions">'
+    +'<button type="button" data-draft-action="up" data-draft-index="'+index+'" '+(index===0?'disabled':'')+' title="Monter la préparation">↑</button>'
+    +'<button type="button" data-draft-action="down" data-draft-index="'+index+'" '+(index===drafts.length-1?'disabled':'')+' title="Descendre la préparation">↓</button>'
+    +'<button type="button" data-draft-action="remove" data-draft-index="'+index+'" title="Supprimer la préparation">✕</button></div></div>'
+    +'<label class="planning-draft-field">Intitulé<input class="planning-input" maxlength="160" data-draft-field="title" data-draft-index="'+index+'" value="'+esc(item.title)+'"></label>'
+    +'<label class="planning-draft-field">Notes facultatives (objectif, matériel, déroulement…)<textarea class="planning-textarea" rows="2" maxlength="1500" data-draft-field="detail" data-draft-index="'+index+'">'+esc(item.detail)+'</textarea></label>'
+    +'<div class="planning-draft-connect"><select class="planning-select" data-draft-target="'+index+'" aria-label="Choisir l’élément du cahier qui remplace cette préparation" '+(!available.length?'disabled':'')+'>'+options+'</select>'
+    +'<button class="planning-btn" type="button" data-draft-action="connect" data-draft-index="'+index+'" '+(!available.length?'disabled':'')+'>Remplacer par le lien du cahier</button></div></div>'
+  ).join(''):'<p class="planning-muted">Aucune préparation. Tu peux commencer même si tu n’as encore rien créé dans le cahier.</p>';
+  $('#planningDraftAdd').disabled=drafts.length>=60;
+ };
+ renderDrafts();
+ $('#planningDraftAdd').onclick=()=>{
+  const input=$('#planningDraftTitle'),title=input.value.trim();
+  if(!title)return notify('Saisis un intitulé pour ta séance ou ton activité prévisionnelle.',true);
+  if(drafts.length>=60)return notify('Maximum 60 préparations dans un créneau.',true);
+  drafts.push({type:$('#planningDraftType').value==='activite'?'activite':'seance',title:title.slice(0,160),detail:''});
+  input.value='';renderDrafts();input.focus();
+ };
+ $('#planningDraftTitle').addEventListener('keydown',event=>{
+  if(event.key==='Enter'){event.preventDefault();$('#planningDraftAdd').click();}
+ });
+ $('#planningDraftItems').addEventListener('input',event=>{
+  const field=event.target.closest('[data-draft-field]');
+  if(!field)return;
+  const index=Number(field.dataset.draftIndex),key=field.dataset.draftField;
+  if(drafts[index]&&['title','detail'].includes(key))drafts[index][key]=field.value;
+ });
+ $('#planningDraftItems').addEventListener('click',event=>{
+  const button=event.target.closest('[data-draft-action]');if(!button)return;
+  const index=Number(button.dataset.draftIndex),action=button.dataset.draftAction;
+  if(!Number.isInteger(index)||index<0||index>=drafts.length)return;
+  if(action==='remove')drafts.splice(index,1);
+  else if(action==='up'&&index>0)[drafts[index-1],drafts[index]]=[drafts[index],drafts[index-1]];
+  else if(action==='down'&&index<drafts.length-1)[drafts[index+1],drafts[index]]=[drafts[index],drafts[index+1]];
+  else if(action==='connect'){
+   const uid=$('#planningDraftItems').querySelector('[data-draft-target="'+index+'"]')?.value;
+   if(!uid||selected.includes(uid)||!elements.some(item=>item.uid===uid))
+    return notify('Sélectionne une séance ou une activité existante dans le cahier.',true);
+   selected.push(uid);drafts.splice(index,1);renderPicker();
+  }
+  renderDrafts();
+ });
  renderPicker();
  $('#occCancel').onclick=closeModal;
  $('#planningAddLinkedElement').onclick=()=>{
