@@ -9,7 +9,7 @@
 <main class="planning-shell">
 <header class="planning-top">
  <div class="planning-title"><h1>Mon planning</h1><p id="planningPeriod">Chargement de la période…</p></div>
- <div class="planning-actions"><a class="planning-btn" href="prof.html">← Espace professeur</a><button class="planning-btn" id="planningRefresh">Actualiser</button></div>
+ <div class="planning-actions"><a class="planning-btn" href="prof.html">← Espace professeur</a><a class="planning-btn" href="trame.html">📚 Trame pédagogique</a><button class="planning-btn" id="planningRefresh">Actualiser</button></div>
 </header>
 <div id="planningMessage" class="planning-alert" role="status" hidden></div>
 <nav class="planning-tabs" aria-label="Vues du planning">
@@ -22,7 +22,7 @@
  </div>
  <div class="planning-bulk-actions"><button class="planning-btn" id="planningBulkLink" type="button">🗓️ Planifier en série</button><button class="planning-btn primary" id="planningWeekAddEvent" type="button">＋ Conseil de classe / événement</button></div>
  <div class="planning-grid-wrap"><table class="planning-grid" id="planningGrid"><tbody><tr><td>Chargement…</td></tr></tbody></table></div>
- <p class="planning-muted">Clique sur un créneau pour sélectionner directement les activités déjà créées dans la banque de l’atelier, même si elles ne figurent pas encore dans le cahier des élèves. Tu peux également préparer des séances libres. Ces associations restent dans ton planning professeur. Les conflits sont à vérifier avant validation.</p>
+ <p class="planning-muted">Clique sur un créneau pour sélectionner des séances issues de ta trame pédagogique ou les activités déjà créées dans la banque de l’atelier, même si elles ne figurent pas encore dans le cahier des élèves. Tu peux également préparer des séances libres. Ces associations restent dans ton planning professeur. Les conflits sont à vérifier avant validation.</p>
 </section>
 <section id="planningEventsView" class="planning-panel" hidden>
  <div class="planning-toolbar"><h2>Événements personnels</h2><button class="planning-btn primary" id="planningAddEvent">＋ Ajouter un événement</button></div>
@@ -83,6 +83,7 @@
 <script src="planning-completion.js?v=1"></script>
 <script src="planning-types.js?v=3"></script>
 <script src="planning-associations.js?v=1"></script>
-<script src="planning.js?v=18"></script>
+<script src="trame-model.js?v=1"></script>
+<script src="planning.js?v=19"></script>
 <script src="site-identite.js?v=1" defer></script>
 </body></html>
