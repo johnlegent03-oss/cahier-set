@@ -5,7 +5,7 @@ const $ = (s,root=document) => root.querySelector(s);
 const $$ = (s,root=document) => [...root.querySelectorAll(s)];
 const CLASSES = ['6e1','6e2','6e3','6e4','6e5','5e1','5e3','5e5','3e2','3e3'];
 const DAYS = ['Lundi','Mardi','Mercredi','Jeudi','Vendredi'];
-const state = {user:null,period:null,slots:[],occurrences:[],events:[],cahierSessionsByUid:{},atelierActivitiesBySession:{},atelierBankPromise:null,atelierBankError:'',weekStart:mondayOf(new Date()),weekPattern:'',view:'week',tab:'planning',busy:false,
+const state = {user:null,period:null,slots:[],occurrences:[],events:[],cahierSessionsByUid:{},atelierActivitiesBySession:{},atelierBankPromise:null,atelierBankError:'',trameCache:{},weekStart:mondayOf(new Date()),weekPattern:'',view:'week',tab:'planning',busy:false,
  followupClass:'',followupFilter:'missing',followupSessions:null,followupLoadedClass:'',followupLoading:false,followupError:'',followupRequest:0,quickDoneBusy:false,remarksRows:null,remarksLoading:false,remarksError:'',remarksRequest:0,remarksFrom:'',remarksTo:''};
 const NAV_KEY='svt.planning.navigation.v1';
 function savePlanningNav(){if(!state.user)return;try{localStorage.setItem(NAV_KEY+':'+state.user.id,JSON.stringify({weekStart:iso(state.weekStart),tab:state.tab,weekPattern:state.weekPattern,scrollY:window.scrollY||0}));}catch(e){}}
@@ -113,7 +113,7 @@ async function init(){
  }catch(e){notify(e.message||'Impossible de charger le Planning.',true)}
 }
 async function loadPeriod(){
- state.atelierBankPromise=null;state.atelierBankError='';
+ state.atelierBankPromise=null;state.atelierBankError='';state.trameCache={};
  const rows=await query('planning_periods','select',null,[['owner_id','eq',state.user.id]]);
  const today=iso(new Date());
  state.period=rows.find(p=>p.start_date<=today&&p.end_date>=today)||rows.sort((a,b)=>b.start_date.localeCompare(a.start_date))[0]||null;
@@ -146,7 +146,7 @@ async function loadLinkedCahierSessions(){
     if(item.type==='atelier-bank'&&!neededBankIds.has(item.uid))return;
     const linked={...item,className};
     state.cahierSessionsByUid[className+'::'+item.uid]=linked;
-    if(item.type==='atelier-activity'){
+    if(item.type==='atelier-activity'||item.type==='trame-activity'){
      const key=className+'::'+item.sessionUid;
      (state.atelierActivitiesBySession[key]||(state.atelierActivitiesBySession[key]=[])).push(linked);
     }
@@ -274,19 +274,19 @@ function renderGrid(){
    const elements=ids.flatMap(uid=>{
     const item=state.cahierSessionsByUid[o.class_name+'::'+uid];
     if(!item)return [];
-    return item.type==='session'?[item,...(state.atelierActivitiesBySession[o.class_name+'::'+item.uid]||[])
+    return ['session','trame-session'].includes(item.type)?[item,...(state.atelierActivitiesBySession[o.class_name+'::'+item.uid]||[])
      .filter(child=>!explicit.has(child.uid))]:[item];
    });
    const seenDocuments=new Set();
    const displayed=elements.filter(item=>{
-    if(!['atelier-bank','atelier-activity'].includes(item.type))return true;
+    if(!['atelier-bank','atelier-activity','trame-activity'].includes(item.type))return true;
     if(seenDocuments.has(item.docId))return false;
     seenDocuments.add(item.docId);return true;
    });
    const linkedHtml=displayed.length?'<div class="planning-course-links">'+displayed.map((item,n)=>
-    '<small class="planning-linked-title">'+(ids.length>1?(n+1)+'. ':'')+esc(item.chapterTitle)+' — '+esc(item.type==='atelier-activity'?item.parentSessionTitle+' / '+item.sessionTitle:item.sessionTitle)+'</small>').join('')+'</div>'
+    '<small class="planning-linked-title">'+(ids.length>1?(n+1)+'. ':'')+esc(item.chapterTitle)+' — '+esc(['atelier-activity','trame-activity'].includes(item.type)?item.parentSessionTitle+' / '+item.sessionTitle:item.sessionTitle)+'</small>').join('')+'</div>'
     :ids.length?'<small class="planning-linked-title">⚠ Élément du cahier introuvable</small>':'';
-   const hrefs=displayed.map(item=>'<a class="planning-open-session" href="'+esc(cahierElementHref(o.class_name,item))+'" title="'+esc(item.type==='atelier-bank'?'Ouvrir la fiche dans l’atelier':item.type==='atelier-activity'?'Ouvrir la fiche de l’atelier':'Ouvrir cet élément du cahier')+'">↗ '+esc(item.sessionTitle)+'</a>').join('');
+   const hrefs=displayed.map(item=>'<a class="planning-open-session" href="'+esc(cahierElementHref(o.class_name,item))+'" title="'+esc(['atelier-bank','trame-activity'].includes(item.type)?'Ouvrir la fiche dans l’atelier':item.type==='atelier-activity'?'Ouvrir la fiche de l’atelier':item.type==='trame-session'?'Ouvrir la séance dans la trame':'Ouvrir cet élément du cahier')+'">↗ '+esc(item.sessionTitle)+'</a>').join('');
    const quickDone=window.PlanningCompletion?.eligible(o,iso(new Date()))?'<button type="button" class="planning-quick-done" data-quick-done="'+esc(o.id)+'" title="Confirmer ce cours comme effectué">✓ Effectué</button>':'';
    return '<div class="planning-course-wrap"><button class="planning-course" data-occ="'+esc(o.id)+'" style="--course-color:'+colorFor(o.class_name)+'">'
     +esc(o.class_name||o.title||'Événement')+'<small>'+esc(o.start_time.slice(0,5))+'–'+esc(o.end_time.slice(0,5))+' · '+statusLabel(o.status)+'</small>'
@@ -576,13 +576,28 @@ function getAtelierBankElements(){
 }
 /* Réunit uniquement dans le planning les séances publiées et les documents
    personnels de l'atelier. Aucune écriture dans le cahier des élèves. */
+function getTrameElements(className){
+ const M=window.SvtTrame,level=M?.levelForClass(className);
+ if(!level)return Promise.resolve([]);
+ if(!state.trameCache[level]){
+  state.trameCache[level]=M.read(client(),state.user.id,level)
+   .then(row=>M.flatten(row.data,level)).catch(error=>{
+    delete state.trameCache[level];
+    throw error;
+   });
+ }
+ return state.trameCache[level];
+}
 async function getPlanningElements(className){
- const [cahier,bank]=await Promise.allSettled([getCahierElements(className),getAtelierBankElements()]);
- if(cahier.status==='rejected'&&bank.status==='rejected')
-  throw new Error('Cahier et atelier indisponibles : '+cahier.reason.message+' ; '+bank.reason.message);
- if(cahier.status==='rejected')console.warn('Cahier indisponible, banque de l’atelier conservée :',cahier.reason);
+ const [cahier,bank,trame]=await Promise.allSettled([
+  getCahierElements(className),getAtelierBankElements(),getTrameElements(className)
+ ]);
+ if([cahier,bank,trame].every(result=>result.status==='rejected'))
+  throw new Error('Cahier, atelier et trame indisponibles.');
+ if(cahier.status==='rejected')console.warn('Cahier indisponible :',cahier.reason);
+ if(trame.status==='rejected')console.warn('Trame indisponible :',trame.reason);
  if(bank.status==='rejected'){
-  console.warn('Banque de l’atelier indisponible, cahier conservé :',bank.reason);
+  console.warn('Banque de l’atelier indisponible :',bank.reason);
   state.atelierBankError=bank.reason.message||'Banque indisponible';
  }
  const all=bank.status==='fulfilled'?bank.value:[];
@@ -590,7 +605,8 @@ async function getPlanningElements(className){
   const priority=row=>row.atelierClass===className?0:!row.atelierClass?1:2;
   return priority(a)-priority(b);
  });
- return [...(cahier.status==='fulfilled'?cahier.value:[]),...sorted];
+ return [...(trame.status==='fulfilled'?trame.value:[]),
+  ...(cahier.status==='fulfilled'?cahier.value:[]),...sorted];
 }
 async function getCahierElements(className){
  const {data,error}=await client().from('Cahier').select('classe,contenu').eq('classe',className).maybeSingle();
@@ -635,13 +651,15 @@ async function getCahierSessions(className){
 function linkedIds(o){return window.PlanningKinds?.linkedIds(o)||[o.cahier_planning_uid].filter(Boolean)}
 function cahierElementHref(className,item){
  const cls=encodeURIComponent(className||'');
+ if(item.type==='trame-session')return 'trame.html?niveau='+encodeURIComponent(item.niveau)+'&session='+encodeURIComponent(item.sessionId);
+ if(item.type==='trame-activity')return 'atelier.html?doc='+encodeURIComponent(item.docId);
  if(item.type==='session')return 'prof.html?classe='+cls+'&planning_uid='+encodeURIComponent(item.uid);
  if(item.type==='atelier-bank')return 'atelier.html?doc='+encodeURIComponent(item.docId);
  if(item.type==='atelier-activity')return item.ficheHref||'atelier.html?doc='+encodeURIComponent(item.docId);
  return 'prof.html?classe='+cls+'&planning_chapter='+encodeURIComponent(item.chapterIndex)+'&planning_part='+encodeURIComponent(item.part);
 }
 function atelierEditHref(item){
- return ['atelier-activity','atelier-bank'].includes(item?.type)?'atelier.html?doc='+encodeURIComponent(item.docId):'';
+ return ['atelier-activity','atelier-bank','trame-activity'].includes(item?.type)?'atelier.html?doc='+encodeURIComponent(item.docId):'';
 }
 function atelierSessionHref(className,item){
  return item?.type==='atelier-activity'?'prof.html?classe='+encodeURIComponent(className)
@@ -739,7 +757,7 @@ async function editOccurrence(id){
    const item=byUid.get(uid);
    const title=item?item.sessionTitle:'Élément précédemment associé introuvable';
    const chapter=item?item.chapterTitle+(item.type==='atelier-bank'&&item.atelierClass?' · enregistrée pour '+item.atelierClass:''):uid;
-   const href=item?(item.type==='atelier-bank'
+   const href=item?(item.type==='atelier-bank'||item.type==='trame-activity'
     ?'<a href="'+esc(cahierElementHref(pickerClass,item))+'" target="_blank" rel="noopener">Ouvrir dans l’atelier ↗</a>'
     :item.type==='atelier-activity'
      ?'<a href="'+esc(cahierElementHref(pickerClass,item))+'" target="_blank" rel="noopener">Ouvrir la fiche ↗</a> · '
@@ -1054,7 +1072,7 @@ async function openPlanningBulk(){
   const select=form.elements.first_uid;
   select.disabled=true;
   try{
-   const all=await getCahierSessions(form.elements.class_name.value);
+   const all=(await getPlanningElements(form.elements.class_name.value)).filter(item=>['session','trame-session'].includes(item.type));
    select.innerHTML='<option value="">Première séance non encore associée</option>'
     +all.map(s=>'<option value="'+esc(s.uid)+'">'+esc(s.chapterTitle+' — '+s.sessionTitle)+'</option>').join('');
   }catch(e){select.innerHTML='<option value="">Cahier non disponible</option>';notify('Lecture des séances impossible : '+e.message,true)}
@@ -1071,7 +1089,7 @@ async function openPlanningBulk(){
    if(!state.period||fromDate<state.period.start_date||toDate>state.period.end_date)
     throw new Error('Choisis des dates comprises dans la période scolaire du planning.');
    const elements=await getPlanningElements(className);
-    const sessions=elements.filter(item=>item.type==='session');
+    const sessions=elements.filter(item=>['session','trame-session'].includes(item.type));
    const proposal=window.PlanningBatch.plan({
     occurrences:state.occurrences,sessions,className,fromDate,toDate,
     firstUid:String(values.get('first_uid')||''),limit:40
@@ -1118,7 +1136,7 @@ async function openPlanningBulk(){
    if(!state.period||state.period.id!==proposed.periodId||state.user.id!==proposed.ownerId)
     throw new Error('La période ou la session a changé. Refais la prévisualisation.');
    const elements=await getPlanningElements(proposed.className);
-    const sessions=elements.filter(item=>item.type==='session');
+    const sessions=elements.filter(item=>['session','trame-session'].includes(item.type));
    const now=window.PlanningBatch.plan({
     occurrences:state.occurrences,sessions,className:proposed.className,
     fromDate:proposed.fromDate,toDate:proposed.toDate,
