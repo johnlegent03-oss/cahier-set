@@ -34,7 +34,7 @@
    return '<article class="trame-chapter" '+chapterAttrs+'><div class="trame-chapter-head"><strong>📚 Chapitre '+(ci+1)+'</strong><div class="trame-actions">'
     +actionButton('chapter-up','↑','Monter le chapitre',chapterAttrs+(ci===0?' disabled':''))
     +actionButton('chapter-down','↓','Descendre le chapitre',chapterAttrs+(ci===state.data.chapitres.length-1?' disabled':''))
-    +actionButton('chapter-delete','✕','Supprimer le chapitre',chapterAttrs+' class="trame-btn danger"')
+    +actionButton('chapter-delete','✕','Supprimer le chapitre',chapterAttrs)
     +'</div></div><div class="trame-chapter-body">'
     +'<label class="trame-field">Titre théorique du chapitre<input class="trame-input" maxlength="180" data-field="chapter-title" '+chapterAttrs+' value="'+esc(ch.titre)+'" placeholder="Ex. La circulation sanguine"></label>'
     +'<label class="trame-field">Objectif ou problématique de référence (facultatif)<textarea class="trame-input" rows="2" maxlength="1200" data-field="chapter-objective" '+chapterAttrs+' placeholder="Idée générale du chapitre…">'+esc(ch.objectif)+'</textarea></label>'
