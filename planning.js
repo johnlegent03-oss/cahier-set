@@ -917,7 +917,7 @@ async function openPlanningBulk(){
   +'</form>'
   +'<div id="planningBulkPreview" aria-live="polite"></div>'
   +'<div class="planning-footer"><button type="button" class="planning-btn" id="planningBulkCancel">Fermer sans enregistrer</button>'
-  +'<button type="button" class="planning-btn primary" id="planningBulkApply" hidden>💾 Confirmer les associations</button></div>',
+  +'<button type="button" class="planning-btn primary" id="planningBulkApply" hidden>💾 Enregistrer le planning</button></div>',
   true);
  const form=$('#planningBulkForm'),preview=$('#planningBulkPreview'),save=$('#planningBulkApply');
  let proposed=null;
@@ -949,6 +949,7 @@ async function openPlanningBulk(){
   if(detail){
    detail.hidden=entry.kind==='cours'&&!entry.draftType;
    detail.placeholder=entry.draftType?'Intitulé obligatoire de la préparation (non publiée)':'Intitulé facultatif (ex. contrôle chapitre 2)';
+   detail.maxLength=entry.draftType?160:200;
   }
   updateSelectedCount();
  });
@@ -1011,7 +1012,7 @@ async function openPlanningBulk(){
     +proposal.stats.cancelled+' cours annulés ou reportés ignorés, '
     +proposal.stats.exceptions+' créneau(x) particuliers ignorés.</p>'
     +(rows?'<div class="planning-bulk-table"><table><thead><tr><th>Date</th><th>Horaire</th><th>Élément à associer (modifiable)</th></tr></thead><tbody>'+rows+'</tbody></table></div>':
-      '<p class="planning-muted">Aucun créneau libre compatible ou aucune séance du cahier restante sur cette période.</p>')
+      '<p class="planning-muted">Aucun créneau libre compatible sur cette période.</p>')
     +'<p class="planning-muted"><strong>Important :</strong> la répartition automatique est une suggestion. Tu peux préparer une séance ou activité libre sans la publier aux élèves, ou choisir une séance, une évaluation, une intervention, une sortie ou une absence. Tu peux aussi choisir le germoir, la carte mentale, la fiche de mémorisation ou l’évaluation. Les fiches de l’atelier liées à une séance sont proposées séparément. Pour plusieurs éléments dans la même heure, ouvre ensuite le créneau dans « Ma semaine ». Les liens existants et les horaires restent inchangés.</p>';
    updateSelectedCount();
   }catch(err){notify('Prévisualisation impossible : '+err.message,true)}
@@ -1069,7 +1070,7 @@ async function openPlanningBulk(){
     completed++;
    }
    await loadPeriod();render();closeModal();
-   notify(completed+' association(s) enregistrée(s) et vérifiée(s) pour '+proposed.className+'.');
+   notify(completed+' créneau(x) planifié(s) ou associé(s) et enregistré(s) pour '+proposed.className+'.');
   }catch(err){
    try{await loadPeriod();render()}catch(_){}
    notify('Association interrompue : '+completed+' sur '+selected.length+' enregistrée(s). '+err.message,true);
