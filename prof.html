@@ -1569,6 +1569,12 @@ const richImageObserver=new MutationObserver(mutations=>{
 });
 richImageObserver.observe(document.documentElement,{subtree:true,childList:true,attributes:true,attributeFilter:["style"]});
 
+function isInteractiveDocument(value){
+  try { const u=new URL(String(value||""),location.href), base=new URL(SUPABASE_URL); return u.origin===base.origin && u.pathname.startsWith("/storage/v1/object/public/documents/") && /\.html?$/i.test(u.pathname); } catch(e){return false;}
+}
+function interactiveDocumentHref(value){
+  return new URL("activite-interactive.html?source="+encodeURIComponent(value),location.href).href;
+}
 function safeHttpUrl(value){
   try{const url=new URL(String(value||""),location.href);return/^https?:$/.test(url.protocol)?url.href:""}catch(e){return""}
 }
@@ -1583,6 +1589,7 @@ function documentStoragePath(value){
 }
 function existingPdf(url,labelText){
   if(!url)return"";
+  if(isInteractiveDocument(url))return `<div class="pdf-existing"><strong>🧪 Activité interactive enregistrée</strong><div class="pdf-actions"><a class="btn pdf-ok" href="${esc(interactiveDocumentHref(url))}" target="_blank" rel="noopener noreferrer">Ouvrir l’activité interactive</a><button type="button" class="danger" onclick="clearPdf(this)">Retirer l’activité</button></div></div>`;
   const href=safeHttpUrl(url);
   return`<div class="pdf-existing"><strong>📄 ${esc(labelText)} déjà enregistré</strong><div class="pdf-actions">${href?`<a class="btn pdf-ok" href="${esc(href)}" target="_blank" rel="noopener noreferrer">Ouvrir le PDF</a>`:`<span class="status">Adresse PDF invalide</span>`}<button type="button" class="danger" onclick="clearPdf(this)">Retirer le PDF</button></div></div>`;
 }
@@ -1607,7 +1614,7 @@ async function clearPdf(button){
   }
 
   const path=documentStoragePath(oldUrl);
-  if(!confirm(path?"Supprimer définitivement ce PDF du stockage ?":"Retirer le lien PDF du cahier ? Le fichier externe ne sera pas supprimé."))return;
+  if(!confirm(path?"Supprimer définitivement ce document du stockage ?":"Retirer le lien du cahier ? Le fichier externe ne sera pas supprimé."))return;
 
   try{
     if(path){
@@ -1640,7 +1647,7 @@ function entryEditor(type,entry,sessionIndex,entryIndex){
     <div class="entry-head"><span class="entry-type">${labelText}</span><div class="entry-actions"><label style="margin:0;font-size:12px;font-weight:700">📅 <input class="entry-date" type="date" value="${esc(x.date)}" aria-label="Date"></label><button type="button" onclick="moveEntry(this,-1)" title="Monter ce bloc" aria-label="Monter ce bloc">↑</button><button type="button" onclick="moveEntry(this,1)" title="Descendre ce bloc" aria-label="Descendre ce bloc">↓</button><button type="button" onclick="duplicateEntry(this)">Dupliquer</button><button type="button" class="danger" onclick="removeEntry(this)">Supprimer</button></div></div>
     ${isCorrection
   ?`<div class="pdf-box" data-current-url="${esc(x.pdf)}">${x.pdf?existingPdf(x.pdf,"PDF de correction"):""}<label>${x.pdf?"Remplacer le PDF de correction":"PDF de correction (facultatif)"}</label><input class="entry-pdf" type="file" accept="application/pdf" onchange="uploadPdf(this,'entry','${id}')"><span class="status"></span></div>`
-      :`<div class="entry-label">${type==="activite"?"Contenu de l'activité":"Contenu du bilan"}</div>${richToolbar(id)}<div id="${id}" class="rich-editor entry-text" contenteditable="true" data-placeholder="Écris le contenu…" data-svt-original-texte="${esc(x.texte||"")}">${x.texte}</div><div class="pdf-box" data-current-url="${esc(x.pdf)}">${x.pdf?existingPdf(x.pdf,type==="activite"?"PDF de l'activité":"PDF du bilan"):""}<label>${x.pdf?"Remplacer le PDF":"PDF (facultatif)"}</label><input class="entry-pdf" type="file" accept="application/pdf" onchange="uploadPdf(this,'entry','${id}')"><span class="status"></span></div>`}
+      :`<div class="entry-label">${type==="activite"?"Contenu de l'activité":"Contenu du bilan"}</div>${richToolbar(id)}<div id="${id}" class="rich-editor entry-text" contenteditable="true" data-placeholder="Écris le contenu…" data-svt-original-texte="${esc(x.texte||"")}">${x.texte}</div><div class="pdf-box" data-current-url="${esc(x.pdf)}">${x.pdf?existingPdf(x.pdf,type==="activite"?"PDF de l'activité":"PDF du bilan"):""}<label>${type==="activite"?(x.pdf?"Remplacer le document (PDF ou HTML)":"Document PDF ou activité HTML (facultatif)"):(x.pdf?"Remplacer le PDF":"PDF (facultatif)")}</label><input class="entry-pdf" type="file" accept="${type==="activite"?"application/pdf,.pdf,text/html,.html,.htm":"application/pdf"}" onchange="uploadPdf(this,'entry','${id}')"><span class="status"></span></div>`}
   </div>`;
 }
 
@@ -2384,6 +2391,7 @@ function exportCahierHtml(v){
   return sanitizeRichHtml(v||"");
 }
 function exportPdfLink(labelText,url){
+  if(isInteractiveDocument(url))return `<div class="cahier-pdf"><strong>🧪 Activité interactive</strong><br><a href="${esc(interactiveDocumentHref(url))}" target="_blank" rel="noopener noreferrer">Ouvrir l’activité en ligne</a></div>`;
   const href=safeHttpUrl(url);if(!href)return "";
   return `<div class="cahier-pdf"><strong>📄 ${esc(labelText)}</strong><br><a href="${esc(href)}" target="_blank" rel="noopener noreferrer">Ouvrir le PDF associé</a></div>`;
 }
@@ -2671,16 +2679,22 @@ async function removeSchemaImage(chapterIndex){
 }
 
 async function uploadPdf(input,kind,id){
-  const file=input.files?.[0];if(!file)return;if(file.type!=="application/pdf"){alert("Choisis un fichier PDF.");input.value="";return}
-  const box=input.closest(".pdf-box"),status=box?.querySelector(".status");if(status)status.textContent="Envoi du PDF…";
+  const file=input.files?.[0];if(!file)return;
+  const html=input.closest(".entry")?.dataset.entryType==="activite" && /\.html?$/i.test(file.name);
+  if(!html && file.type!=="application/pdf"){alert("Choisis un PDF ou, dans un bloc Activité, un fichier HTML.");input.value="";return}
+  if(html && file.size>10*1024*1024){alert("Activité HTML trop volumineuse (10 Mo maximum).");input.value="";return}
+  const docName=html?"activité HTML":"PDF";
+  const box=input.closest(".pdf-box"),status=box?.querySelector(".status");if(status)status.textContent="Envoi : "+docName+"…";
   const path=`${classe}/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9._-]/g,"_")}`;
   try{
-    const{error}=await sb.storage.from("documents").upload(path,file,{contentType:"application/pdf",upsert:false});if(error)throw new Error(error.message);
-    const{data}=sb.storage.from("documents").getPublicUrl(path);input.dataset.url=data.publicUrl;if(box){box.dataset.currentUrl=data.publicUrl;delete box.dataset.pdfCleared}if(status)status.textContent="PDF ajouté ✓";
+    const payload=html?new Blob([await file.text()],{type:"text/plain"}):file;
+    const{error}=await sb.storage.from("documents").upload(path,payload,{contentType:html?"text/plain":"application/pdf",upsert:false});if(error)throw new Error(error.message);
+    const{data}=sb.storage.from("documents").getPublicUrl(path);input.dataset.url=data.publicUrl;if(box){box.dataset.currentUrl=data.publicUrl;delete box.dataset.pdfCleared}if(status)status.textContent=docName+" ajouté ✓";
     if(currentChapterIndex>=0){clearTimeout(autosaveTimer);await runAutosave()}
-  }catch(e){if(status)status.textContent="Erreur : "+e.message;alert("Envoi du PDF impossible : "+e.message)}
+  }catch(e){if(status)status.textContent="Erreur : "+e.message;alert("Envoi du document impossible : "+e.message)}
 }
 function previewPdfLink(url,labelText){
+  if(isInteractiveDocument(url))return `<a class="student-preview-pdf" href="${esc(interactiveDocumentHref(url))}" target="_blank" rel="noopener noreferrer">🧪 Ouvrir l’activité interactive</a>`;
   const raw=String(url||'').trim();if(!raw)return'';
   try{const u=new URL(raw,location.href);if(!/^https?:$/.test(u.protocol))return'';return `<a class="student-preview-pdf" href="${esc(u.href)}" target="_blank" rel="noopener noreferrer">📄 ${esc(labelText)}</a>`}catch(e){return''}
 }
