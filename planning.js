@@ -260,6 +260,10 @@ function renderGrid(){
    const special=meta.kind!=='cours';
    const kindText=special?'<small class="planning-special-title">'+esc(kind.icon+' '+kind.label)
     +(meta.detail.trim()?' — '+esc(meta.detail.trim().split(/\r?\n/)[0].slice(0,95)):'')+'</small>':'';
+   const draftHtml=meta.drafts?.length
+    ?'<div class="planning-course-drafts"><small class="planning-draft-status">✏️ Préparation privée · non publiée</small>'
+     +meta.drafts.map(item=>'<small class="planning-draft-title">'+esc((item.type==='seance'?'📘 Séance : ':'🧪 Activité : ')+item.title)+'</small>').join('')+'</div>'
+    :'';
    const ids=linkedIds(o);
    const explicit=new Set(ids);
    const elements=ids.flatMap(uid=>{
@@ -275,7 +279,7 @@ function renderGrid(){
    const quickDone=window.PlanningCompletion?.eligible(o,iso(new Date()))?'<button type="button" class="planning-quick-done" data-quick-done="'+esc(o.id)+'" title="Confirmer ce cours comme effectué">✓ Effectué</button>':'';
    return '<div class="planning-course-wrap"><button class="planning-course" data-occ="'+esc(o.id)+'" style="--course-color:'+colorFor(o.class_name)+'">'
     +esc(o.class_name||o.title||'Événement')+'<small>'+esc(o.start_time.slice(0,5))+'–'+esc(o.end_time.slice(0,5))+' · '+statusLabel(o.status)+'</small>'
-    +kindText+linkedHtml+'</button>'+hrefs+quickDone+'</div>';
+    +kindText+draftHtml+linkedHtml+'</button>'+hrefs+quickDone+'</div>';
   }).join('');
   const timed=events.timed.filter(e=>e.day===iso(day)&&e.from===a&&e.to===b).map(eventHtml).join('');
   return '<td>'+(courses+timed||'<span class="planning-empty">—</span>')+'</td>';
@@ -332,7 +336,8 @@ function renderFollowup(){
   {id:'completed',label:'Effectués (confirmés)',value:report.counts.completed},
   {id:'upcoming',label:'À venir',value:report.counts.upcoming},
   {id:'toConfirm',label:'Passés à confirmer',value:report.counts.toConfirm},
-  {id:'missing',label:'Sans séance associée',value:report.counts.missing},
+  {id:'missing',label:'Sans contenu préparé',value:report.counts.missing},
+  {id:'prepared',label:'Préparations privées',value:report.counts.prepared},
   {id:'special',label:'Activités particulières',value:report.counts.special}
  ];
  $('#planningFollowupSummary').innerHTML=metrics.map(m=>
@@ -341,6 +346,7 @@ function renderFollowup(){
   '<strong>'+m.value+'</strong><span>'+esc(m.label)+'</span></button>').join('');
  const all=report.rows.filter(row=>state.followupFilter==='all'
   ||state.followupFilter==='missing'&&row.missing
+  ||state.followupFilter==='prepared'&&row.prepared
   ||row.stage===state.followupFilter);
  const max=60,visible=all.slice(0,max);
  const stageNames={completed:'Effectué',upcoming:'À venir',toConfirm:'À confirmer',
@@ -353,7 +359,7 @@ function renderFollowup(){
    const headline=o.kind!=='cours'
     ?'Activité : '+(window.PlanningKinds?.descriptor(o.kind).label||o.kind)
     :linked?linked.chapterTitle+' — '+linked.sessionTitle
-    :o.linked?'Élément(s) du cahier associé(s)':'Aucun élément du cahier associé';
+    :o.linked?'Élément(s) du cahier associé(s)':o.prepared?'✏️ Prévu : '+o.draftTitle+(o.draftCount>1?' (+'+(o.draftCount-1)+' autre(s))':''):'Aucune préparation ni élément du cahier';
    const classAndDate=esc(o.class_name)+' · '+esc(o.session_date)+' · '+esc(o.start_time)+'–'+esc(o.end_time);
    return '<article class="planning-followup-row"><div><strong>'+esc(headline)+'</strong>'+
     '<p class="planning-muted">'+classAndDate+' · '+esc(stageNames[o.stage]||o.stage)+'</p></div>'+
@@ -623,11 +629,12 @@ async function editOccurrence(id){
  const o=state.occurrences.find(x=>String(x.id)===String(id));if(!o)return;
  let elements=[];
  try{elements=await getCahierElements(o.class_name)}
- catch(err){notify('Impossible de lire le cahier de '+o.class_name+' : '+err.message,true);return;}
+ catch(err){notify('Cahier indisponible pour '+o.class_name+' : '+err.message+'. Tu peux néanmoins préparer librement ce créneau.',true);}
  let selected=linkedIds(o);
  let pickerClass=o.class_name;
  let pickerLoading=false,changeRequest=0;
  const meta=window.PlanningKinds.read(o.notes);
+ let drafts=window.PlanningKinds.normalizeDrafts(meta.drafts);
  const kindOptions=window.PlanningKinds.types.map(t=>'<option value="'+esc(t.value)+'" '+(t.value===meta.kind?'selected':'')+'>'+esc(t.icon+' '+t.label)+'</option>').join('');
  const box='<form id="occForm"><div class="planning-form-grid">'
   +'<div class="planning-field"><label>Date</label><input class="planning-input" type="date" name="session_date" value="'+esc(o.session_date)+'" required></div>'
@@ -636,6 +643,12 @@ async function editOccurrence(id){
   +'<div class="planning-field"><label>Fin</label><input class="planning-input" type="time" name="end_time" value="'+esc(o.end_time.slice(0,5))+'" required></div>'
   +'<div class="planning-field"><label>Type de créneau</label><select class="planning-select" name="kind">'+kindOptions+'</select></div>'
   +'<div class="planning-field"><label>État</label><select class="planning-select" name="status">'+['planned','completed','postponed','cancelled'].map(s=>'<option value="'+s+'" '+(s===o.status?'selected':'')+'>'+statusLabel(s)+'</option>').join('')+'</select></div>'
+  +'<div class="planning-field full planning-preparation"><label>✏️ Préparer à l’avance — sans créer de séance dans le cahier des élèves</label>'
+  +'<small class="planning-muted">Rédige une ou plusieurs séances ou activités prévisionnelles. Elles restent uniquement dans ton planning professeur et ne sont pas visibles par les élèves. Tu pourras ensuite les relier aux éléments du cahier.</small>'
+  +'<div id="planningDraftItems" class="planning-draft-items" aria-live="polite"></div>'
+  +'<div class="planning-draft-add"><select class="planning-select" id="planningDraftType" aria-label="Type de préparation"><option value="seance">📘 Séance à prévoir</option><option value="activite">🧪 Activité à prévoir</option></select>'
+  +'<input class="planning-input" id="planningDraftTitle" type="text" maxlength="160" placeholder="Ex. Séance 4 — Comprendre la digestion" aria-label="Intitulé de la préparation">'
+  +'<button type="button" class="planning-btn" id="planningDraftAdd">＋ Prévoir</button></div></div>'
   +'<div class="planning-field full"><label>Éléments du cahier associés (plusieurs possibles)</label>'
   +'<small class="planning-muted">Ajoute des séances, des fiches de l’atelier ou des éléments de bilan. Les fiches liées à une séance apparaissent automatiquement dans la semaine, même sans sélection individuelle. Les fiches liées depuis l’atelier figurent sous chaque séance. Les flèches définissent leur ordre dans ce créneau.</small>'
   +'<div id="planningSelectedItems" class="planning-linked-items" aria-live="polite"></div>'
@@ -676,11 +689,64 @@ async function editOccurrence(id){
   $('#planningElementChoice').disabled=pickerLoading||!available.length;
   $('#planningAddLinkedElement').disabled=pickerLoading||!available.length;
  };
+ const renderDrafts=()=>{
+  if(!form?.isConnected)return;
+  const available=elements.filter(item=>!selected.includes(item.uid));
+  const options='<option value="">— Choisir un élément du cahier —</option>'
+   +available.map(item=>'<option value="'+esc(item.uid)+'">'
+     +esc(item.chapterTitle+' — '+(item.type==='atelier-activity'?item.parentSessionTitle+' / ':'')+item.sessionTitle)+'</option>').join('');
+  $('#planningDraftItems').innerHTML=drafts.length?drafts.map((item,index)=>
+   '<div class="planning-draft-item" data-draft-index="'+index+'">'
+    +'<div class="planning-draft-item-head"><strong>'+(item.type==='seance'?'📘 Séance prévisionnelle':'🧪 Activité prévisionnelle')+'</strong>'
+    +'<div class="planning-linked-actions">'
+    +'<button type="button" data-draft-action="up" data-draft-index="'+index+'" '+(index===0?'disabled':'')+' title="Monter la préparation">↑</button>'
+    +'<button type="button" data-draft-action="down" data-draft-index="'+index+'" '+(index===drafts.length-1?'disabled':'')+' title="Descendre la préparation">↓</button>'
+    +'<button type="button" data-draft-action="remove" data-draft-index="'+index+'" title="Supprimer la préparation">✕</button></div></div>'
+    +'<label class="planning-draft-field">Intitulé<input class="planning-input" maxlength="160" data-draft-field="title" data-draft-index="'+index+'" value="'+esc(item.title)+'"></label>'
+    +'<label class="planning-draft-field">Notes facultatives (objectif, matériel, déroulement…)<textarea class="planning-textarea" rows="2" maxlength="1500" data-draft-field="detail" data-draft-index="'+index+'">'+esc(item.detail)+'</textarea></label>'
+    +'<div class="planning-draft-connect"><select class="planning-select" data-draft-target="'+index+'" aria-label="Choisir l’élément du cahier qui remplace cette préparation" '+(!available.length?'disabled':'')+'>'+options+'</select>'
+    +'<button class="planning-btn" type="button" data-draft-action="connect" data-draft-index="'+index+'" '+(!available.length?'disabled':'')+'>Remplacer par le lien du cahier</button></div></div>'
+  ).join(''):'<p class="planning-muted">Aucune préparation. Tu peux commencer même si tu n’as encore rien créé dans le cahier.</p>';
+  $('#planningDraftAdd').disabled=drafts.length>=60;
+ };
+ renderDrafts();
+ $('#planningDraftAdd').onclick=()=>{
+  const input=$('#planningDraftTitle'),title=input.value.trim();
+  if(!title)return notify('Saisis un intitulé pour ta séance ou ton activité prévisionnelle.',true);
+  if(drafts.length>=60)return notify('Maximum 60 préparations dans un créneau.',true);
+  drafts.push({type:$('#planningDraftType').value==='activite'?'activite':'seance',title:title.slice(0,160),detail:''});
+  input.value='';renderDrafts();input.focus();
+ };
+ $('#planningDraftTitle').addEventListener('keydown',event=>{
+  if(event.key==='Enter'){event.preventDefault();$('#planningDraftAdd').click();}
+ });
+ $('#planningDraftItems').addEventListener('input',event=>{
+  const field=event.target.closest('[data-draft-field]');
+  if(!field)return;
+  const index=Number(field.dataset.draftIndex),key=field.dataset.draftField;
+  if(drafts[index]&&['title','detail'].includes(key))drafts[index][key]=field.value;
+ });
+ $('#planningDraftItems').addEventListener('click',event=>{
+  const button=event.target.closest('[data-draft-action]');if(!button)return;
+  const index=Number(button.dataset.draftIndex),action=button.dataset.draftAction;
+  if(!Number.isInteger(index)||index<0||index>=drafts.length)return;
+  if(action==='remove')drafts.splice(index,1);
+  else if(action==='up'&&index>0)[drafts[index-1],drafts[index]]=[drafts[index],drafts[index-1]];
+  else if(action==='down'&&index<drafts.length-1)[drafts[index+1],drafts[index]]=[drafts[index],drafts[index+1]];
+  else if(action==='connect'){
+   const uid=$('#planningDraftItems').querySelector('[data-draft-target="'+index+'"]')?.value;
+   if(!uid||selected.includes(uid)||!elements.some(item=>item.uid===uid))
+    return notify('Sélectionne une séance ou une activité existante dans le cahier.',true);
+   if(drafts[index].detail.trim()&&!confirm('Cette préparation contient des notes. Les remplacer par le lien du cahier effacera ces notes privées. Continuer ?'))return;
+   selected.push(uid);drafts.splice(index,1);renderPicker();
+  }
+  renderDrafts();
+ });
  renderPicker();
  $('#occCancel').onclick=closeModal;
  $('#planningAddLinkedElement').onclick=()=>{
   const uid=$('#planningElementChoice').value;
-  if(uid&&elements.some(item=>item.uid===uid)&&!selected.includes(uid)){selected.push(uid);renderPicker();}
+  if(uid&&elements.some(item=>item.uid===uid)&&!selected.includes(uid)){selected.push(uid);renderPicker();renderDrafts();}
  };
  $('#planningSelectedItems').addEventListener('click',e=>{
   const button=e.target.closest('[data-link-action]');
@@ -690,21 +756,31 @@ async function editOccurrence(id){
   if(button.dataset.linkAction==='remove')selected.splice(index,1);
   else if(button.dataset.linkAction==='up'&&index>0)[selected[index-1],selected[index]]=[selected[index],selected[index-1]];
   else if(button.dataset.linkAction==='down'&&index<selected.length-1)[selected[index+1],selected[index]]=[selected[index],selected[index+1]];
-  renderPicker();
+  renderPicker();renderDrafts();
  });
  form.elements.class_name.addEventListener('change',async e=>{
   const request=++changeRequest,cls=e.target.value;
-  pickerClass=cls;selected=[];elements=[];pickerLoading=true;renderPicker();
+  pickerClass=cls;selected=[];elements=[];pickerLoading=true;renderPicker();renderDrafts();
   try{
    const next=await getCahierElements(cls);
    if(request!==changeRequest||!form.isConnected)return;
    elements=next;
   }catch(error){if(request===changeRequest)notify('Impossible de lire le cahier : '+error.message,true)}
-  finally{if(request===changeRequest){pickerLoading=false;renderPicker()}}
+  finally{if(request===changeRequest){pickerLoading=false;renderPicker();renderDrafts()}}
  });
  form.onsubmit=async e=>{
   e.preventDefault();
   if(pickerLoading)return notify('Attends le chargement des éléments de la classe.',true);
+  const pendingTitle=$('#planningDraftTitle').value.trim();
+  if(pendingTitle&&drafts.length>=60)
+   return notify('Maximum 60 préparations par créneau. Supprime une préparation ou efface le nouveau titre.',true);
+  if(pendingTitle){
+   drafts.push({type:$('#planningDraftType').value==='activite'?'activite':'seance',title:pendingTitle.slice(0,160),detail:''});
+   $('#planningDraftTitle').value='';
+   renderDrafts();
+  }
+  if(drafts.some(item=>!String(item.title||'').trim()))
+   return notify('Une préparation n’a plus de titre. Complète-la ou supprime-la avant d’enregistrer.',true);
   const button=$('#occSave');button.disabled=true;
   const f=new FormData(form);
   try{
@@ -713,11 +789,11 @@ async function editOccurrence(id){
    await query('planning_session_occurrences','update',{
     session_date:f.get('session_date'),class_name:f.get('class_name'),
     start_time:f.get('start_time'),end_time:f.get('end_time'),
-    status:f.get('status'),notes:window.PlanningKinds.write(kind,f.get('notes'),selected),
+    status:f.get('status'),notes:window.PlanningKinds.write(kind,f.get('notes'),selected,drafts),
     cahier_planning_uid:sessionUid,is_modified:true
    },[['id','eq',id],['owner_id','eq',state.user.id]]);
    closeModal();await loadPeriod();render();
-   notify(selected.length+' élément(s) associé(s) au créneau et modifications enregistrées.');
+   notify(drafts.length+' préparation(s) libre(s) et '+selected.length+' élément(s) du cahier enregistrés.');
   }catch(error){notify('Enregistrement impossible : '+error.message,true);if(form.isConnected)button.disabled=false;}
  };
 }
@@ -829,19 +905,19 @@ async function openPlanningBulk(){
  if(!state.period||!state.occurrences.length)return notify('Aucune séance de planning générée à associer.',true);
  if(!window.PlanningBatch||!window.PlanningKinds)return notify('Les modules du planning sont incomplets : actualise la page.',true);
  const options=CLASSES.map(c=>'<option value="'+esc(c)+'">'+esc(c)+'</option>').join('');
- openModal('Associer les séances en série',
-  '<p class="planning-muted">La correspondance automatique est <strong>indicative</strong>. Pour chaque créneau, tu peux choisir une séance du cahier, une évaluation, une intervention, une sortie/voyage scolaire, une absence ou rien. Aucune écriture avant validation explicite.</p>'
+ openModal('Préparer ou associer des cours en série',
+  '<p class="planning-muted">La correspondance automatique est <strong>indicative</strong>. Pour chaque créneau, tu peux aussi saisir une séance ou une activité prévisionnelle sans la créer dans le cahier des élèves. Aucune écriture avant validation explicite.</p>'
   +'<form id="planningBulkForm" class="planning-form-grid">'
   +'<div class="planning-field"><label for="bulkClass">Classe</label><select id="bulkClass" class="planning-select" name="class_name" required>'+options+'</select></div>'
   +'<div class="planning-field"><label for="bulkStart">À partir du</label><input id="bulkStart" class="planning-input" type="date" name="from_date" value="'+esc(iso(state.weekStart))+'" required></div>'
   +'<div class="planning-field"><label for="bulkEnd">Jusqu’au</label><input id="bulkEnd" class="planning-input" type="date" name="to_date" value="'+esc(state.period.end_date)+'" required></div>'
   +'<div class="planning-field"><label for="bulkSession">Séance de départ (facultatif)</label><select id="bulkSession" class="planning-select" name="first_uid"><option value="">Première séance non encore associée</option></select></div>'
   +'<div class="planning-field full"><small class="planning-muted">Suggestion initiale : une séance différente par créneau. Tu pourras la répéter, choisir un autre type de créneau ou laisser le cours sans association. Maximum 40 lignes par prévisualisation.</small></div>'
-  +'<div class="planning-field full"><button class="planning-btn primary" type="submit">🔎 Prévisualiser les associations</button></div>'
+  +'<div class="planning-field full"><button class="planning-btn primary" type="submit">🔎 Prévisualiser le planning</button></div>'
   +'</form>'
   +'<div id="planningBulkPreview" aria-live="polite"></div>'
   +'<div class="planning-footer"><button type="button" class="planning-btn" id="planningBulkCancel">Fermer sans enregistrer</button>'
-  +'<button type="button" class="planning-btn primary" id="planningBulkApply" hidden>💾 Confirmer les associations</button></div>',
+  +'<button type="button" class="planning-btn primary" id="planningBulkApply" hidden>💾 Enregistrer le planning</button></div>',
   true);
  const form=$('#planningBulkForm'),preview=$('#planningBulkPreview'),save=$('#planningBulkApply');
  let proposed=null;
@@ -852,21 +928,29 @@ async function openPlanningBulk(){
   const entry=proposed.items.find(x=>String(x.id)===select.dataset.occId);
   if(!entry)return;
   const selected=proposed.availableElements.find(item=>item.uid===select.value);
-  if(select.value.startsWith('kind:')){
+  if(select.value.startsWith('draft:')){
+   const type=select.value.slice(6);
+   if(!['seance','activite'].includes(type)){notify('Type de préparation inconnu.',true);reset();return;}
+   entry.draftType=type;entry.kind='cours';entry.uid='';entry.chapterTitle='';entry.sessionTitle='';
+  }else if(select.value.startsWith('kind:')){
    const kind=select.value.slice(5);
    if(!window.PlanningKinds.types.some(t=>t.value===kind&&kind!=='cours')){
     notify('Type de créneau inconnu : refais la prévisualisation.',true);reset();return;
    }
-   entry.kind=kind;entry.uid='';entry.chapterTitle='';entry.sessionTitle='';
+   entry.kind=kind;entry.draftType='';entry.uid='';entry.chapterTitle='';entry.sessionTitle='';
   }else{
    if(select.value&&!selected){notify('Séance inconnue : refais la prévisualisation.',true);reset();return;}
-   entry.kind='cours';
+   entry.kind='cours';entry.draftType='';
    entry.uid=selected?.uid||'';
    entry.chapterTitle=selected?.chapterTitle||'';
    entry.sessionTitle=selected?.sessionTitle||'';
   }
   const detail=preview.querySelector('.planning-bulk-detail[data-occ-id="'+entry.id+'"]');
-  if(detail)detail.hidden=entry.kind==='cours';
+  if(detail){
+   detail.hidden=entry.kind==='cours'&&!entry.draftType;
+   detail.placeholder=entry.draftType?'Intitulé obligatoire de la préparation (non publiée)':'Intitulé facultatif (ex. contrôle chapitre 2)';
+   detail.maxLength=entry.draftType?160:200;
+  }
   updateSelectedCount();
  });
  preview.addEventListener('input',e=>{
@@ -876,7 +960,7 @@ async function openPlanningBulk(){
   if(entry)entry.detail=input.value;
  });
  const updateSelectedCount=()=>{
-  const count=proposed?.items.filter(x=>x.uid||x.kind!=='cours').length||0;
+  const count=proposed?.items.filter(x=>x.uid||x.kind!=='cours'||x.draftType).length||0;
   const label=preview.querySelector('#planningBulkSelectedCount');
   if(label)label.textContent=count+' créneau(x) sélectionné(s).';
   save.hidden=count===0;
@@ -910,6 +994,8 @@ async function openPlanningBulk(){
    proposed={...proposal,periodId:state.period.id,ownerId:state.user.id,
     baseSignature:planningBulkSignature(proposal),availableSessions:sessions,availableElements:elements};
    const sessionOptions=(chosen)=>'<option value="">— Ne pas associer ce créneau —</option>'
+    +'<option value="draft:seance">✏️ Prévoir une séance libre (privée)</option>'
+    +'<option value="draft:activite">🧪 Prévoir une activité libre (privée)</option>'
     +window.PlanningKinds.types.filter(t=>t.value!=='cours').map(t=>'<option value="kind:'+esc(t.value)+'">'+esc(t.icon+' '+t.label)+'</option>').join('')
     +elements.map(session=>'<option value="'+esc(session.uid)+'"'
     +(session.uid===chosen?' selected':'')+'>'+esc(session.chapterTitle+' — '+(session.type==='atelier-activity'?session.parentSessionTitle+' / ':'')+session.sessionTitle)+'</option>').join('');
@@ -926,14 +1012,16 @@ async function openPlanningBulk(){
     +proposal.stats.cancelled+' cours annulés ou reportés ignorés, '
     +proposal.stats.exceptions+' créneau(x) particuliers ignorés.</p>'
     +(rows?'<div class="planning-bulk-table"><table><thead><tr><th>Date</th><th>Horaire</th><th>Élément à associer (modifiable)</th></tr></thead><tbody>'+rows+'</tbody></table></div>':
-      '<p class="planning-muted">Aucun créneau libre compatible ou aucune séance du cahier restante sur cette période.</p>')
-    +'<p class="planning-muted"><strong>Important :</strong> la répartition automatique est une suggestion. Choisis une séance, une évaluation, une intervention, une sortie ou une absence. Tu peux aussi choisir le germoir, la carte mentale, la fiche de mémorisation ou l’évaluation. Les fiches de l’atelier liées à une séance sont proposées séparément. Pour plusieurs éléments dans la même heure, ouvre ensuite le créneau dans « Ma semaine ». Les liens existants et les horaires restent inchangés.</p>';
+      '<p class="planning-muted">Aucun créneau libre compatible sur cette période.</p>')
+    +'<p class="planning-muted"><strong>Important :</strong> la répartition automatique est une suggestion. Tu peux préparer une séance ou activité libre sans la publier aux élèves, ou choisir une séance, une évaluation, une intervention, une sortie ou une absence. Tu peux aussi choisir le germoir, la carte mentale, la fiche de mémorisation ou l’évaluation. Les fiches de l’atelier liées à une séance sont proposées séparément. Pour plusieurs éléments dans la même heure, ouvre ensuite le créneau dans « Ma semaine ». Les liens existants et les horaires restent inchangés.</p>';
    updateSelectedCount();
   }catch(err){notify('Prévisualisation impossible : '+err.message,true)}
  });
  save.onclick=async()=>{
-  const selected=proposed?.items.filter(item=>item.uid||item.kind!=='cours')||[];
+  const selected=proposed?.items.filter(item=>item.uid||item.kind!=='cours'||item.draftType)||[];
   if(!proposed||state.busy||!selected.length)return;
+  if(selected.some(item=>item.draftType&&!String(item.detail||'').trim()))
+   return notify('Indique un intitulé pour chaque séance ou activité prévisionnelle avant d’enregistrer.',true);
   if(!confirm('Confirmer les '+selected.length+' créneau(x) sélectionné(s) pour '+proposed.className+' ? Vérifie les séances, les évaluations et les absences. Cette opération modifiera le planning Supabase.'))return;
   state.busy=true;save.disabled=true;
   let completed=0;
@@ -958,7 +1046,11 @@ async function openPlanningBulk(){
     // Protection contre un changement entre deux clics/onglets : condition
     // SQL sur l’état de la ligne + refus si déjà associée.
     const element=elements.find(candidate=>candidate.uid===item.uid);
-     const payload=item.kind==='cours'
+    const payload=item.draftType
+     ?{cahier_planning_uid:null,
+       notes:window.PlanningKinds.write('cours',item.originalNotes??'',[],[{type:item.draftType,title:String(item.detail||'').trim()}]),
+       is_modified:true}
+     :item.kind==='cours'
       ?{cahier_planning_uid:element?.type==='session'?item.uid:null,
         notes:window.PlanningKinds.write('cours',item.originalNotes??'',item.uid?[item.uid]:[]),is_modified:true}
       :{cahier_planning_uid:null,notes:window.PlanningKinds.write(item.kind,item.detail),is_modified:true};
@@ -978,7 +1070,7 @@ async function openPlanningBulk(){
     completed++;
    }
    await loadPeriod();render();closeModal();
-   notify(completed+' association(s) enregistrée(s) et vérifiée(s) pour '+proposed.className+'.');
+   notify(completed+' créneau(x) planifié(s) ou associé(s) et enregistré(s) pour '+proposed.className+'.');
   }catch(err){
    try{await loadPeriod();render()}catch(_){}
    notify('Association interrompue : '+completed+' sur '+selected.length+' enregistrée(s). '+err.message,true);
