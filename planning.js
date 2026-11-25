@@ -925,21 +925,28 @@ async function openPlanningBulk(){
   const entry=proposed.items.find(x=>String(x.id)===select.dataset.occId);
   if(!entry)return;
   const selected=proposed.availableElements.find(item=>item.uid===select.value);
-  if(select.value.startsWith('kind:')){
+  if(select.value.startsWith('draft:')){
+   const type=select.value.slice(6);
+   if(!['seance','activite'].includes(type)){notify('Type de préparation inconnu.',true);reset();return;}
+   entry.draftType=type;entry.kind='cours';entry.uid='';entry.chapterTitle='';entry.sessionTitle='';
+  }else if(select.value.startsWith('kind:')){
    const kind=select.value.slice(5);
    if(!window.PlanningKinds.types.some(t=>t.value===kind&&kind!=='cours')){
     notify('Type de créneau inconnu : refais la prévisualisation.',true);reset();return;
    }
-   entry.kind=kind;entry.uid='';entry.chapterTitle='';entry.sessionTitle='';
+   entry.kind=kind;entry.draftType='';entry.uid='';entry.chapterTitle='';entry.sessionTitle='';
   }else{
    if(select.value&&!selected){notify('Séance inconnue : refais la prévisualisation.',true);reset();return;}
-   entry.kind='cours';
+   entry.kind='cours';entry.draftType='';
    entry.uid=selected?.uid||'';
    entry.chapterTitle=selected?.chapterTitle||'';
    entry.sessionTitle=selected?.sessionTitle||'';
   }
   const detail=preview.querySelector('.planning-bulk-detail[data-occ-id="'+entry.id+'"]');
-  if(detail)detail.hidden=entry.kind==='cours';
+  if(detail){
+   detail.hidden=entry.kind==='cours'&&!entry.draftType;
+   detail.placeholder=entry.draftType?'Intitulé obligatoire de la préparation (non publiée)':'Intitulé facultatif (ex. contrôle chapitre 2)';
+  }
   updateSelectedCount();
  });
  preview.addEventListener('input',e=>{
@@ -949,7 +956,7 @@ async function openPlanningBulk(){
   if(entry)entry.detail=input.value;
  });
  const updateSelectedCount=()=>{
-  const count=proposed?.items.filter(x=>x.uid||x.kind!=='cours').length||0;
+  const count=proposed?.items.filter(x=>x.uid||x.kind!=='cours'||x.draftType).length||0;
   const label=preview.querySelector('#planningBulkSelectedCount');
   if(label)label.textContent=count+' créneau(x) sélectionné(s).';
   save.hidden=count===0;
@@ -983,6 +990,8 @@ async function openPlanningBulk(){
    proposed={...proposal,periodId:state.period.id,ownerId:state.user.id,
     baseSignature:planningBulkSignature(proposal),availableSessions:sessions,availableElements:elements};
    const sessionOptions=(chosen)=>'<option value="">— Ne pas associer ce créneau —</option>'
+    +'<option value="draft:seance">✏️ Prévoir une séance libre (privée)</option>'
+    +'<option value="draft:activite">🧪 Prévoir une activité libre (privée)</option>'
     +window.PlanningKinds.types.filter(t=>t.value!=='cours').map(t=>'<option value="kind:'+esc(t.value)+'">'+esc(t.icon+' '+t.label)+'</option>').join('')
     +elements.map(session=>'<option value="'+esc(session.uid)+'"'
     +(session.uid===chosen?' selected':'')+'>'+esc(session.chapterTitle+' — '+(session.type==='atelier-activity'?session.parentSessionTitle+' / ':'')+session.sessionTitle)+'</option>').join('');
@@ -1000,13 +1009,15 @@ async function openPlanningBulk(){
     +proposal.stats.exceptions+' créneau(x) particuliers ignorés.</p>'
     +(rows?'<div class="planning-bulk-table"><table><thead><tr><th>Date</th><th>Horaire</th><th>Élément à associer (modifiable)</th></tr></thead><tbody>'+rows+'</tbody></table></div>':
       '<p class="planning-muted">Aucun créneau libre compatible ou aucune séance du cahier restante sur cette période.</p>')
-    +'<p class="planning-muted"><strong>Important :</strong> la répartition automatique est une suggestion. Choisis une séance, une évaluation, une intervention, une sortie ou une absence. Tu peux aussi choisir le germoir, la carte mentale, la fiche de mémorisation ou l’évaluation. Les fiches de l’atelier liées à une séance sont proposées séparément. Pour plusieurs éléments dans la même heure, ouvre ensuite le créneau dans « Ma semaine ». Les liens existants et les horaires restent inchangés.</p>';
+    +'<p class="planning-muted"><strong>Important :</strong> la répartition automatique est une suggestion. Tu peux préparer une séance ou activité libre sans la publier aux élèves, ou choisir une séance, une évaluation, une intervention, une sortie ou une absence. Tu peux aussi choisir le germoir, la carte mentale, la fiche de mémorisation ou l’évaluation. Les fiches de l’atelier liées à une séance sont proposées séparément. Pour plusieurs éléments dans la même heure, ouvre ensuite le créneau dans « Ma semaine ». Les liens existants et les horaires restent inchangés.</p>';
    updateSelectedCount();
   }catch(err){notify('Prévisualisation impossible : '+err.message,true)}
  });
  save.onclick=async()=>{
-  const selected=proposed?.items.filter(item=>item.uid||item.kind!=='cours')||[];
+  const selected=proposed?.items.filter(item=>item.uid||item.kind!=='cours'||item.draftType)||[];
   if(!proposed||state.busy||!selected.length)return;
+  if(selected.some(item=>item.draftType&&!String(item.detail||'').trim()))
+   return notify('Indique un intitulé pour chaque séance ou activité prévisionnelle avant d’enregistrer.',true);
   if(!confirm('Confirmer les '+selected.length+' créneau(x) sélectionné(s) pour '+proposed.className+' ? Vérifie les séances, les évaluations et les absences. Cette opération modifiera le planning Supabase.'))return;
   state.busy=true;save.disabled=true;
   let completed=0;
@@ -1031,7 +1042,11 @@ async function openPlanningBulk(){
     // Protection contre un changement entre deux clics/onglets : condition
     // SQL sur l’état de la ligne + refus si déjà associée.
     const element=elements.find(candidate=>candidate.uid===item.uid);
-     const payload=item.kind==='cours'
+    const payload=item.draftType
+     ?{cahier_planning_uid:null,
+       notes:window.PlanningKinds.write('cours',item.originalNotes??'',[],[{type:item.draftType,title:String(item.detail||'').trim()}]),
+       is_modified:true}
+     :item.kind==='cours'
       ?{cahier_planning_uid:element?.type==='session'?item.uid:null,
         notes:window.PlanningKinds.write('cours',item.originalNotes??'',item.uid?[item.uid]:[]),is_modified:true}
       :{cahier_planning_uid:null,notes:window.PlanningKinds.write(item.kind,item.detail),is_modified:true};
