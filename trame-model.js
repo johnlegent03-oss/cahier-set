@@ -43,15 +43,15 @@
  function flatten(content,niveau){
   const data=normalize(content);
   const items=[];
-  for(const ch of data.chapitres){
-   for(const se of ch.seances){
+  for(const [chapterIndex,ch] of data.chapitres.entries()){
+   for(const [sessionIndex,se] of ch.seances.entries()){
     const parentUid='trame-session:'+se.id;
     const session={uid:parentUid,type:'trame-session',niveau,chapterTitle:ch.titre||'Chapitre',
       sessionTitle:se.titre||'Séance',chapterId:ch.id,sessionId:se.id,
-      problem:se.probleme,chapterIndex:900000,activities:se.activites.map(a=>({
+      problem:se.probleme,chapterIndex:800000+chapterIndex,sessionIndex,activities:se.activites.map(a=>({
        uid:'trame-activity:'+se.id+':'+a.docId,type:'trame-activity',niveau,docId:a.docId,
        chapterTitle:ch.titre||'Chapitre',sessionTitle:a.title||'Activité de l’atelier',
-       parentSessionTitle:se.titre||'Séance',sessionUid:parentUid,chapterIndex:900000
+       parentSessionTitle:se.titre||'Séance',sessionUid:parentUid,chapterIndex:800000+chapterIndex,sessionIndex
       }))};
     items.push(session,...session.activities);
    }
