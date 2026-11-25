@@ -547,10 +547,12 @@ function getAtelierBankElements(){
     if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)||seen.has(id))return [];
     seen.add(id);
     const title=String(doc.titre||'').trim()||'Document sans titre';
+    const iconByType={activite:'🧪',germoir:'🌱',exercice:'✏️',evaluation:'📝',bilan:'🧠',correction:'📄'};
+    const icon=iconByType[String(doc.document_type||'').trim()]||'📄';
     const atelierClass=String(doc.classe||'').trim();
     return [{uid:'atelier-doc:'+id,type:'atelier-bank',docId:id,
      chapterIndex:999999,chapterTitle:'🧪 Banque de l’atelier',
-     sessionTitle:'🧪 '+title.slice(0,140),
+     sessionTitle:icon+' '+title.slice(0,140),
      atelierClass,atelierChapter:String(doc.chapitre_titre||'').trim(),
      documentType:String(doc.document_type||'').trim()}];
    });
