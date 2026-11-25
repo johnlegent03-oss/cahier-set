@@ -735,6 +735,7 @@ async function editOccurrence(id){
    const uid=$('#planningDraftItems').querySelector('[data-draft-target="'+index+'"]')?.value;
    if(!uid||selected.includes(uid)||!elements.some(item=>item.uid===uid))
     return notify('Sélectionne une séance ou une activité existante dans le cahier.',true);
+   if(drafts[index].detail.trim()&&!confirm('Cette préparation contient des notes. Les remplacer par le lien du cahier effacera ces notes privées. Continuer ?'))return;
    selected.push(uid);drafts.splice(index,1);renderPicker();
   }
   renderDrafts();
@@ -743,7 +744,7 @@ async function editOccurrence(id){
  $('#occCancel').onclick=closeModal;
  $('#planningAddLinkedElement').onclick=()=>{
   const uid=$('#planningElementChoice').value;
-  if(uid&&elements.some(item=>item.uid===uid)&&!selected.includes(uid)){selected.push(uid);renderPicker();}
+  if(uid&&elements.some(item=>item.uid===uid)&&!selected.includes(uid)){selected.push(uid);renderPicker();renderDrafts();}
  };
  $('#planningSelectedItems').addEventListener('click',e=>{
   const button=e.target.closest('[data-link-action]');
@@ -753,21 +754,27 @@ async function editOccurrence(id){
   if(button.dataset.linkAction==='remove')selected.splice(index,1);
   else if(button.dataset.linkAction==='up'&&index>0)[selected[index-1],selected[index]]=[selected[index],selected[index-1]];
   else if(button.dataset.linkAction==='down'&&index<selected.length-1)[selected[index+1],selected[index]]=[selected[index],selected[index+1]];
-  renderPicker();
+  renderPicker();renderDrafts();
  });
  form.elements.class_name.addEventListener('change',async e=>{
   const request=++changeRequest,cls=e.target.value;
-  pickerClass=cls;selected=[];elements=[];pickerLoading=true;renderPicker();
+  pickerClass=cls;selected=[];elements=[];pickerLoading=true;renderPicker();renderDrafts();
   try{
    const next=await getCahierElements(cls);
    if(request!==changeRequest||!form.isConnected)return;
    elements=next;
   }catch(error){if(request===changeRequest)notify('Impossible de lire le cahier : '+error.message,true)}
-  finally{if(request===changeRequest){pickerLoading=false;renderPicker()}}
+  finally{if(request===changeRequest){pickerLoading=false;renderPicker();renderDrafts()}}
  });
  form.onsubmit=async e=>{
   e.preventDefault();
   if(pickerLoading)return notify('Attends le chargement des éléments de la classe.',true);
+  const pendingTitle=$('#planningDraftTitle').value.trim();
+  if(pendingTitle&&drafts.length<60){
+   drafts.push({type:$('#planningDraftType').value==='activite'?'activite':'seance',title:pendingTitle.slice(0,160),detail:''});
+  }
+  if(drafts.some(item=>!String(item.title||'').trim()))
+   return notify('Une préparation n’a plus de titre. Complète-la ou supprime-la avant d’enregistrer.',true);
   const button=$('#occSave');button.disabled=true;
   const f=new FormData(form);
   try{
@@ -776,11 +783,11 @@ async function editOccurrence(id){
    await query('planning_session_occurrences','update',{
     session_date:f.get('session_date'),class_name:f.get('class_name'),
     start_time:f.get('start_time'),end_time:f.get('end_time'),
-    status:f.get('status'),notes:window.PlanningKinds.write(kind,f.get('notes'),selected),
+    status:f.get('status'),notes:window.PlanningKinds.write(kind,f.get('notes'),selected,drafts),
     cahier_planning_uid:sessionUid,is_modified:true
    },[['id','eq',id],['owner_id','eq',state.user.id]]);
    closeModal();await loadPeriod();render();
-   notify(selected.length+' élément(s) associé(s) au créneau et modifications enregistrées.');
+   notify(drafts.length+' préparation(s) libre(s) et '+selected.length+' élément(s) du cahier enregistrés.');
   }catch(error){notify('Enregistrement impossible : '+error.message,true);if(form.isConnected)button.disabled=false;}
  };
 }
