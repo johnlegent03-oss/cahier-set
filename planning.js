@@ -1066,11 +1066,13 @@ async function openPlanningBulk(){
    });
    proposed={...proposal,periodId:state.period.id,ownerId:state.user.id,
     baseSignature:planningBulkSignature(proposal),availableSessions:sessions,availableElements:elements};
+   const bankForBulk=elements.filter(item=>item.type==='atelier-bank').slice(0,120);
+   const optionsForBulk=[...elements.filter(item=>item.type!=='atelier-bank'),...bankForBulk];
    const sessionOptions=(chosen)=>'<option value="">— Ne pas associer ce créneau —</option>'
     +'<option value="draft:seance">✏️ Prévoir une séance libre (privée)</option>'
     +'<option value="draft:activite">🧪 Prévoir une activité libre (privée)</option>'
     +window.PlanningKinds.types.filter(t=>t.value!=='cours').map(t=>'<option value="kind:'+esc(t.value)+'">'+esc(t.icon+' '+t.label)+'</option>').join('')
-    +elements.map(session=>'<option value="'+esc(session.uid)+'"'
+    +optionsForBulk.map(session=>'<option value="'+esc(session.uid)+'"'
     +(session.uid===chosen?' selected':'')+'>'+esc(session.chapterTitle+' — '+(session.type==='atelier-activity'?session.parentSessionTitle+' / ':'')+session.sessionTitle)+'</option>').join('');
    const rows=proposal.items.map(x=>'<tr><td>'+esc(x.session_date)+'</td><td>'
     +esc(x.start_time.slice(0,5))+'–'+esc(x.end_time.slice(0,5))+'</td><td>'
@@ -1086,7 +1088,7 @@ async function openPlanningBulk(){
     +proposal.stats.exceptions+' créneau(x) particuliers ignorés.</p>'
     +(rows?'<div class="planning-bulk-table"><table><thead><tr><th>Date</th><th>Horaire</th><th>Élément à associer (modifiable)</th></tr></thead><tbody>'+rows+'</tbody></table></div>':
       '<p class="planning-muted">Aucun créneau libre compatible sur cette période.</p>')
-    +'<p class="planning-muted"><strong>Important :</strong> la répartition automatique est une suggestion. Tu peux préparer une séance ou activité libre sans la publier aux élèves, ou choisir une séance, une évaluation, une intervention, une sortie ou une absence. Tu peux aussi choisir le germoir, la carte mentale, la fiche de mémorisation ou l’évaluation. Les fiches de l’atelier liées à une séance sont proposées séparément. Pour plusieurs éléments dans la même heure, ouvre ensuite le créneau dans « Ma semaine ». Les liens existants et les horaires restent inchangés.</p>';
+    +'<p class="planning-muted"><strong>Important :</strong> la répartition automatique est une suggestion. Tu peux préparer une séance ou activité libre sans la publier aux élèves, ou choisir une séance, une évaluation, une intervention, une sortie ou une absence. Tu peux aussi choisir le germoir, la carte mentale, la fiche de mémorisation ou l’évaluation. Les fiches de l’atelier liées à une séance sont proposées séparément. Tu peux aussi choisir une fiche déjà enregistrée dans la banque de l’atelier, sans la publier dans le cahier. Les 120 premières fiches sont proposées ici ; pour rechercher dans toute ta banque ou associer plusieurs éléments au même cours, ouvre le créneau dans « Ma semaine ». Les liens existants et les horaires restent inchangés.</p>';
    updateSelectedCount();
   }catch(err){notify('Prévisualisation impossible : '+err.message,true)}
  });
