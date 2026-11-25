@@ -9,6 +9,21 @@
   const schedulable=new Set(['planned','completed']);
   const dateOk=value=>typeof value==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(value);
   const text=value=>String(value??'').trim();
+  // Les références de la trame sont stockées dans les liens du planning,
+  // pas dans cahier_planning_uid (réservé aux séances des cahiers).
+  function linkedIds(row){
+    const primary=text(row?.cahier_planning_uid);
+    let notes=String(row?.notes||'').replace(/^\[SVT:CRENEAU:v1:[^\]\r\n]+\](?:\r?\n|$)/,'');
+    const match=notes.match(/^\[SVT:LIENS:v1:([^\]\r\n]+)\](?:\r?\n|$)/);
+    let ids=[];
+    if(match){
+      try{
+        const decoded=JSON.parse(decodeURIComponent(match[1]));
+        if(Array.isArray(decoded))ids=decoded.filter(x=>typeof x==='string'&&x.trim().length<=160);
+      }catch(_){}
+    }
+    return [...new Set([...ids,...(primary?[primary]:[])])];
+  }
 
   function plan({occurrences=[],sessions=[],className,fromDate,toDate,firstUid='',limit=40}={}){
     if(!text(className)||!dateOk(fromDate)||!dateOk(toDate)||fromDate>toDate)
@@ -31,15 +46,18 @@
     }
     const byUid=new Map(unique.map((s,i)=>[s.uid,i]));
     if(firstUid&&!byUid.has(firstUid))throw new Error('La séance de départ n’existe plus dans le cahier.');
-    const alreadyLinked=new Set(classRows.map(o=>text(o.cahier_planning_uid)).filter(Boolean));
+    const alreadyLinked=new Set(classRows.flatMap(linkedIds));
     let index=firstUid?byUid.get(firstUid):0;
     const items=[];
     const stats={existing:0,modified:0,cancelled:0,noMore:0,exceptions:0,alreadyUsed:alreadyLinked.size,candidates:unique.length};
     for(const occ of sorted){
-      if(text(occ.cahier_planning_uid)){
+      const previousLinks=linkedIds(occ);
+      if(previousLinks.length){
         stats.existing++;
-        const linkedIndex=byUid.get(occ.cahier_planning_uid);
-        if(linkedIndex!==undefined)index=Math.max(index,linkedIndex+1);
+        for(const uid of previousLinks){
+          const linkedIndex=byUid.get(uid);
+          if(linkedIndex!==undefined)index=Math.max(index,linkedIndex+1);
+        }
         continue;
       }
       if(!schedulable.has(occ.status)){stats.cancelled++;continue;}

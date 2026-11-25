@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Trame pédagogique — Espace professeur SVT</title>
+<link rel="stylesheet" href="trame.css?v=1">
+</head>
+<body>
+<main class="trame-shell">
+<header class="trame-top">
+ <div><a href="prof.html" class="back-link">← Espace professeur</a><h1>Trame pédagogique</h1>
+ <p>Ta bibliothèque de chapitres, séances et activités — indépendante des classes et des dates.</p></div>
+ <div class="trame-top-actions"><a class="trame-btn" href="planning.html">🗓️ Planning</a><a class="trame-btn" href="atelier.html">🧩 Atelier</a><button id="trameSave" class="trame-btn primary" type="button" disabled>Enregistrer les modifications</button></div>
+</header>
+<div id="trameNotice" role="status" aria-live="polite" class="trame-notice" hidden></div>
+<section class="trame-bar" aria-label="Choisir un niveau">
+ <div><label for="trameLevel">Niveau</label><select id="trameLevel" class="trame-input"><option value="6e">6e</option><option value="5e">5e</option><option value="4e">4e</option><option value="3e">3e</option></select></div>
+ <span id="trameStats" class="trame-muted"></span>
+ <button type="button" class="trame-btn" id="trameAddChapter">＋ Ajouter un chapitre</button>
+</section>
+<p class="trame-helper">Modifie ici les intitulés <strong>théoriques</strong> et relie les activités déjà enregistrées dans ton atelier. La trame ne modifie aucun cahier d'élèves et n'impose aucune date. Tu pourras ensuite importer sa structure dans une classe ou l'utiliser dans ton planning.</p>
+<details class="trame-setup"><summary>Première utilisation : installer le stockage Supabase</summary>
+ <p>Cette bibliothèque nécessite une table privée <code>svt_trames</code>, distincte des cahiers. Ouvre <strong>Supabase → SQL Editor</strong>, colle et exécute le script ci-dessous une seule fois. La trame pourra ensuite être enregistrée et réutilisée dans les autres pages du site.</p>
+ <p><a href="propositions-sql/svt_trames.sql" target="_blank" rel="noopener">Afficher le script SQL d'installation</a></p>
+</details>
+<section id="trameChapters" class="trame-chapters" aria-label="Chapitres et séances"><p>Chargement de ta trame…</p></section>
+</main>
+<div id="trameBankModal" class="trame-modal" hidden>
+ <section class="trame-dialog" role="dialog" aria-modal="true" aria-labelledby="trameBankTitle">
+  <div class="trame-dialog-top"><h2 id="trameBankTitle">Choisir une activité de l’atelier</h2><button id="trameBankClose" class="trame-btn" type="button">✕ Fermer</button></div>
+  <p class="trame-muted">Les documents de ta banque sont réutilisés par référence, sans créer de copie ni les publier.</p>
+  <input class="trame-input" id="trameBankSearch" type="search" placeholder="Rechercher un titre, une classe ou un chapitre…" aria-label="Rechercher des documents dans l’atelier">
+  <div id="trameBankResults" class="trame-bank-results" aria-live="polite"></div>
+ </section>
+</div>
+<script src="config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>window.sb = window.sb || supabase.createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY,{auth:{persistSession:true,autoRefreshToken:true,storage:window.sessionStorage}});</script>
+<script src="trame-model.js?v=1"></script>
+<script src="trame-page.js?v=1"></script>
+<script src="site-identite.js?v=1" defer></script>
+</body>
+</html>
