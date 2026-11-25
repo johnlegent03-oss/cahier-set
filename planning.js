@@ -905,15 +905,15 @@ async function openPlanningBulk(){
  if(!state.period||!state.occurrences.length)return notify('Aucune séance de planning générée à associer.',true);
  if(!window.PlanningBatch||!window.PlanningKinds)return notify('Les modules du planning sont incomplets : actualise la page.',true);
  const options=CLASSES.map(c=>'<option value="'+esc(c)+'">'+esc(c)+'</option>').join('');
- openModal('Associer les séances en série',
-  '<p class="planning-muted">La correspondance automatique est <strong>indicative</strong>. Pour chaque créneau, tu peux choisir une séance du cahier, une évaluation, une intervention, une sortie/voyage scolaire, une absence ou rien. Aucune écriture avant validation explicite.</p>'
+ openModal('Préparer ou associer des cours en série',
+  '<p class="planning-muted">La correspondance automatique est <strong>indicative</strong>. Pour chaque créneau, tu peux aussi saisir une séance ou une activité prévisionnelle sans la créer dans le cahier des élèves. Aucune écriture avant validation explicite.</p>'
   +'<form id="planningBulkForm" class="planning-form-grid">'
   +'<div class="planning-field"><label for="bulkClass">Classe</label><select id="bulkClass" class="planning-select" name="class_name" required>'+options+'</select></div>'
   +'<div class="planning-field"><label for="bulkStart">À partir du</label><input id="bulkStart" class="planning-input" type="date" name="from_date" value="'+esc(iso(state.weekStart))+'" required></div>'
   +'<div class="planning-field"><label for="bulkEnd">Jusqu’au</label><input id="bulkEnd" class="planning-input" type="date" name="to_date" value="'+esc(state.period.end_date)+'" required></div>'
   +'<div class="planning-field"><label for="bulkSession">Séance de départ (facultatif)</label><select id="bulkSession" class="planning-select" name="first_uid"><option value="">Première séance non encore associée</option></select></div>'
   +'<div class="planning-field full"><small class="planning-muted">Suggestion initiale : une séance différente par créneau. Tu pourras la répéter, choisir un autre type de créneau ou laisser le cours sans association. Maximum 40 lignes par prévisualisation.</small></div>'
-  +'<div class="planning-field full"><button class="planning-btn primary" type="submit">🔎 Prévisualiser les associations</button></div>'
+  +'<div class="planning-field full"><button class="planning-btn primary" type="submit">🔎 Prévisualiser le planning</button></div>'
   +'</form>'
   +'<div id="planningBulkPreview" aria-live="polite"></div>'
   +'<div class="planning-footer"><button type="button" class="planning-btn" id="planningBulkCancel">Fermer sans enregistrer</button>'
