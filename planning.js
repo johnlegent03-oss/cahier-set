@@ -605,8 +605,16 @@ async function getPlanningElements(className){
   const priority=row=>row.atelierClass===className?0:!row.atelierClass?1:2;
   return priority(a)-priority(b);
  });
- return [...(trame.status==='fulfilled'?trame.value:[]),
-  ...(cahier.status==='fulfilled'?cahier.value:[]),...sorted];
+ const cahierItems=cahier.status==='fulfilled'?cahier.value:[];
+ const localByTrame=new Map(cahierItems.filter(item=>item.type==='session'&&item.trameRef)
+  .map(item=>[item.trameRef,item]));
+ const trameItems=(trame.status==='fulfilled'?trame.value:[]).map(item=>{
+  if(item.type!=='trame-session')return item;
+  const local=localByTrame.get(item.sessionId);
+  return local?{...item,sessionTitle:local.sessionTitle,
+   cahierSessionUid:local.uid,localChapterTitle:local.chapterTitle}:item;
+ });
+ return [...trameItems,...cahierItems,...sorted];
 }
 async function getCahierElements(className){
  const {data,error}=await client().from('Cahier').select('classe,contenu').eq('classe',className).maybeSingle();
@@ -630,7 +638,7 @@ async function getCahierElements(className){
    const sessionUid=String(se?.planning_uid||'').trim();
    if(!sessionUid)return [];
    const sessionTitle=plainText(se?.titre)||'Séance '+(sessionIndex+1);
-   const session={uid:sessionUid,type:'session',chapterIndex,sessionIndex,chapterTitle,sessionTitle};
+   const session={uid:sessionUid,type:'session',chapterIndex,sessionIndex,chapterTitle,sessionTitle,trameRef:String(se?.trame_ref||'').trim()};
    const seenDocuments=new Set();
    const activities=(Array.isArray(se?.activites)?se.activites:[]).flatMap(entry=>{
     const info=atelierActivityInfo(entry);
@@ -651,6 +659,8 @@ async function getCahierSessions(className){
 function linkedIds(o){return window.PlanningKinds?.linkedIds(o)||[o.cahier_planning_uid].filter(Boolean)}
 function cahierElementHref(className,item){
  const cls=encodeURIComponent(className||'');
+ if(item.type==='trame-session'&&item.cahierSessionUid)
+  return 'prof.html?classe='+cls+'&planning_uid='+encodeURIComponent(item.cahierSessionUid);
  if(item.type==='trame-session')return 'trame.html?niveau='+encodeURIComponent(item.niveau)+'&session='+encodeURIComponent(item.sessionId);
  if(item.type==='trame-activity')return 'atelier.html?doc='+encodeURIComponent(item.docId);
  if(item.type==='session')return 'prof.html?classe='+cls+'&planning_uid='+encodeURIComponent(item.uid);
