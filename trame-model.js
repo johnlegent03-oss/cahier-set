@@ -46,11 +46,11 @@
   for(const [chapterIndex,ch] of data.chapitres.entries()){
    for(const [sessionIndex,se] of ch.seances.entries()){
     const parentUid='trame-session:'+se.id;
-    const session={uid:parentUid,type:'trame-session',niveau,chapterTitle:ch.titre||'Chapitre',
+    const session={uid:parentUid,type:'trame-session',niveau,chapterTitle:'📚 Trame · '+(ch.titre||'Chapitre'),
       sessionTitle:se.titre||'Séance',chapterId:ch.id,sessionId:se.id,
       problem:se.probleme,chapterIndex:800000+chapterIndex,sessionIndex,activities:se.activites.map(a=>({
        uid:'trame-activity:'+se.id+':'+a.docId,type:'trame-activity',niveau,docId:a.docId,
-       chapterTitle:ch.titre||'Chapitre',sessionTitle:a.title||'Activité de l’atelier',
+       chapterTitle:'📚 Trame · '+(ch.titre||'Chapitre'),sessionTitle:a.title||'Activité de l’atelier',
        parentSessionTitle:se.titre||'Séance',sessionUid:parentUid,chapterIndex:800000+chapterIndex,sessionIndex
       }))};
     items.push(session,...session.activities);
