@@ -772,10 +772,13 @@ async function editOccurrence(id){
   e.preventDefault();
   if(pickerLoading)return notify('Attends le chargement des éléments de la classe.',true);
   const pendingTitle=$('#planningDraftTitle').value.trim();
-  if(pendingTitle&&drafts.length<60){
+  if(pendingTitle&&drafts.length>=60)
+   return notify('Maximum 60 préparations par créneau. Supprime une préparation ou efface le nouveau titre.',true);
+  if(pendingTitle){
    drafts.push({type:$('#planningDraftType').value==='activite'?'activite':'seance',title:pendingTitle.slice(0,160),detail:''});
+   $('#planningDraftTitle').value='';
+   renderDrafts();
   }
-  if(pendingTitle&&drafts.length>=60)return notify('Maximum 60 préparations par créneau. Supprime une préparation ou efface le nouveau titre.',true);
   if(drafts.some(item=>!String(item.title||'').trim()))
    return notify('Une préparation n’a plus de titre. Complète-la ou supprime-la avant d’enregistrer.',true);
   const button=$('#occSave');button.disabled=true;
