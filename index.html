@@ -810,7 +810,14 @@ async function loadClass(){
   return x;
 }
 
+function isInteractiveDocument(value){
+  try { const u=new URL(String(value||""),location.href), base=new URL(SUPABASE_URL); return u.origin===base.origin && u.pathname.startsWith("/storage/v1/object/public/documents/") && /\.html?$/i.test(u.pathname); } catch(e){return false;}
+}
+function interactiveDocumentHref(value){
+  return new URL("activite-interactive.html?source="+encodeURIComponent(value),location.href).href;
+}
 function pdfButton(url, label) {
+  if(isInteractiveDocument(url))return `<a class="resource-link" href="${esc(interactiveDocumentHref(url))}" target="_blank" rel="noopener noreferrer"><span class="resource-link-icon" aria-hidden="true">↗</span><span>Ouvrir l’activité interactive</span></a>`;
   if (!url) return "";
   const title = label || "Ouvrir le document";
   return `<a class="resource-link" href="${esc(url)}" target="_blank" rel="noopener noreferrer"><span class="resource-link-icon" aria-hidden="true">↗</span><span>${esc(title)}</span></a>`;
@@ -1070,7 +1077,7 @@ async function printDocumentWithLogo(root,prepare){
 }
 
 function chapterPrintHtml(ch,i){
-  const linked=(url,label)=>url?`<div class="print-pdf"><span>DOCUMENT PDF</span> · <a href="${esc(url)}">${esc(label)}</a></div>`:"";
+  const linked=(url,label)=>isInteractiveDocument(url)?`<div class="print-pdf"><span>ACTIVITÉ INTERACTIVE</span> · <a href="${esc(interactiveDocumentHref(url))}">Ouvrir en ligne</a></div>`:url?`<div class="print-pdf"><span>DOCUMENT PDF</span> · <a href="${esc(url)}">${esc(label)}</a></div>`:"";
   const entries=(arr,label,kind)=>{
     if(!arr?.length)return "";
     return `<section class="print-learning print-${kind}">${arr.map((e,n)=>`<div class="print-entry ${n===0?"print-entry-first":""}">${n===0?`<h3>${label}</h3>`:""}${e.date?`<div class="print-date">${fmtDate(e.date)}</div>`:""}${e.texte?`<div class="rich-output">${e.texte}</div>`:""}${linked(e.pdf,"Ouvrir le document associé")}</div>`).join("")}</section>`;
