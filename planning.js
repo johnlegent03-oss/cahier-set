@@ -336,7 +336,8 @@ function renderFollowup(){
   {id:'completed',label:'Effectués (confirmés)',value:report.counts.completed},
   {id:'upcoming',label:'À venir',value:report.counts.upcoming},
   {id:'toConfirm',label:'Passés à confirmer',value:report.counts.toConfirm},
-  {id:'missing',label:'Sans séance associée',value:report.counts.missing},
+  {id:'missing',label:'Sans contenu préparé',value:report.counts.missing},
+  {id:'prepared',label:'Préparations privées',value:report.counts.prepared},
   {id:'special',label:'Activités particulières',value:report.counts.special}
  ];
  $('#planningFollowupSummary').innerHTML=metrics.map(m=>
@@ -345,6 +346,7 @@ function renderFollowup(){
   '<strong>'+m.value+'</strong><span>'+esc(m.label)+'</span></button>').join('');
  const all=report.rows.filter(row=>state.followupFilter==='all'
   ||state.followupFilter==='missing'&&row.missing
+  ||state.followupFilter==='prepared'&&row.prepared
   ||row.stage===state.followupFilter);
  const max=60,visible=all.slice(0,max);
  const stageNames={completed:'Effectué',upcoming:'À venir',toConfirm:'À confirmer',
@@ -357,7 +359,7 @@ function renderFollowup(){
    const headline=o.kind!=='cours'
     ?'Activité : '+(window.PlanningKinds?.descriptor(o.kind).label||o.kind)
     :linked?linked.chapterTitle+' — '+linked.sessionTitle
-    :o.linked?'Élément(s) du cahier associé(s)':'Aucun élément du cahier associé';
+    :o.linked?'Élément(s) du cahier associé(s)':o.prepared?'✏️ Prévu : '+o.draftTitle+(o.draftCount>1?' (+'+(o.draftCount-1)+' autre(s))':''):'Aucune préparation ni élément du cahier';
    const classAndDate=esc(o.class_name)+' · '+esc(o.session_date)+' · '+esc(o.start_time)+'–'+esc(o.end_time);
    return '<article class="planning-followup-row"><div><strong>'+esc(headline)+'</strong>'+
     '<p class="planning-muted">'+classAndDate+' · '+esc(stageNames[o.stage]||o.stage)+'</p></div>'+
@@ -773,6 +775,7 @@ async function editOccurrence(id){
   if(pendingTitle&&drafts.length<60){
    drafts.push({type:$('#planningDraftType').value==='activite'?'activite':'seance',title:pendingTitle.slice(0,160),detail:''});
   }
+  if(pendingTitle&&drafts.length>=60)return notify('Maximum 60 préparations par créneau. Supprime une préparation ou efface le nouveau titre.',true);
   if(drafts.some(item=>!String(item.title||'').trim()))
    return notify('Une préparation n’a plus de titre. Complète-la ou supprime-la avant d’enregistrer.',true);
   const button=$('#occSave');button.disabled=true;
