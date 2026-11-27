@@ -2663,8 +2663,8 @@ function evaluationRubricSignature(ev){
 }
 function recalculateStoredCorrection(ev,resultat){
   const previous=resultat&&typeof resultat==="object"?resultat:{};
-  const selected=previous.points&&typeof previous.points==="object"
-    ?previous.points:{};
+  const manual=previous.manualPoints||previous.points||{};
+  const selected=depResolve(manual,depRules(ev));
   const points={...selected};
   const criteriaStats={};
   let score=0;
@@ -2690,7 +2690,7 @@ function recalculateStoredCorrection(ev,resultat){
     st.percent=st.count?Math.round(st.checked/st.count*100):0;
     st.validated=st.count>0&&(st.checked/st.count)>=(2/3);
   });
-  return {...previous,note:score,points,criteriaStats};
+  return {...previous,note:score,points,criteriaStats,manualPoints:manual};
 }
 async function recalculateEvaluationCorrections(ev){
   const {data,error}=await sb.from("EvaluationCorrections")
@@ -4983,7 +4983,7 @@ function localDraftPrefix(){return 'svt.localDraft.v1:'+encodeURIComponent(Strin
 function localDraftContext(mode,context){return mode==='editor'?'editor:'+String(context.evaluationId||'new'):'correction:'+JSON.stringify([String(context.evalId),String(context.classe||''),context.groupIds?.length?[...context.groupIds].map(String).sort():String(context.eleveId||context.correctionId||context.eleve||'anonymous')]);}
 function localDraftCapture(){
   const s=localDraftSession;if(!s||!s.root.isConnected)return null;
-  if(s.mode==='correction')return {checks:[...s.root.querySelectorAll('.correction-check')].map(el=>[el.dataset.key,!!el.checked])};
+  if(s.mode==='correction')return {checks:[...s.root.querySelectorAll('.correction-check')].map(el=>[el.dataset.key,depManual(el)])};
   return {
     titre:document.getElementById('evTitre').value,
     chapitre:document.getElementById('evChapitre').value,
@@ -4995,7 +4995,7 @@ function localDraftCapture(){
       questionNumero:box.querySelector('.question-number')?.value??null,
       criteres:[...box.querySelectorAll(':scope > .competency-criteria > .criterion-editor')].map(cb=>({
         id:cb.dataset.criterionId,nom:cb.querySelector('.criterion-name').value,
-        indicateurs:[...cb.querySelectorAll('.indicator-row')].map(row=>({nom:row.querySelector('.indicator-name').value,points:row.querySelector('.indicator-points').value}))
+        indicateurs:[...cb.querySelectorAll('.indicator-row')].map(row=>({...depFields(row),nom:row.querySelector('.indicator-name').value,points:row.querySelector('.indicator-points').value}))
       }))
     }))
   };
@@ -5093,7 +5093,7 @@ function localDraftResume(){
     }
     if(!confirm('Reprendre ce brouillon et remplacer les données actuellement affichées ? Rien ne sera validé dans Supabase.'+(record.base!==s.base?' Attention : la version chargée diffère de celle qui avait servi de départ au brouillon.':'')))return;
     if(s.mode==='correction'){
-      const values=new Map(payload.checks);s.root.querySelectorAll('.correction-check').forEach(el=>el.checked=values.get(el.dataset.key));refreshCorrectionScore(correctionSession.evalId);correctionRefreshStatus();
+      const values=new Map(payload.checks);s.root.querySelectorAll('.correction-check').forEach(el=>{el.checked=values.get(el.dataset.key);el.dataset.auto='0';el.dataset.manual=el.checked?'1':'0';});refreshCorrectionScore(correctionSession.evalId);correctionRefreshStatus();
     }else{
       const area=document.getElementById('competenciesEditor');
       area.innerHTML=payload.questions.map((q,i)=>renderCompetencyEditor({...q,questionNumero:q.questionNumero??i+1},i)).join('');
@@ -5431,14 +5431,55 @@ function renumberEvaluationQuestions(){
       if(title) title.textContent = `📝 Question ${number}`;
     });
 }
+
+function depFields(row){return {uid:row.dataset.indicatorUid,dependency:JSON.parse(row.dataset.dependency||'null')}}
+function depValidate(items){
+ const map=new Map(items.filter(x=>x.uid).map(x=>[x.uid,x])),active=new Set(),done=new Set();
+ function visit(x){if(!x?.dependency||done.has(x.uid))return;if(active.has(x.uid))throw Error('Dépendance circulaire interdite.');
+ const d=x.dependency;if(!Array.isArray(d.sources)||!Number.isInteger(d.minimum)||d.minimum<1||d.minimum>d.sources.length||new Set(d.sources).size!==d.sources.length||d.sources.some(id=>!map.has(id)))throw Error('Une dépendance référence un indicateur absent ou invalide.');
+ active.add(x.uid);d.sources.forEach(id=>visit(map.get(id)));active.delete(x.uid);done.add(x.uid)}
+ items.forEach(visit)
+}
+function depConfigure(btn){
+ const row=btn.closest('.indicator-row'),q=row.closest('.question-editor');if(!q){alert('Configure cette règle dans une question de l’évaluation.');return}
+ const rows=[...q.querySelectorAll('.indicator-row')],others=rows.filter(x=>x!==row),old=depFields(row).dependency;
+ if(!others.length){alert('Ajoute d’abord les autres indicateurs.');return}
+ const choices=others.map((x,i)=>(i+1)+'. '+x.closest('.criterion-editor').querySelector('.criterion-name').value+' — '+x.querySelector('.indicator-name').value).join('\n');
+ const answer=prompt('Indicateurs déclencheurs : numéros séparés par des virgules. Vide = supprimer la règle.\n'+choices,old?old.sources.map(id=>others.findIndex(x=>x.dataset.indicatorUid===id)+1).filter(n=>n>0).join(','):'');
+ if(answer===null)return;let rule=null;
+ if(answer.trim()){const nums=[...new Set(answer.split(',').map(x=>Number(x.trim())))];if(nums.some(n=>!Number.isInteger(n)||n<1||n>others.length)){alert('Numéros invalides.');return}
+ const threshold=nums.length===1?'1':prompt('Nombre minimal de déclencheurs cochés (1 = OU, '+nums.length+' = ET)',String(old?.minimum||nums.length));if(threshold===null)return;
+ rule={sources:nums.map(n=>others[n-1].dataset.indicatorUid),minimum:Number(threshold)}}
+ const previous=row.dataset.dependency;row.dataset.dependency=JSON.stringify(rule);
+ try{depValidate(rows.map(depFields))}catch(e){row.dataset.dependency=previous;alert(e.message);return}
+ btn.textContent=rule?'⚡ Automatique : '+rule.minimum+'/'+rule.sources.length:'⚡ Validation automatique';
+ row.querySelector('.indicator-name').dispatchEvent(new Event('input',{bubbles:true}))
+}
+function depRules(ev){
+ const groups=new Map(),rules=[];
+ for(const c of criteriaFromLegacy(ev)){const g=String(c.questionId||c.questionNumero||c.competenceId||'');if(!groups.has(g))groups.set(g,[]);(c.indicateurs||[]).forEach((it,i)=>groups.get(g).push({...it,key:c.id+'_'+i}))}
+ for(const items of groups.values()){try{depValidate(items)}catch(e){continue}const map=new Map(items.map(x=>[x.uid,x.key]));for(const x of items)if(x.dependency)rules.push({key:x.key,minimum:x.dependency.minimum,sources:x.dependency.sources.map(id=>map.get(id))})}
+ return rules
+}
+function depResolve(manual,rules){const effective={...manual};let changed=true;while(changed){changed=false;for(const r of rules)if(!effective[r.key]&&r.sources.filter(k=>effective[k]).length>=r.minimum){effective[r.key]=true;changed=true}}return effective}
+function depManual(ch){return ch.dataset.auto==='1'?ch.dataset.manual==='1':!!ch.checked}
+function depToggle(ch,id){ch.dataset.auto='0';ch.dataset.manual=ch.checked?'1':'0';refreshCorrectionScore(id)}
+function depApply(ev,checks){
+ const manual={};for(const ch of checks)if(depManual(ch))manual[ch.dataset.key]=true;
+ const effective=depResolve(manual,depRules(ev));
+ for(const ch of checks){const k=ch.dataset.key,auto=!!effective[k]&&!manual[k];ch.dataset.manual=manual[k]?'1':'0';ch.dataset.auto=auto?'1':'0';ch.checked=!!effective[k];
+ const row=ch.closest('.check-row');if(!row)continue;let note=row.querySelector('.dep-note');if(auto&&!note){note=document.createElement('span');note.className='dep-note small-note';note.style.color='#2563eb';note.textContent='⚡ Automatique';row.append(note)}else if(!auto&&note)note.remove()}
+ return manual
+}
+
 function indicatorEditor(item={}){
-  return `<div class="eval-card indicator-row" style="margin:8px 0;padding:11px">
+  return `<div class="eval-card indicator-row" data-indicator-uid="${esc(item.uid||crypto.randomUUID())}" data-dependency="${esc(JSON.stringify(item.dependency||null))}" style="margin:8px 0;padding:11px">
     <div class="eval-grid">
       <input class="indicator-name" value="${esc(item.nom||"")}" placeholder="Indicateur à valider">
       <input class="indicator-points" type="number" min="0" step="0.5" value="${esc(item.points??1)}" title="Points de cet indicateur">
       <button class="danger" onclick="this.closest('.indicator-row').remove()">×</button>
     </div>
-    <div class="small-note" style="margin-top:6px">Les points servent au score. La validation du critère est cochée séparément lors de la correction.</div>
+    <button type="button" onclick="depConfigure(this)">${item.dependency?`⚡ Automatique : ${item.dependency.minimum}/${item.dependency.sources.length}`:"⚡ Validation automatique"}</button>
   </div>`;
 }
 function updateEvaluationTotal(){
@@ -5566,6 +5607,7 @@ function collectEvaluationEditor(){
         indicateurs:[
           ...cb.querySelectorAll(".indicator-row")
         ].map(row=>({
+          ...depFields(row),
           nom:row.querySelector(".indicator-name")?.value.trim()||"",
           points:Number(
             row.querySelector(".indicator-points")?.value||0
@@ -5580,6 +5622,7 @@ function collectEvaluationEditor(){
         criteres
       };
     });
+  questions.forEach(q=>depValidate(q.criteres.flatMap(c=>c.indicateurs)));
   const criteres=questions.flatMap(q=>q.criteres);
   const totalAuto=criteres.reduce(
     (s,c)=>s+c.indicateurs.reduce(
@@ -6230,7 +6273,7 @@ async function editCorrection(evalId,correctionId){
 /* Correction : état de sauvegarde et protection des saisies */
 let correctionSession=null;
 function correctionFingerprint(){
-  return JSON.stringify({checks:[...document.querySelectorAll('.correction-check')].map(x=>[x.dataset.key,!!x.checked])});
+  return JSON.stringify({checks:[...document.querySelectorAll('.correction-check')].map(x=>[x.dataset.key,depManual(x)])});
 }
 function correctionDirty(){return !!correctionSession && correctionFingerprint()!==correctionSession.baseline;}
 function correctionStatus(message,error=false){
@@ -6334,7 +6377,7 @@ const savedValidated=result.criteriaStats||{};
   content.innerHTML=`<button onclick="openCorrection('${esc(evalId)}')">← Retour aux copies</button>
   <section class="hero teacher" style="margin-top:14px">
 <h2 style="margin:0 0 8px">${esc(corr.eleve||"Élève")}</h2><span class="eyebrow">${esc(correctionClass||"Classe")}</span><p id="correctionSaveStatus" role="status" aria-live="polite" style="margin:8px 0;font-weight:700"></p>    <div class="row"><span class="score-pill" id="liveScore">0 / ${Number(ev.total||0)}</span><span id="livePercent" class="status"></span></div>
-    <div id="correctionCriteria">${comps.map((comp,co)=>`<div class="eval-card"><h3>📝 Question ${comp.questionNumero} — ${esc(comp.nom)}</h3>${comp.criteres.map((cr,ci)=>`<div class="criteria-box"><h4 style="margin:0 0 8px">Critère ${ci+1} — ${esc(cr.nom)}</h4><div class="criterion-auto-status" data-criterion-status="${esc(cr.id)}"><span class="small-note">Validation automatique : au moins 2/3 des indicateurs cochés (≥ 66,7 %).</span></div>${(cr.indicateurs||[]).map((it,ii)=>{const key=`${cr.id}_${ii}`,checked=!!result.points?.[key]||!!result.points?.[`${cr.id}_${ii}`];return `<div class="check-row"><label><input type="checkbox" class="correction-check" data-key="${key}" data-points="${Number(it.points||0)}" data-criterion="${esc(cr.id)}" ${checked?"checked":""} onchange="refreshCorrectionScore('${esc(ev.id)}')"> ${esc(it.nom)}</label><span class="small-note">${Number(it.points||0)} pt</span></div>`}).join("")||`<p class="muted">Aucun indicateur pour ce critère.</p>`}</div>`).join("")}</div>`).join("")}</div>
+    <div id="correctionCriteria">${comps.map((comp,co)=>`<div class="eval-card"><h3>📝 Question ${comp.questionNumero} — ${esc(comp.nom)}</h3>${comp.criteres.map((cr,ci)=>`<div class="criteria-box"><h4 style="margin:0 0 8px">Critère ${ci+1} — ${esc(cr.nom)}</h4><div class="criterion-auto-status" data-criterion-status="${esc(cr.id)}"><span class="small-note">Validation automatique : au moins 2/3 des indicateurs cochés (≥ 66,7 %).</span></div>${(cr.indicateurs||[]).map((it,ii)=>{const key=`${cr.id}_${ii}`,checked=!!(result.manualPoints||result.points)?.[key];return `<div class="check-row"><label><input type="checkbox" class="correction-check" data-key="${key}" data-points="${Number(it.points||0)}" data-criterion="${esc(cr.id)}" ${checked?"checked":""} onchange="depToggle(this,'${esc(ev.id)}')"> ${esc(it.nom)}</label><span class="small-note">${Number(it.points||0)} pt</span></div>`}).join("")||`<p class="muted">Aucun indicateur pour ce critère.</p>`}</div>`).join("")}</div>`).join("")}</div>
     
     <div id="masteryPreview"></div>
     <div class="row" id="correctionSaveControls">
@@ -6426,7 +6469,7 @@ async function loterieAttach(ev,corr,classe,groupIds){
  for(const cr of crits){const ci=names.findIndex(n=>loterieNorm(cr.nom)===n||loterieNorm(cr.nom).startsWith(n+' '));if(ci<0)continue;(cr.indicateurs||[]).forEach((it,i)=>{const j=loterieLabels[ci].indexOf(loterieNorm(it.nom));if(j>=0)mapping.push({key:String(cr.id)+'_'+i,value:suggest[ci][j]});else if(ci===3&&loterieNorm(it.nom).includes('cellules souches')&&loterieNorm(it.nom).includes('gametes'))mapping.push({key:String(cr.id)+'_'+i,value:['m_source','p_source'].every(id=>['s0','s1','a0','a1'].every(k=>a[id+'_'+k]))&&['m_g','p_g'].every(p=>[0,1,2,3].every(i=>a[p+i+'_s0']&&a[p+i+'_a0']))})})}
  const btn=document.createElement('button');btn.type='button';btn.textContent='Préremplir les indicateurs vérifiables';panel.append(btn);
  const total=crits.reduce((n,c)=>n+(c.indicateurs||[]).length,0),auto=mapping.filter(x=>typeof x.value==='boolean').length;info.textContent=auto+' indicateurs préremplissables sur '+total+' · '+(total-auto)+' à vérifier manuellement. Aucun enregistrement automatique.';for(const ch of root.querySelectorAll('.correction-check')){const item=mapping.find(x=>x.key===ch.dataset.key);const note=document.createElement('span');note.className='small-note';note.style.marginLeft='8px';note.textContent=!item?'⚠ Indicateur non reconnu':item.value===null?'✎ À vérifier':item.value?'✓ Proposition : validé':'✗ Proposition : non validé';ch.closest('.check-row')?.append(note)}
- btn.onclick=()=>{if(correctionSession!==ctx||localDraftSession?.pending||window.__savingCorrection){alert('Termine ou reprends le brouillon avant de préremplir.');return}if(!confirm('Appliquer les propositions aux indicateurs reconnus ? Les indicateurs à vérifier manuellement restent inchangés.'))return;const byKey=new Map(mapping.map(x=>[x.key,x.value]));for(const ch of root.querySelectorAll('.correction-check')){const val=byKey.get(ch.dataset.key);if(typeof val==='boolean')ch.checked=val;}refreshCorrectionScore(ev.id);correctionRefreshStatus();localDraftSchedule();info.textContent='Propositions appliquées. Vérifie puis enregistre la correction habituelle.'};
+ btn.onclick=()=>{if(correctionSession!==ctx||localDraftSession?.pending||window.__savingCorrection){alert('Termine ou reprends le brouillon avant de préremplir.');return}if(!confirm('Appliquer les propositions aux indicateurs reconnus ? Les indicateurs à vérifier manuellement restent inchangés.'))return;const byKey=new Map(mapping.map(x=>[x.key,x.value]));for(const ch of root.querySelectorAll('.correction-check')){const val=byKey.get(ch.dataset.key);if(typeof val==='boolean'){ch.checked=val;ch.dataset.auto='0';ch.dataset.manual=val?'1':'0';}}refreshCorrectionScore(ev.id);correctionRefreshStatus();localDraftSchedule();info.textContent='Propositions appliquées. Vérifie puis enregistre la correction habituelle.'};
  const detail=document.createElement('details');detail.open=true;const sum=document.createElement('summary');sum.textContent='Voir la copie corrigée de l’élève';detail.append(sum);const legend=document.createElement('p');legend.className='small-note';for(const [label,color] of [['✓ Correct','#15803d'],['✗ Incorrect','#b91c1c'],['— Manquant','#c2410c'],['? À vérifier','#6366f1']]){const span=document.createElement('span');span.textContent=label;span.style.cssText='display:inline-block;margin:4px 12px 4px 0;font-weight:700;color:'+color;legend.append(span)}detail.append(legend);const context=document.createElement('p');context.className='small-note';context.textContent='Les cellules-œufs sont vérifiées à partir des gamètes renseignés, et les caractères à partir des chromosomes de la cellule. Les couleurs indiquent cette cohérence locale ; la grille distingue aussi l’exactitude scientifique globale.';detail.append(context);
  const frame=document.createElement('iframe');frame.title='Production numérique de l’élève';frame.style.cssText='width:100%;height:70vh;border:1px solid #ccc';detail.append(frame);panel.append(detail);
  frame.addEventListener('load',()=>{try{if(correctionSession!==ctx)return;const d=frame.contentDocument,f=d.querySelector('#work');if(!f)return;for(const [k,v] of Object.entries(a)){const e=f.elements.namedItem(k);if(e&&typeof v==='string')e.value=v}f.elements.prenom.value=corr.eleve||'';f.elements.code.closest('label').remove();f.querySelectorAll('input,select,textarea,button').forEach(e=>e.disabled=true);f.lastElementChild?.remove();d.querySelectorAll('.source,header').forEach(e=>e.remove());const css=d.createElement('style');css.textContent='select:disabled,input:disabled,textarea:disabled{opacity:1;color:inherit;-webkit-text-fill-color:currentColor}';d.head.append(css);loterieVisualPaint(d,f,a)}catch(e){info.textContent='Fiche non affichée : '+e.message}});
@@ -6446,6 +6489,7 @@ function getMasteryByCode(code){
 }
 function computeCorrection(ev){
   const checks=[...document.querySelectorAll(".correction-check")];
+  const manualPoints=depApply(ev,checks);
   let score=0;const points={};const criteriaStats={};
   checks.forEach(ch=>{
     const key=ch.dataset.key,p=Number(ch.dataset.points||0),cid=ch.dataset.criterion;
@@ -6461,7 +6505,7 @@ function computeCorrection(ev){
     // Rule: a criterion is validated when at least 2/3 of its indicators are checked.
     st.validated=st.count>0 && (st.checked/st.count)>=(2/3);
   });
-  return {score,points,criteriaStats};
+  return {score,points,criteriaStats,manualPoints};
 }
 function refreshCorrectionScore(evalId){
   const ev=currentCorrectionEvaluation;
@@ -7516,7 +7560,7 @@ async function saveCorrection(evalId,correctionId,eleve,eleveId,next=false){
   if(!ctx || String(ctx.evalId)!==String(evalId)){alert('Ouvre une correction avant de l’enregistrer.');return false;}
   if(next && (ctx.groupIds.length>1 || !ctx.eleveId)){alert('Le passage au suivant est disponible pour une correction individuelle avec un élève identifié.');return false;}
   const draft=computeCorrection(currentCorrectionEvaluation);
-  const resultat={note:draft.score,points:draft.points,criteriaStats:draft.criteriaStats};
+  const resultat={note:draft.score,points:draft.points,criteriaStats:draft.criteriaStats,manualPoints:draft.manualPoints};
   const fingerprint=correctionFingerprint();
   const localDraftTicket=localDraftBeforeSave();
   if(!localDraftCanValidate())return false;
