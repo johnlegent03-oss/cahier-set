@@ -6347,7 +6347,57 @@ const savedValidated=result.criteriaStats||{};
   </section>`;
   refreshCorrectionScore(ev.id);
   correctionBegin(evalId,correctionId,corr,correctionClass,groupIds);
+  void loterieAttach(ev,corr,correctionClass,groupIds);
 }
+
+function loterieNorm(s){return String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim()}
+function loterieSuggestions(a){
+ const ids=p=>Array.from({length:4},(_,i)=>p+i), z=ids('').flatMap(i=>ids('').map(j=>'z'+i+j)), sources=['m_source','p_source'], mg=ids('m_g'),pg=ids('p_g'),row=ids('row'),col=ids('col'),gametes=[...mg,...pg,...row,...col], sort=x=>[...x].sort().join('|'), pair=(id,k,n)=>Array.from({length:n},(_,i)=>a[id+'_'+k+i]||''), sex=id=>pair(id,'s',2),abo=id=>pair(id,'a',2),gam=id=>[a[id+'_s0']||'',a[id+'_a0']||''],gset=ls=>sort(ls.map(id=>gam(id).join(''))), all=(ls,fn)=>ls.every(fn), complete=(id,n)=>[...pair(id,'s',n),...pair(id,'a',n)].every(Boolean), present=k=>!!String(a[k]||'').trim(), valid=id=>/^[XY][ABO]$/.test(gam(id).join('')), equal=(a,b)=>sort(a)===sort(b), expM=['XA','XA','XB','XB'],expP=['XA','XO','YA','YO'];
+ const gCorrect=(ls,exp)=>gset(ls)===sort(exp), sourceOK=equal(sex('m_source'),['X','X'])&&equal(abo('m_source'),['A','B'])&&equal(sex('p_source'),['X','Y'])&&equal(abo('p_source'),['A','O']);
+ const headersOK=gCorrect(row,expM)&&gCorrect(col,expP);
+ const fuse=all(z,id=>{let i=Number(id[1]),j=Number(id[2]),m=gam('row'+i),p=gam('col'+j);return valid('row'+i)&&valid('col'+j)&&equal(sex(id),[m[0],p[0]])&&equal(abo(id),[m[1],p[1]])});
+ const blood=(x,y)=>x==='A'&&y==='B'||x==='B'&&y==='A'?'AB':x==='A'||y==='A'?'A':x==='B'||y==='B'?'B':'O';
+ const sexOf=x=>equal(x,['X','X'])?'Fille':equal(x,['X','Y'])?'Garçon':null;
+ const consistentSex=all(z,id=>!!sexOf(sex(id))&&a[id+'_sexe']===sexOf(sex(id))),consistentBlood=all(z,id=>abo(id).every(v=>['A','B','O'].includes(v))&&a[id+'_groupe']===blood(...abo(id)));
+ const mei=(id,ls)=>complete(id,2)&&all(ls,valid)&&['s','a'].every(k=>equal(ls.map(g=>a[g+'_'+k+'0']),[...pair(id,k,2),...pair(id,k,2)]));
+ const calc=String(a.calcul||'').trim().replace(/,/g,'.').replace(/\s+/g,'');
+ const exact=/^(?:25%|0\.25|4\/16|2\/8|1\/4)(?:[=＝](?:25%|0\.25|4\/16|2\/8|1\/4))*[.]?$/.test(calc);
+ return [
+ [all([...sources,...z],id=>complete(id,2))&&all(gametes,id=>complete(id,1)),all(z,id=>present(id+'_sexe')&&present(id+'_groupe')),present('calcul')&&present('conclusion')],
+ [sourceOK,gCorrect(mg,expM),gCorrect(pg,expP),headersOK,headersOK&&fuse,headersOK&&fuse&&consistentSex,headersOK&&fuse&&consistentBlood,exact?true:null,null],
+ [mei('m_source',mg)&&mei('p_source',pg),fuse,consistentSex&&consistentBlood,null,null],
+ [all([...row,...col],id=>complete(id,1)),all(z,id=>complete(id,2)),all(z,id=>present(id+'_sexe')&&present(id+'_groupe')),present('calcul')&&present('conclusion')]
+ ];
+}
+const loterieLabels=[
+ ['les chromosomes sexuels et les alleles abo sont renseignes dans les cellules prevues','les sexes chromosomiques et les groupes sanguins sont renseignes dans les espaces prevus','la reponse a la situation probleme comporte un calcul et une conclusion redigee'],
+ ['les chromosomes sexuels et les alleles des cellules souches sont exacts','les gametes de madame x sont corrects','les gametes de monsieur x sont corrects','les gametes des en tetes de l echiquier sont corrects','les combinaisons chromosomiques des cellules oeufs sont exactes','les sexes chromosomiques sont exacts','les groupes sanguins sont exacts','la probabilite obtenue est exacte','la conclusion est scientifiquement correcte'],
+ ['la repartition des chromosomes respecte le mecanisme de la meiose','l association des chromosomes respecte le mecanisme de la fecondation','les caracteres sont determines a partir des combinaisons genetiques obtenues','la demarche de calcul de la probabilite est pertinente','la conclusion s appuie sur les resultats de la modelisation'],
+ ['les huit gametes des en tetes sont entierement completes','les seize cellules oeufs sont entierement completees','les seize sexes chromosomiques et groupes sanguins sont renseignes','le calcul et la conclusion sont presents']
+];
+async function loterieAttach(ev,corr,classe,groupIds){
+ if(loterieNorm(ev.titre)!=='la loterie genetique'||!corr.eleve_id||groupIds.length||!evaluationAppliesToClass(ev,classe))return;
+ const ctx=correctionSession, root=document.getElementById('correctionCriteria');if(!root)return;
+ const panel=document.createElement('div');panel.className='criteria-box';panel.innerHTML='<strong>Production numérique — La loterie génétique</strong><p role="status">Recherche de la fiche rendue…</p>';root.before(panel);
+ const info=panel.querySelector('p');
+ try{
+ const q=await sb.from('loterie_genetique_copies').select('id,eleve_id,classe,submitted_at,reponses').eq('eleve_id',String(corr.eleve_id)).eq('classe',classe).not('submitted_at','is',null).maybeSingle();
+ if(correctionSession!==ctx||!panel.isConnected)return;
+ if(q.error)throw Error(q.error.message);if(!q.data){info.textContent='Aucune production numérique rendue pour cet élève.';return}
+ const a=q.data.reponses||{},suggest=loterieSuggestions(a),crits=criteriaFromLegacy(ev),mapping=[];
+ const names=['respect des consignes','qualite du travail','choix adaptes','travail complet'];
+ for(const cr of crits){const ci=names.indexOf(loterieNorm(cr.nom));if(ci<0)continue;(cr.indicateurs||[]).forEach((it,i)=>{const j=loterieLabels[ci].indexOf(loterieNorm(it.nom));if(j>=0)mapping.push({key:String(cr.id)+'_'+i,value:suggest[ci][j]})})}
+ const btn=document.createElement('button');btn.type='button';btn.textContent='Préremplir les indicateurs vérifiables';panel.append(btn);
+ info.textContent=mapping.length+' indicateurs reconnus sur '+crits.reduce((n,c)=>n+(c.indicateurs||[]).length,0)+'. Le calcul libre et la conclusion restent à vérifier. Aucun enregistrement automatique.';
+ btn.onclick=()=>{if(correctionSession!==ctx||localDraftSession?.pending||window.__savingCorrection){alert('Termine ou reprends le brouillon avant de préremplir.');return}if(!confirm('Appliquer les propositions aux indicateurs reconnus ? Les indicateurs à vérifier manuellement restent inchangés.'))return;const byKey=new Map(mapping.map(x=>[x.key,x.value]));for(const ch of root.querySelectorAll('.correction-check')){const val=byKey.get(ch.dataset.key);if(typeof val==='boolean')ch.checked=val;}refreshCorrectionScore(ev.id);correctionRefreshStatus();localDraftSchedule();info.textContent='Propositions appliquées. Vérifie puis enregistre la correction habituelle.'};
+ const detail=document.createElement('details');detail.open=true;const sum=document.createElement('summary');sum.textContent='Voir les réponses de l’élève';detail.append(sum);
+ const frame=document.createElement('iframe');frame.title='Production numérique de l’élève';frame.style.cssText='width:100%;height:70vh;border:1px solid #ccc';detail.append(frame);panel.append(detail);
+ frame.addEventListener('load',()=>{try{if(correctionSession!==ctx)return;const d=frame.contentDocument,f=d.querySelector('#work');if(!f)return;for(const [k,v] of Object.entries(a)){const e=f.elements.namedItem(k);if(e&&typeof v==='string')e.value=v}f.elements.prenom.value=corr.eleve||'';f.elements.code.closest('label').remove();f.querySelectorAll('input,select,textarea,button').forEach(e=>e.disabled=true);f.lastElementChild?.remove();d.querySelectorAll('.source,header').forEach(e=>e.remove());const css=d.createElement('style');css.textContent='select:disabled,input:disabled,textarea:disabled{opacity:1;color:inherit;-webkit-text-fill-color:currentColor}';d.head.append(css)}catch(e){info.textContent='Fiche non affichée : '+e.message}});
+ frame.src='loterie-genetique.html';
+ const view=document.createElement('button');view.type='button';view.textContent='Ouvrir la correction visuelle dans Productions élèves';view.onclick=()=>window.open('loterie-prof.html','_blank','noopener');panel.append(view);
+ }catch(e){info.textContent='Production indisponible : '+e.message}
+}
+
 function getMasteryByCode(code){
   const map={
     TBM:{code:"TBM",label:"Très bonne maîtrise",cls:"tbm"},
