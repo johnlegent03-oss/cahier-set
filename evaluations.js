@@ -6360,13 +6360,23 @@ function loterieSuggestions(a){
  const sexOf=x=>equal(x,['X','X'])?'Fille':equal(x,['X','Y'])?'Garçon':null;
  const consistentSex=all(z,id=>!!sexOf(sex(id))&&a[id+'_sexe']===sexOf(sex(id))),consistentBlood=all(z,id=>abo(id).every(v=>['A','B','O'].includes(v))&&a[id+'_groupe']===blood(...abo(id)));
  const mei=(id,ls)=>complete(id,2)&&all(ls,valid)&&['s','a'].every(k=>equal(ls.map(g=>a[g+'_'+k+'0']),[...pair(id,k,2),...pair(id,k,2)]));
- const calc=String(a.calcul||'').trim().replace(/,/g,'.').replace(/\s+/g,'');
- const exact=/^(?:25%|0\.25|4\/16|2\/8|1\/4)(?:[=＝](?:25%|0\.25|4\/16|2\/8|1\/4))*[.]?$/.test(calc);
+ const calc=String(a.calcul||'').toLowerCase().replace(/,/g,'.').replace(/÷/g,'/').replace(/[×✕]/g,'*');
+ const fractions=[...calc.matchAll(/(?<![\d.])(\d+)\s*\/\s*(\d+)(?![\d.])/g)].map(m=>[+m[1],+m[2]]);
+ const percents=[...calc.matchAll(/(?<![\d.])(\d+(?:\.\d+)?)\s*(?:%|pour cent)/g)].map(m=>+m[1]);
+ const decimal=/^\s*(?:0\.25|\.25)\s*[.]?\s*$/.test(calc);
+ const exact=(fractions.length||percents.length||decimal)&&fractions.every(([n,d])=>d>0&&n/d===.25)&&percents.every(p=>p===25)?true:null;
+ const target=z.filter(id=>a[id+'_sexe']==='Garçon'&&a[id+'_groupe']==='A').length;
+ const fullTraits=all(z,id=>present(id+'_sexe')&&present(id+'_groupe'));
+ const method=fullTraits&&(fractions.some(([n,d])=>d===16&&n===target)||new RegExp('\\b'+target+'\\s+(?:cas\\s+)?sur\\s+16\\b').test(calc))?true:null;
+ const anyCell=[...sources,...z].some(id=>[...sex(id),...abo(id)].some(Boolean))||gametes.some(id=>gam(id).some(Boolean));
+ const anyTraits=z.some(id=>present(id+'_sexe')||present(id+'_groupe'));
+ const exactSex=all(z,id=>{const m=gam('row'+id[1]),p=gam('col'+id[2]);return valid('row'+id[1])&&valid('col'+id[2])&&!!sexOf([m[0],p[0]])&&a[id+'_sexe']===sexOf([m[0],p[0]])});
+ const exactBlood=all(z,id=>{const m=gam('row'+id[1]),p=gam('col'+id[2]);return valid('row'+id[1])&&valid('col'+id[2])&&a[id+'_groupe']===blood(m[1],p[1])});
  return [
- [all([...sources,...z],id=>complete(id,2))&&all(gametes,id=>complete(id,1)),all(z,id=>present(id+'_sexe')&&present(id+'_groupe')),present('calcul')&&present('conclusion')],
- [sourceOK,gCorrect(mg,expM),gCorrect(pg,expP),headersOK,headersOK&&fuse,headersOK&&fuse&&consistentSex,headersOK&&fuse&&consistentBlood,exact?true:null,null],
- [mei('m_source',mg)&&mei('p_source',pg),fuse,consistentSex&&consistentBlood,null,null],
- [all([...row,...col],id=>complete(id,1)),all(z,id=>complete(id,2)),all(z,id=>present(id+'_sexe')&&present(id+'_groupe')),present('calcul')&&present('conclusion')]
+ [anyCell,anyTraits,present('calcul')&&present('conclusion')],
+ [sourceOK,gCorrect(mg,expM),gCorrect(pg,expP),headersOK,headersOK&&fuse,headersOK?exactSex:null,headersOK?exactBlood:null,exact,null],
+ [mei('m_source',mg)&&mei('p_source',pg),fuse,consistentSex&&consistentBlood,method,null],
+ [all([...row,...col],id=>complete(id,1)),all(z,id=>complete(id,2)),fullTraits,present('calcul')&&present('conclusion')]
  ];
 }
 const loterieLabels=[
@@ -6386,9 +6396,9 @@ async function loterieAttach(ev,corr,classe,groupIds){
  if(q.error)throw Error(q.error.message);if(!q.data){info.textContent='Aucune production numérique rendue pour cet élève.';return}
  const a=q.data.reponses||{},suggest=loterieSuggestions(a),crits=criteriaFromLegacy(ev),mapping=[];
  const names=['respect des consignes','qualite du travail','choix adaptes','travail complet'];
- for(const cr of crits){const ci=names.indexOf(loterieNorm(cr.nom));if(ci<0)continue;(cr.indicateurs||[]).forEach((it,i)=>{const j=loterieLabels[ci].indexOf(loterieNorm(it.nom));if(j>=0)mapping.push({key:String(cr.id)+'_'+i,value:suggest[ci][j]})})}
+ for(const cr of crits){const ci=names.findIndex(n=>loterieNorm(cr.nom)===n||loterieNorm(cr.nom).startsWith(n+' '));if(ci<0)continue;(cr.indicateurs||[]).forEach((it,i)=>{const j=loterieLabels[ci].indexOf(loterieNorm(it.nom));if(j>=0)mapping.push({key:String(cr.id)+'_'+i,value:suggest[ci][j]});else if(ci===3&&loterieNorm(it.nom).includes('cellules souches')&&loterieNorm(it.nom).includes('gametes'))mapping.push({key:String(cr.id)+'_'+i,value:['m_source','p_source'].every(id=>['s0','s1','a0','a1'].every(k=>a[id+'_'+k]))&&['m_g','p_g'].every(p=>[0,1,2,3].every(i=>a[p+i+'_s0']&&a[p+i+'_a0']))})})}
  const btn=document.createElement('button');btn.type='button';btn.textContent='Préremplir les indicateurs vérifiables';panel.append(btn);
- info.textContent=mapping.length+' indicateurs reconnus sur '+crits.reduce((n,c)=>n+(c.indicateurs||[]).length,0)+'. Le calcul libre et la conclusion restent à vérifier. Aucun enregistrement automatique.';
+ const total=crits.reduce((n,c)=>n+(c.indicateurs||[]).length,0),auto=mapping.filter(x=>typeof x.value==='boolean').length;info.textContent=auto+' indicateurs préremplissables sur '+total+' · '+(total-auto)+' à vérifier manuellement. Aucun enregistrement automatique.';for(const ch of root.querySelectorAll('.correction-check')){const item=mapping.find(x=>x.key===ch.dataset.key);const note=document.createElement('span');note.className='small-note';note.style.marginLeft='8px';note.textContent=!item?'⚠ Indicateur non reconnu':item.value===null?'✎ À vérifier':item.value?'✓ Proposition : validé':'✗ Proposition : non validé';ch.closest('.check-row')?.append(note)}
  btn.onclick=()=>{if(correctionSession!==ctx||localDraftSession?.pending||window.__savingCorrection){alert('Termine ou reprends le brouillon avant de préremplir.');return}if(!confirm('Appliquer les propositions aux indicateurs reconnus ? Les indicateurs à vérifier manuellement restent inchangés.'))return;const byKey=new Map(mapping.map(x=>[x.key,x.value]));for(const ch of root.querySelectorAll('.correction-check')){const val=byKey.get(ch.dataset.key);if(typeof val==='boolean')ch.checked=val;}refreshCorrectionScore(ev.id);correctionRefreshStatus();localDraftSchedule();info.textContent='Propositions appliquées. Vérifie puis enregistre la correction habituelle.'};
  const detail=document.createElement('details');detail.open=true;const sum=document.createElement('summary');sum.textContent='Voir les réponses de l’élève';detail.append(sum);
  const frame=document.createElement('iframe');frame.title='Production numérique de l’élève';frame.style.cssText='width:100%;height:70vh;border:1px solid #ccc';detail.append(frame);panel.append(detail);
