@@ -5988,7 +5988,7 @@ async function openCorrection(id,classOverride=""){
     if(request!==copiesBoardRequest||loadEvalNav().view!=='correction'||String(loadEvalNav().evaluationId)!==String(id)||String(loadEvalNav().classe)!==classe)return;
     studentsCache=[...studentsCache.filter(st=>String(st.classe||'').trim()!==classe),...roster];
     const nav=loadEvalNav();copiesBoardState={ev,members,classe,roster:sortStudents(roster),corrections,absences:absenceResult.data,absenceError:absenceResult.error,assignmentFilterEnabled:hasAssignmentsForWork,assignedStudentIds,filter:nav.copiesFilter||'todo',search:nav.copiesSearch||'',openBusy:false};
-    content.innerHTML=`<button type="button" onclick="evalReturnToList()">← Mes évaluations</button><section class="hero" style="margin-top:14px"><span class="eyebrow">${esc(classe)}</span><h2>📝 Copies · ${esc(ev.titre)}</h2><p class="muted">Tous les élèves de la classe, les copies validées, les situations clôturées et les brouillons de cet appareil.</p><div class="row copies-toolbar"><button type="button" class="primary" onclick="pickStudentForCorrection(${jsArg(ev.id)},${jsArg(classe)})">＋ Correction de groupe / choisir les élèves</button><button type="button" onclick="copiesBoardRefresh()">↻ Actualiser</button><button type="button" onclick="openIndicatorReport(${jsArg(ev.id)},${jsArg(classe)})">🎯 Bilan des indicateurs</button><button type="button" onclick="openEvaluationAbsences(${jsArg(ev.id)},${jsArg(classe)})">Absences / non évalués</button><button type="button" onclick="printAllCorrectionGrids(${jsArg(ev.id)})">📥 Grilles validées de ce sujet en PDF</button></div><div id="copiesBoard"></div></section>`;
+    content.innerHTML=`<button type="button" onclick="evalReturnToList()">← Mes évaluations</button><section class="hero" style="margin-top:14px"><span class="eyebrow">${esc(classe)}</span><h2>📝 Copies · ${esc(ev.titre)}</h2><p class="muted">Tous les élèves de la classe, les copies validées, les situations clôturées et les brouillons de cet appareil.</p><div class="row copies-toolbar"><button type="button" class="primary" onclick="pickStudentForCorrection(${jsArg(ev.id)},${jsArg(classe)})">＋ Correction de groupe / choisir les élèves</button><button type="button" class="primary" onclick="questionRunStart()">🎯 Corriger par question</button><button type="button" onclick="copiesBoardRefresh()">↻ Actualiser</button><button type="button" onclick="openIndicatorReport(${jsArg(ev.id)},${jsArg(classe)})">🎯 Bilan des indicateurs</button><button type="button" onclick="openEvaluationAbsences(${jsArg(ev.id)},${jsArg(classe)})">Absences / non évalués</button><button type="button" onclick="printAllCorrectionGrids(${jsArg(ev.id)})">📥 Grilles validées de ce sujet en PDF</button></div><div id="copiesBoard"></div></section>`;
     copiesBoardRender();
   }catch(e){if(request===copiesBoardRequest&&(!navigationCommitted||(loadEvalNav().view==='correction'&&String(loadEvalNav().evaluationId)===String(id))))showError(e.message);}
 }
@@ -6413,7 +6413,102 @@ function quickRefresh(){
  }
 }
 
-async function renderCorrectionEditor(evalId,correctionId,corr,groupIds=[]){
+
+/* Parcours par question : brouillons par élève, notes publiées uniquement après copie complète. */
+function questionRunKey(run){return 'svt.questionRun.v1:'+encodeURIComponent(String(SUPABASE_URL))+':'+encodeURIComponent(String(user?.id||''))+':'+encodeURIComponent(JSON.stringify([String(run.evalId),run.classe]))}
+function questionRunProgress(run){
+ const raw=localStorage.getItem(questionRunKey(run));if(!raw)return {};
+ const p=JSON.parse(raw);if(p.signature!==run.signature)throw Error('Le barème a changé. Les brouillons individuels restent conservés ; reprends-les en mode normal.');
+ return p.students||{}
+}
+function questionRunWrite(run,progress){const key=questionRunKey(run),value=JSON.stringify({signature:run.signature,students:progress});localStorage.setItem(key,value);if(localStorage.getItem(key)!==value)throw Error('Progression locale non confirmée.')}
+function questionRunCards(){return [...(document.getElementById('correctionCriteria')?.children||[])]}
+function questionRunSignature(card){return JSON.stringify(quickChecks(card).map(ch=>[ch.dataset.key,depManual(ch)]))}
+function questionRunDone(run,id,cards,progress){const p=progress[String(id)]||{};return cards.filter(c=>p[c.dataset.quickQuestion]===questionRunSignature(c)).map(c=>c.dataset.quickQuestion)}
+function questionRunRestore(){
+ const s=localDraftSession;if(!s?.pending||!s.record||s.record.schema!==s.schema||s.record.base!==s.base)return;
+ try{const found=localDraftRead(s),p=found.record?.payload;const checks=[...s.root.querySelectorAll('.correction-check')];
+ if(found.raw!==s.expected||!Array.isArray(p?.checks)||p.checks.length!==checks.length||p.checks.some((x,i)=>x[0]!==checks[i].dataset.key||typeof x[1]!=='boolean'))return;
+ checks.forEach((ch,i)=>{ch.checked=p.checks[i][1];ch.dataset.auto='0';ch.dataset.manual=ch.checked?'1':'0'});
+ s.pending=false;s.record=null;s.last=null;localDraftActions();refreshCorrectionScore(correctionSession.evalId);correctionRefreshStatus();localDraftFlush()
+ }catch(e){localDraftDisplay('Reprise automatique impossible : '+e.message,true)}
+}
+async function questionRunStart(){
+ const board=copiesBoardState;if(!board||board.openBusy||!document.getElementById('copiesBoard'))return;
+ if(board.absenceError){alert('Actualise les statuts d’absence avant de commencer.');return}
+ const eligible=(board.rows||[]).filter(row=>!row.status&&!row.closed&&!row.unknown&&!row.conflict&&(!row.corr||String(row.corr.evaluation_id)===String(board.ev.id))&&(!row.corr||String(row.corr.eleve_id)===String(row.student.id))&&!row.drafts.some(d=>d.groupIds?.length||String(d.evalId)!==String(board.ev.id)));
+ if(!eligible.length){alert('Aucun élève disponible pour ce sujet.');return}
+ let rows=eligible;
+ if(board.members.length>1&&!board.assignmentFilterEnabled){
+  const menu=eligible.map((row,i)=>(i+1)+'. '+studentDisplayName(row.student)).join('\n');
+  const input=prompt('Plusieurs sujets existent pour ce travail. Indique les numéros des élèves ayant réellement ce sujet (séparés par des virgules).\n'+menu);
+  if(!input)return;const indices=[...new Set(input.split(',').map(x=>Number(x.trim())))];if(indices.some(n=>!Number.isInteger(n)||n<1||n>eligible.length)){alert('Sélection invalide.');return}rows=eligible.filter((r,i)=>indices.includes(i+1))
+ }
+ const run={evalId:board.ev.id,classe:board.classe,students:sortStudents(rows.map(r=>r.student)),index:0,question:null,questions:[],signature:JSON.stringify(criteriaFromLegacy(board.ev))};
+ try{questionRunProgress(run);await questionRunOpen(run,0)}catch(e){alert('Parcours impossible : '+e.message)}
+}
+async function questionRunOpen(run,index){
+ const student=run.students[index];if(!student)return;
+ const q=await sb.from('EvaluationCorrections').select('id,eleve,eleve_id,resultat').eq('evaluation_id',run.evalId).eq('eleve_id',student.id).maybeSingle();
+ if(q.error)throw Error(q.error.message);
+ if(correctionSession?.questionRun===run){
+  if(!localDraftCanValidate()||!localDraftFlush())throw Error('Le brouillon actuel n’a pas été conservé.');
+  correctionSession.baseline=correctionFingerprint()
+ }
+ run.index=index;saveEvalNav({classe:run.classe});
+ await renderCorrectionEditor(run.evalId,q.data?.id||null,q.data||{eleve:studentDisplayName(student),eleve_id:student.id,resultat:{points:{},note:0,criteriaStats:{}}},[],run);
+}
+function questionRunView(run){
+ const cards=questionRunCards(),q=cards.find(c=>c.dataset.quickQuestion===run.question);
+ if(!q)return;
+ for(const c of cards){const visible=c===q;c.style.display=visible?'':'none';if(visible)c.querySelector('.quick-details').open=true}
+ const host=document.getElementById('questionRunPanel');if(!host)return;
+ const label=host.querySelector('.question-run-position');label.textContent='Élève '+(run.index+1)+' / '+run.students.length+' · Question '+(run.questions.indexOf(run.question)+1)+' / '+run.questions.length;
+ host.querySelector('select').value=run.question;
+ questionRunRefresh()
+}
+function questionRunRefresh(){
+ const ctx=correctionSession,run=ctx?.questionRun,host=document.getElementById('questionRunPanel');if(!run||!host)return;
+ try{const cards=questionRunCards(),done=questionRunDone(run,ctx.eleveId,cards,questionRunProgress(run));const complete=cards.every(c=>c.dataset.quickQuestion===run.question||done.includes(c.dataset.quickQuestion));host.querySelector('.question-run-progress').textContent=done.length+' / '+cards.length+' questions confirmées pour cet élève'+(ctx.saved?' · copie déjà validée':'');host.querySelector('.question-run-next').textContent=complete?'Valider la copie complète et continuer':'Conserver la question et continuer';host.querySelector('.question-run-next').disabled=!!window.__savingCorrection||!!run.busy;host.querySelector('.question-run-prev').disabled=run.index===0||!!run.busy}catch(e){host.querySelector('.question-run-progress').textContent=e.message;host.querySelector('.question-run-next').disabled=true}
+}
+function questionRunAttach(run,ev){
+ if(run.signature!==JSON.stringify(criteriaFromLegacy(ev))){alert('La grille a changé. Le parcours est arrêté sans effacer les brouillons.');return}
+ const cards=questionRunCards();run.questions=cards.map(c=>c.dataset.quickQuestion);if(!run.questions.includes(run.question))run.question=run.questions[0];if(!run.question)return;
+ correctionSession.questionRun=run;
+ const panel=document.createElement('div');panel.id='questionRunPanel';panel.className='criteria-box';panel.innerHTML='<strong>Correction par question</strong><p class="question-run-position"></p><p class="question-run-progress small-note" role="status"></p><label>Question à traiter</label><select aria-label="Question à traiter"></select><div class="row" style="margin-top:8px;gap:8px;flex-wrap:wrap"><button type="button" class="question-run-prev">← Élève précédent</button><button type="button" class="primary question-run-next">Conserver la question et continuer</button><button type="button" class="question-run-exit">Quitter le parcours</button></div><p class="small-note">Les questions intermédiaires restent en brouillon sur cet appareil. Seule une copie complète est validée dans la base. Une question laissée vide doit aussi être confirmée.</p>';
+ document.getElementById('correctionCriteria').before(panel);
+ const select=panel.querySelector('select');cards.forEach((card,i)=>select.add(new Option('Question '+(i+1)+' — '+(card.querySelector('summary span')?.textContent||''),card.dataset.quickQuestion)));
+ select.onchange=()=>{if(run.busy||window.__savingCorrection){select.value=run.question;return}run.question=select.value;questionRunView(run)};
+ panel.querySelector('.question-run-next').onclick=()=>questionRunAdvance(run);
+ panel.querySelector('.question-run-prev').onclick=async()=>{if(run.busy||window.__savingCorrection||run.index===0)return;run.busy=true;try{await questionRunOpen(run,run.index-1)}catch(e){alert(e.message)}finally{run.busy=false;questionRunRefresh()}};
+ panel.querySelector('.question-run-exit').onclick=()=>openCorrection(run.evalId,run.classe);
+ document.getElementById('correctionSaveControls').style.display='none';
+ document.getElementById('masteryPreview').style.display='none';
+ document.querySelector('.quick-mode')?.style.setProperty('display','none');
+ const live=document.getElementById('livePercent');if(live)live.style.display='none';
+ const score=document.getElementById('liveScore');if(score){const note=document.createElement('span');note.className='small-note';note.textContent='Total provisoire de la copie';score.after(note)}
+ questionRunRestore();questionRunView(run)
+}
+async function questionRunAdvance(run){
+ const ctx=correctionSession;if(ctx?.questionRun!==run||run.busy||window.__savingCorrection||!localDraftCanValidate())return;
+ run.busy=true;questionRunRefresh();
+ try{
+  if(!localDraftFlush())throw Error('Impossible de conserver le brouillon sur cet appareil.');
+  const cards=questionRunCards(),card=cards.find(c=>c.dataset.quickQuestion===run.question);if(!card)throw Error('Question introuvable.');
+  const progress=questionRunProgress(run),id=String(ctx.eleveId);
+  progress[id]={...(progress[id]||{}),[run.question]:questionRunSignature(card)};questionRunWrite(run,progress);
+  const complete=questionRunDone(run,id,cards,progress).length===cards.length;
+  if(complete){const saved=await saveCorrection(ctx.evalId,ctx.correctionId,ctx.eleve,ctx.eleveId,'question-run');if(!saved)return;}
+  if(run.index+1<run.students.length){await questionRunOpen(run,run.index+1);return}
+  const next=run.questions[run.questions.indexOf(run.question)+1];
+  if(next){run.question=next;await questionRunOpen(run,0);return}
+  ctx.baseline=correctionFingerprint();
+  alert('Dernière question du parcours atteinte. Les copies complètes ont été validées ; les autres restent en brouillon. Reviens aux questions manquantes si nécessaire.');
+  await openCorrection(run.evalId,run.classe)
+ }catch(e){correctionStatus('Parcours interrompu : '+e.message,true);alert(e.message)}finally{run.busy=false;questionRunRefresh()}
+}
+
+async function renderCorrectionEditor(evalId,correctionId,corr,groupIds=[],questionRun=null){
   if(!correctionAllowLeave())return;
   currentCorrectionGroupIds=groupIds||[];
   const {data,error}=await sb.from("Evaluations").select("*").eq("id",evalId).maybeSingle();
@@ -6471,7 +6566,7 @@ const savedValidated=result.criteriaStats||{};
   quickAttach(ev,comps);
   refreshCorrectionScore(ev.id);
   correctionBegin(evalId,correctionId,corr,correctionClass,groupIds);
-  void loterieAttach(ev,corr,correctionClass,groupIds);
+  if(questionRun)questionRunAttach(questionRun,ev);else void loterieAttach(ev,corr,correctionClass,groupIds);
 }
 
 function loterieNorm(s){return String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim()}
@@ -6593,6 +6688,7 @@ function refreshCorrectionScore(evalId){
   if(!ev)return;
   const c=computeCorrection(ev),total=Number(ev.total||0),pct=total?Math.round(c.score/total*100):0;
   quickRefresh();
+  questionRunRefresh();
   const score=document.getElementById("liveScore");if(score)score.textContent=`${c.score} / ${total}`;
   const p=document.getElementById("livePercent");if(p)p.textContent=`${pct}% du barème`;
   const crits=criteriaFromLegacy(ev), groups={};
@@ -7699,7 +7795,8 @@ async function saveCorrection(evalId,correctionId,eleve,eleveId,next=false){
     correctionSetBusy(false);
   }
   if(success){
-    if(next)await correctionOpenNext(ctx);
+    if(next==='question-run'){ /* Le parcours choisit lui-même la prochaine copie. */ }
+    else if(next)await correctionOpenNext(ctx);
     else await openCorrection(ctx.evalId,ctx.classe);
   }
   return success;
