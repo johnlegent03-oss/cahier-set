@@ -5988,7 +5988,7 @@ async function openCorrection(id,classOverride=""){
     if(request!==copiesBoardRequest||loadEvalNav().view!=='correction'||String(loadEvalNav().evaluationId)!==String(id)||String(loadEvalNav().classe)!==classe)return;
     studentsCache=[...studentsCache.filter(st=>String(st.classe||'').trim()!==classe),...roster];
     const nav=loadEvalNav();copiesBoardState={ev,members,classe,roster:sortStudents(roster),corrections,absences:absenceResult.data,absenceError:absenceResult.error,assignmentFilterEnabled:hasAssignmentsForWork,assignedStudentIds,filter:nav.copiesFilter||'todo',search:nav.copiesSearch||'',openBusy:false};
-    content.innerHTML=`<button type="button" onclick="evalReturnToList()">← Mes évaluations</button><section class="hero" style="margin-top:14px"><span class="eyebrow">${esc(classe)}</span><h2>📝 Copies · ${esc(ev.titre)}</h2><p class="muted">Tous les élèves de la classe, les copies validées, les situations clôturées et les brouillons de cet appareil.</p><div class="row copies-toolbar"><button type="button" class="primary" onclick="pickStudentForCorrection(${jsArg(ev.id)},${jsArg(classe)})">＋ Correction de groupe / choisir les élèves</button><button type="button" class="primary" onclick="questionRunStart()">🎯 Corriger par question</button><button type="button" onclick="copiesBoardRefresh()">↻ Actualiser</button><button type="button" onclick="openIndicatorReport(${jsArg(ev.id)},${jsArg(classe)})">🎯 Bilan des indicateurs</button><button type="button" onclick="openEvaluationAbsences(${jsArg(ev.id)},${jsArg(classe)})">Absences / non évalués</button><button type="button" onclick="printAllCorrectionGrids(${jsArg(ev.id)})">📥 Grilles validées de ce sujet en PDF</button></div><div id="copiesBoard"></div></section>`;
+    content.innerHTML=`<button type="button" onclick="evalReturnToList()">← Mes évaluations</button><section class="hero" style="margin-top:14px"><span class="eyebrow">${esc(classe)}</span><h2>📝 Copies · ${esc(ev.titre)}</h2><p class="muted">Tous les élèves de la classe, les copies validées, les situations clôturées et les brouillons de cet appareil.</p><div class="row copies-toolbar"><button type="button" class="primary" onclick="pickStudentForCorrection(${jsArg(ev.id)},${jsArg(classe)})">＋ Correction de groupe / choisir les élèves</button><button type="button" class="primary" onclick="questionRunStart()">🎯 Corriger par question</button>${ev && members.length>1&&!hasAssignmentsForWork?'<button type="button" onclick="questionRunStart(true)">Modifier les élèves du sujet</button>':''}<button type="button" onclick="copiesBoardRefresh()">↻ Actualiser</button><button type="button" onclick="openIndicatorReport(${jsArg(ev.id)},${jsArg(classe)})">🎯 Bilan des indicateurs</button><button type="button" onclick="openEvaluationAbsences(${jsArg(ev.id)},${jsArg(classe)})">Absences / non évalués</button><button type="button" onclick="printAllCorrectionGrids(${jsArg(ev.id)})">📥 Grilles validées de ce sujet en PDF</button></div><div id="copiesBoard"></div></section>`;
     copiesBoardRender();
   }catch(e){if(request===copiesBoardRequest&&(!navigationCommitted||(loadEvalNav().view==='correction'&&String(loadEvalNav().evaluationId)===String(id))))showError(e.message);}
 }
@@ -6433,19 +6433,77 @@ function questionRunRestore(){
  s.pending=false;s.record=null;s.last=null;localDraftActions();refreshCorrectionScore(correctionSession.evalId);correctionRefreshStatus();localDraftFlush()
  }catch(e){localDraftDisplay('Reprise automatique impossible : '+e.message,true)}
 }
-async function questionRunStart(){
+/* Sélection du sujet et position de reprise, indépendantes des brouillons de notes. */
+function questionRunPrefsKey(run){return questionRunKey(run)+':prefs'}
+function questionRunPrefs(run){try{return JSON.parse(localStorage.getItem(questionRunPrefsKey(run))||'null')||{}}catch(e){return {}}}
+function questionRunPrefsWrite(run,patch){
+ const value=JSON.stringify({...questionRunPrefs(run),...patch});
+ localStorage.setItem(questionRunPrefsKey(run),value);
+ if(localStorage.getItem(questionRunPrefsKey(run))!==value)throw Error('La mémorisation locale n’a pas été confirmée.')
+}
+function questionRunRemember(run,completed=false){
+ try{questionRunPrefsWrite(run,{cursor:completed?null:{signature:run.signature,studentId:String(run.students[run.index]?.id||''),question:run.question}})}catch(e){console.warn('Position du parcours non mémorisée',e)}
+}
+function questionRunChoose(board,eligible,prefs){
+ return new Promise(resolve=>{
+  document.getElementById('questionRunChooseModal')?.remove();
+  const overlay=document.createElement('div');overlay.id='questionRunChooseModal';overlay.className='pp-modal';
+  const panel=document.createElement('div');panel.className='pp-modal-card';panel.style.cssText='max-width:650px;max-height:88vh;overflow:auto';overlay.append(panel);
+  const title=document.createElement('h3');title.textContent='Élèves de ce sujet — '+board.ev.titre;panel.append(title);
+  const hint=document.createElement('p');hint.textContent='Coche uniquement les élèves qui ont réellement ce sujet. Cette sélection sera mémorisée pour cette classe sur cet appareil. Les brouillons existants ne seront pas supprimés.';panel.append(hint);
+  const row=document.createElement('div');row.className='row';panel.append(row);
+  const button=(parent,label,fn)=>{const b=document.createElement('button');b.type='button';b.textContent=label;b.onclick=fn;parent.append(b);return b};
+  const count=document.createElement('p');count.className='small-note';panel.append(count);
+  const list=document.createElement('div');list.style.cssText='display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:6px;max-height:48vh;overflow:auto;padding:8px 0';panel.append(list);
+  const previous=new Set(Array.isArray(prefs.selectedIds)?prefs.selectedIds.map(String):[]);
+  const known=eligible.filter(r=>String(r.corr?.evaluation_id||'')===String(board.ev.id)||r.drafts.some(d=>String(d.evalId)===String(board.ev.id))).map(r=>String(r.student.id));
+  const defaults=Array.isArray(prefs.selectedIds)?previous:new Set(known);
+  const checks=eligible.map(r=>{const label=document.createElement('label');label.style.cssText='display:flex;gap:8px;align-items:center;padding:6px;border:1px solid #ccc;border-radius:6px';const ch=document.createElement('input');ch.type='checkbox';ch.value=String(r.student.id);ch.checked=defaults.has(ch.value);ch.style.width='auto';label.append(ch,document.createTextNode(studentDisplayName(r.student)));list.append(label);ch.onchange=update;return ch});
+  function update(){const n=checks.filter(c=>c.checked).length;count.textContent=n+' / '+checks.length+' élèves sélectionnés';}
+  button(row,'Tout sélectionner',()=>{checks.forEach(c=>c.checked=true);update()});
+  button(row,'Tout décocher',()=>{checks.forEach(c=>c.checked=false);update()});
+  button(row,'Copies et brouillons de ce sujet',()=>{checks.forEach(c=>c.checked=known.includes(c.value));update()});
+  const footer=document.createElement('div');footer.className='row';panel.append(footer);
+  const finish=value=>{overlay.remove();resolve(value)};
+  button(footer,'Annuler',()=>finish(null));
+  const save=button(footer,'Mémoriser et continuer',()=>{const ids=checks.filter(c=>c.checked).map(c=>c.value);if(!ids.length){alert('Sélectionne au moins un élève.');return}finish(ids)});save.className='primary';
+  document.body.append(overlay);update();
+ })
+}
+async function questionRunStart(forceSelection=false){
  const board=copiesBoardState;if(!board||board.openBusy||!document.getElementById('copiesBoard'))return;
  if(board.absenceError){alert('Actualise les statuts d’absence avant de commencer.');return}
  const eligible=(board.rows||[]).filter(row=>!row.status&&!row.closed&&!row.unknown&&!row.conflict&&(!row.corr||String(row.corr.evaluation_id)===String(board.ev.id))&&(!row.corr||String(row.corr.eleve_id)===String(row.student.id))&&!row.drafts.some(d=>d.groupIds?.length||String(d.evalId)!==String(board.ev.id)));
  if(!eligible.length){alert('Aucun élève disponible pour ce sujet.');return}
- let rows=eligible;
- if(board.members.length>1&&!board.assignmentFilterEnabled){
-  const menu=eligible.map((row,i)=>(i+1)+'. '+studentDisplayName(row.student)).join('\n');
-  const input=prompt('Plusieurs sujets existent pour ce travail. Indique les numéros des élèves ayant réellement ce sujet (séparés par des virgules).\n'+menu);
-  if(!input)return;const indices=[...new Set(input.split(',').map(x=>Number(x.trim())))];if(indices.some(n=>!Number.isInteger(n)||n<1||n>eligible.length)){alert('Sélection invalide.');return}rows=eligible.filter((r,i)=>indices.includes(i+1))
- }
- const run={evalId:board.ev.id,classe:board.classe,students:sortStudents(rows.map(r=>r.student)),index:0,question:null,questions:[],signature:JSON.stringify(criteriaFromLegacy(board.ev))};
- board.openBusy=true;try{questionRunProgress(run);await questionRunOpen(run,0)}catch(e){alert('Parcours impossible : '+e.message)}finally{board.openBusy=false}
+ const run={evalId:board.ev.id,classe:board.classe,students:[],index:0,question:null,questions:[],signature:JSON.stringify(criteriaFromLegacy(board.ev))};
+ board.openBusy=true;
+ try{
+  const prefs=questionRunPrefs(run);let rows=eligible;
+  if(board.members.length>1&&!board.assignmentFilterEnabled){
+   let ids=Array.isArray(prefs.selectedIds)?prefs.selectedIds.map(String):null;
+   if(forceSelection||!ids||!eligible.some(r=>ids.includes(String(r.student.id)))){
+    ids=await questionRunChoose(board,eligible,prefs);if(!ids)return;
+    questionRunPrefsWrite(run,{selectedIds:ids})
+   }
+   rows=eligible.filter(r=>ids.includes(String(r.student.id)))
+  }
+  run.students=sortStudents(rows.map(r=>r.student));if(!run.students.length)throw Error('Aucun élève sélectionné n’est actuellement disponible.');
+  const progress=questionRunProgress(run),cursor=prefs.cursor;
+  let index=0;
+  if(cursor?.signature===run.signature){
+   const found=run.students.findIndex(st=>String(st.id)===String(cursor.studentId));
+   if(found>=0){index=found;run.question=cursor.question}
+  }else if(!cursor&&Object.keys(progress).length){
+   // Les anciennes sessions n'avaient pas de position mémorisée : retrouver
+   // la première question non confirmée à partir des confirmations existantes.
+   const groups=new Map();
+   criteriaFromLegacy(board.ev).forEach((c,i)=>{const id=String(c.questionId||c.questionNumero||'q'+(i+1));if(!groups.has(id))groups.set(id,Number(c.questionNumero||i+1))});
+   const questions=[...groups].sort((a,b)=>a[1]-b[1]).map(x=>x[0]);
+   for(const q of questions){const i=run.students.findIndex(st=>!Object.prototype.hasOwnProperty.call(progress[String(st.id)]||{},q));if(i>=0){run.question=q;index=i;break}}
+  }
+  if(copiesBoardState!==board||!document.getElementById('copiesBoard'))return;
+  await questionRunOpen(run,index)
+ }catch(e){alert('Parcours impossible : '+e.message)}finally{board.openBusy=false}
 }
 async function questionRunOpen(run,index){
  const student=run.students[index];if(!student)return;
@@ -6478,7 +6536,7 @@ function questionRunAttach(run,ev){
  const panel=document.createElement('div');panel.id='questionRunPanel';panel.className='criteria-box';panel.innerHTML='<strong>Correction par question</strong><p class="question-run-position"></p><p class="question-run-progress small-note" role="status"></p><label>Question à traiter</label><select aria-label="Question à traiter"></select><div class="row" style="margin-top:8px;gap:8px;flex-wrap:wrap"><button type="button" class="question-run-prev">← Élève précédent</button><button type="button" class="primary question-run-next">Conserver la question et continuer</button><button type="button" class="question-run-exit">Quitter le parcours</button></div><p class="small-note">Les questions intermédiaires restent en brouillon sur cet appareil. Seule une copie complète est validée dans la base. Une question laissée vide doit aussi être confirmée.</p>';
  document.getElementById('correctionCriteria').before(panel);
  const select=panel.querySelector('select');cards.forEach((card,i)=>select.add(new Option(card.querySelector('summary span')?.textContent||'Question '+(i+1),card.dataset.quickQuestion)));
- select.onchange=()=>{if(run.busy||window.__savingCorrection){select.value=run.question;return}run.question=select.value;questionRunView(run)};
+ select.onchange=()=>{if(run.busy||window.__savingCorrection){select.value=run.question;return}run.question=select.value;questionRunView(run);questionRunRemember(run)};
  panel.querySelector('.question-run-next').onclick=()=>questionRunAdvance(run);
  panel.querySelector('.question-run-prev').onclick=async()=>{if(run.busy||window.__savingCorrection||run.index===0)return;run.busy=true;try{await questionRunOpen(run,run.index-1)}catch(e){alert(e.message)}finally{run.busy=false;questionRunRefresh()}};
  panel.querySelector('.question-run-exit').onclick=()=>openCorrection(run.evalId,run.classe);
@@ -6488,7 +6546,7 @@ function questionRunAttach(run,ev){
  document.querySelector('.quick-mode')?.style.setProperty('display','none');
  const live=document.getElementById('livePercent');if(live)live.style.display='none';
  const score=document.getElementById('liveScore');if(score){const note=document.createElement('span');note.className='small-note';note.textContent='Total provisoire de la copie';score.after(note)}
- questionRunRestore();questionRunView(run)
+ questionRunRestore();questionRunView(run);questionRunRemember(run)
 }
 async function questionRunAdvance(run){
  const ctx=correctionSession;if(ctx?.questionRun!==run||run.busy||window.__savingCorrection||!localDraftCanValidate())return;
@@ -6503,7 +6561,7 @@ async function questionRunAdvance(run){
   if(run.index+1<run.students.length){await questionRunOpen(run,run.index+1);return}
   const next=run.questions[run.questions.indexOf(run.question)+1];
   if(next){run.question=next;await questionRunOpen(run,0);return}
-  ctx.baseline=correctionFingerprint();
+  ctx.baseline=correctionFingerprint();questionRunRemember(run,true);
   alert('Dernière question du parcours atteinte. Les copies complètes ont été validées ; les autres restent en brouillon. Reviens aux questions manquantes si nécessaire.');
   await openCorrection(run.evalId,run.classe)
  }catch(e){correctionStatus('Parcours interrompu : '+e.message,true);alert(e.message)}finally{run.busy=false;questionRunRefresh()}
