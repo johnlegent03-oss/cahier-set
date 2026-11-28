@@ -7740,7 +7740,7 @@ async function renderPPDashboard(){
     const overdue=actions.filter(x=>x.statut!=="termine"&&x.echeance&&x.echeance<=ppToday()).length;
     const statsBy=new Map(ids.map(id=>[id,{events:0,contacts:0,amenagements:0,actions:0,overdue:0}]));
     ev.forEach(x=>{const z=statsBy.get(String(x.eleve_id));if(z)z.events++});co.forEach(x=>{const z=statsBy.get(String(x.eleve_id));if(z)z.contacts++});am.forEach(x=>{const z=statsBy.get(String(x.eleve_id));if(z)z.amenagements++});ac.forEach(x=>{const z=statsBy.get(String(x.eleve_id));if(z&&x.statut!=="termine"){z.actions++;if(x.echeance&&x.echeance<=ppToday())z.overdue++}});
-    target.innerHTML=`<div class="pp-grid"><div class="pp-stat"><div class="n">${students.length}</div><div class="l">Élèves suivis</div></div><div class="pp-stat"><div class="n">${am.length}</div><div class="l">Aménagements actifs</div></div><div class="pp-stat"><div class="n">${co.length}</div><div class="l">Contacts (${ppPeriod==="year"?"année":ppPeriod.toUpperCase()})</div></div><div class="pp-stat"><div class="n">${overdue}</div><div class="l">Actions à relancer</div></div></div>${ppPriorities}<section class="pp-section"><div class="entry-head"><div><h3>👥 Élèves</h3><p class="small-note">Clique sur un élève pour ouvrir sa fiche PP.</p></div><div class="row"><button type="button" onclick="ppOpenGradeImport()">📥 Importer ÉcoleDirecte (CSV)</button><button type="button" onclick="ppOpenCompImport()">📊 Importer les compétences (Excel)</button><button type="button" onclick="ppOpenVieImport()">📋 Importer la vie scolaire (CSV)</button><button type="button" onclick="openPPCouncil()">📅 Conseil de classe</button><button type="button" data-ppq-launch="1" onclick="ppLaunchConsultation()">🗳 Consultation des élèves</button><button type="button" onclick="ppNewStudentEvent()">＋ Ajouter un suivi</button></div></div><div class="pp-student-list">${students.map(s=>`<div class="pp-student" onclick="openPPStudent('${esc(s.id)}')"><div><strong>${esc(ppName(s))}</strong><div class="small-note">${esc(s.classe||"")}</div></div><div class="pp-badges">${ppStatusBadges(s,statsBy.get(String(s.id))||{})}</div></div>`).join("")||'<div class="pp-empty">Aucun élève dans cette sélection.</div>'}</div></section>`;
+    target.innerHTML=`<div class="pp-grid"><div class="pp-stat"><div class="n">${students.length}</div><div class="l">Élèves suivis</div></div><div class="pp-stat"><div class="n">${am.length}</div><div class="l">Aménagements actifs</div></div><div class="pp-stat"><div class="n">${co.length}</div><div class="l">Contacts (${ppPeriod==="year"?"année":ppPeriod.toUpperCase()})</div></div><div class="pp-stat"><div class="n">${overdue}</div><div class="l">Actions à relancer</div></div></div>${ppPriorities}<section class="pp-section"><div class="entry-head"><div><h3>👥 Élèves</h3><p class="small-note">Clique sur un élève pour ouvrir sa fiche PP.</p></div><div class="row"><button type="button" onclick="ppOpenGradeImport()">📥 Importer ÉcoleDirecte (CSV)</button><button type="button" onclick="ppOpenCompImport()">📊 Importer les compétences (Excel)</button><button type="button" onclick="ppOpenVieImport()">📋 Importer la vie scolaire (CSV)</button><button type="button" onclick="ppOpenColImport()">💬 Appréciations des collègues</button><button type="button" onclick="openPPCouncil()">📅 Conseil de classe</button><button type="button" data-ppq-launch="1" onclick="ppLaunchConsultation()">🗳 Consultation des élèves</button><button type="button" onclick="ppNewStudentEvent()">＋ Ajouter un suivi</button></div></div><div class="pp-student-list">${students.map(s=>`<div class="pp-student" onclick="openPPStudent('${esc(s.id)}')"><div><strong>${esc(ppName(s))}</strong><div class="small-note">${esc(s.classe||"")}</div></div><div class="pp-badges">${ppStatusBadges(s,statsBy.get(String(s.id))||{})}</div></div>`).join("")||'<div class="pp-empty">Aucun élève dans cette sélection.</div>'}</div></section>`;
   }catch(e){target.innerHTML=`<section class="hero error"><h3>⚠️ Suivi PP indisponible</h3><p>${esc(e.message)}</p><p class="small-note">Vérifie que les tables PP ont bien été créées dans Supabase.</p></section>`}
 }
 
@@ -8059,7 +8059,7 @@ async function ppCompRenderInto(host,period,studentId=null){
     if(!studentId&&records.length)host.insertAdjacentHTML("afterbegin",'<p class="small-note">'+records.length+' / '+ppClassStudents().length+' élèves importés.</p>');
     if(studentId&&String(ppStudentId)===String(studentId)&&ppPeriod.toUpperCase()===period){
       const el=document.getElementById("ppGeneratedAppreciation");
-      if(el&&el.value===el.defaultValue){el.value+=ppCompAppreciation(items);}
+      if(el&&el.value===el.defaultValue){const mastery=ppCompAppreciation(items).trim();if(mastery&&el.value.length+mastery.length+1<=400)el.value+=" "+mastery;}
     }
   }catch(e){if(host.isConnected)host.innerHTML='<section class="pp-section"><h3>Maîtrise des compétences</h3><p class="small-note">Stockage indisponible. Vérifie la création de PP_Competences et la connexion MFA.</p></section>';}
 }
@@ -8211,6 +8211,161 @@ function ppVieAppreciation(rows){
   return " Vie scolaire : "+negative+" mention(s) négative(s)"+(n.exclusion?", dont "+n.exclusion+" exclusion(s) de cours":"")+", "+n.positive+" mention(s) positive(s).";
 }
 
+
+/* Appréciations disciplinaires PP : sources distinctes des observations de vie scolaire. */
+const PP_COL_PREFIX="[ÉcoleDirecte · Appréciation] ";
+function ppColIsImported(row){return String(row?.titre||"").startsWith(PP_COL_PREFIX);}
+function ppColSubjects(){return [...PP_DISCIPLINES.map(x=>x.nom),PP_SCIENCES.svt,PP_SCIENCES.pc];}
+function ppColRows(events){
+  const map=new Map();for(const row of events.filter(ppColIsImported)){
+    const subject=String(row.titre).slice(PP_COL_PREFIX.length);
+    if(ppColSubjects().includes(subject)&&!map.has(subject))map.set(subject,row);
+  }return map;
+}
+function ppColSection(events){
+  const by=ppColRows(events),subjects=ppColSubjects();
+  return '<section class="pp-section"><div class="entry-head"><div><h3>Appréciations de l’équipe pédagogique</h3><p class="small-note">'+by.size+' / '+subjects.length+' disciplines renseignées.</p></div><button type="button" onclick="ppOpenColImport()">Importer / compléter</button></div>'+
+    '<div style="overflow:auto"><table class="data-table"><thead><tr><th>Discipline</th><th>Appréciation</th></tr></thead><tbody>'+subjects.map(d=>'<tr><td>'+esc(d)+'</td><td>'+esc(by.get(d)?.contenu||"Non renseignée")+'</td></tr>').join("")+'</tbody></table></div></section>';
+}
+function ppColParseCSV(text){
+  const rows=ppImportParseCSV(text,";"),header=rows.shift()?.map(ppImportNormalize);
+  if(!header||header[0]!=="DISCIPLINE"||header[1]!=="APPRECIATION")throw Error("CSV attendu : Discipline;Appréciation.");
+  const result=new Map();
+  for(const row of rows){if(!row.some(x=>String(x).trim()))continue;
+    const raw=String(row[0]||"").trim(),discipline=ppColSubjects().find(d=>ppImportNormalize(d)===ppImportNormalize(raw))||ppImportDiscipline(raw),value=String(row[1]||"").trim();
+    if(!ppColSubjects().includes(discipline)||result.has(discipline))throw Error("Discipline inconnue ou en double : "+raw);
+    if(value.length>3000)throw Error("Appréciation trop longue : "+discipline);
+    if(value)result.set(discipline,value);
+  }
+  if(!result.size)throw Error("Aucune appréciation renseignée.");
+  return result;
+}
+function ppOpenColImport(){
+  const students=ppClassStudents();if(!students.length)return;
+  const initial=ppPeriod==="year"?"":ppPeriod,studentId=document.getElementById("ppStudentBody")?String(ppStudentId):"";
+  const modal=ppModal('<h2>Importer les appréciations des collègues</h2><p class="small-note">Un PDF individuel sans nom complet doit être associé manuellement à son élève. Importe le CSV converti ou colle les appréciations par discipline. Aucun fichier n’est envoyé à un service externe.</p><div class="editbox"><label>Élève à confirmer</label><select id="ppColStudent">'+ppSelectOptions([["","Choisir l’élève"],...students.map(st=>[String(st.id),ppName(st)])],studentId)+'</select><label>Trimestre</label><select id="ppColPeriod">'+ppSelectOptions([["","Choisir"],["t1","Trimestre 1"],["t2","Trimestre 2"],["t3","Trimestre 3"]],initial)+'</select><button type="button" id="ppColLoad">Ouvrir les appréciations</button></div><div id="ppColEditor"></div><button type="button" id="ppColClose">Fermer</button>');
+  const $=id=>modal.querySelector("#"+id),sel=$("ppColStudent"),per=$("ppColPeriod"),host=$("ppColEditor"),load=$("ppColLoad"),close=$("ppColClose");
+  let dirty=false;
+  const reset=()=>{dirty=false;host.replaceChildren();};
+  close.onclick=()=>{if(!dirty||confirm("Abandonner les modifications non enregistrées ?"))modal.remove();};
+  modal.addEventListener("click",e=>{if(e.target===modal&&dirty){e.stopImmediatePropagation();close.click();}},true);
+  let previous=[sel.value,per.value];
+  const switchSelection=()=>{if(dirty&&!confirm("Abandonner les modifications non enregistrées ?")){sel.value=previous[0];per.value=previous[1];return;}previous=[sel.value,per.value];reset();};
+  sel.onchange=per.onchange=switchSelection;
+  load.onclick=async()=>{
+    if(dirty&&!confirm("Recharger et abandonner les modifications ?"))return;
+    const st=ppStudentById(sel.value),period=per.value;if(!st||!["t1","t2","t3"].includes(period)){host.textContent="Choisis l’élève et le trimestre.";return;}
+    reset();load.disabled=sel.disabled=per.disabled=true;
+    try{
+      const all=(await ppLoadTable(PP_TABLES.events,st.id)).filter(x=>ppEventInSelectedPeriod(x,period)&&ppColIsImported(x));
+      if(!modal.isConnected)return;
+      const old=ppColRows(all);
+      if(all.length!==old.size)throw Error("Des appréciations en double existent. Vérifie les données avant de modifier.");
+      host.innerHTML='<h3>'+esc(ppName(st))+' — '+esc(ppPeriodText(period))+'</h3><label>Importer un CSV (Discipline;Appréciation)</label><input id="ppColFile" type="file" accept=".csv,text/csv"><p class="small-note">Les cellules vides du CSV ne remplacent pas les textes existants.</p><div id="ppColMsg" role="status"></div>'+
+        ppColSubjects().map(d=>'<label style="display:block;margin-top:10px">'+esc(d)+'<textarea class="pp-col-text" data-discipline="'+esc(d)+'" rows="3" maxlength="3000" style="width:100%">'+esc(old.get(d)?.contenu||"")+'</textarea></label>').join("")+
+        '<div class="row"><button type="button" class="primary" id="ppColSave">Enregistrer les appréciations</button></div>';
+      const fields=[...host.querySelectorAll(".pp-col-text")],file=$("ppColFile"),msg=$("ppColMsg"),save=$("ppColSave");
+      fields.forEach(f=>f.oninput=()=>{dirty=true;});
+      file.onchange=async()=>{try{
+        const source=file.files?.[0];if(!source||source.size>1024*1024)throw Error("Sélectionne un CSV de moins de 1 Mo.");
+        const imported=ppColParseCSV(await source.text());
+        if(!host.contains(file)||!modal.isConnected)return;
+        for(const f of fields)if(imported.has(f.dataset.discipline))f.value=imported.get(f.dataset.discipline);
+        dirty=true;msg.textContent=imported.size+" appréciation(s) importée(s) dans le formulaire. Vérifie avant d’enregistrer.";
+      }catch(e){msg.textContent=e.message;}};
+      save.onclick=async()=>{
+        const changes=fields.map(f=>({discipline:f.dataset.discipline,value:f.value.trim(),old:old.get(f.dataset.discipline)})).filter(x=>x.value&&x.value!==String(x.old?.contenu||"").trim());
+        const cleared=fields.filter(f=>!f.value.trim()&&old.has(f.dataset.discipline));
+        if(cleared.length){msg.textContent="Une appréciation existante a été vidée. Rétablis le texte : cet outil ne supprime pas de données.";return;}
+        if(!changes.length){msg.textContent="Aucune modification.";dirty=false;return;}
+        if(!confirm("Enregistrer "+changes.length+" appréciation(s) pour "+ppName(st)+", "+ppPeriodText(period)+" ?"))return;
+        const controls=[load,sel,per,close,file,save,...fields];controls.forEach(x=>x.disabled=true);
+        const blocker=e=>e.stopImmediatePropagation();modal.addEventListener("click",blocker,true);
+        try{
+          const fresh=(await ppLoadTable(PP_TABLES.events,st.id)).filter(x=>ppEventInSelectedPeriod(x,period)&&ppColIsImported(x)),by=ppColRows(fresh);
+          if(fresh.length!==by.size)throw Error("Doublons détectés.");
+          for(const change of changes){
+            const prior=by.get(change.discipline);
+            if(String(prior?.contenu||"")!==String(change.old?.contenu||""))throw Error("Une appréciation a changé depuis l’ouverture. Recharge avant de réessayer.");
+          }
+          for(const change of changes){
+            if(change.old){
+              const {data,error}=await sb.from(PP_TABLES.events).update({contenu:change.value}).eq("id",change.old.id).eq("eleve_id",String(st.id)).select("id");
+              if(error||!data?.length)throw Error(error?.message||"Modification non confirmée.");
+            }else{
+              await ppInsert(PP_TABLES.events,{eleve_id:String(st.id),classe:st.classe,date:ppPeriodEnd(period),type:"observation",titre:PP_COL_PREFIX+change.discipline,contenu:change.value});
+            }
+          }
+          dirty=false;msg.textContent=changes.length+" appréciation(s) enregistrée(s).";
+          if(String(ppStudentId)===String(st.id)&&ppPeriod===period&&document.getElementById("ppStudentBody")&&!ppStudentHasUnsavedGrades()){
+            await ppRenderStudent("synthese");
+          }
+          save.disabled=true;
+        }catch(e){msg.textContent="Enregistrement incomplet : "+e.message+" Recharge les appréciations avant de réessayer.";}
+        finally{modal.removeEventListener("click",blocker,true);controls.forEach(x=>x.disabled=false);}
+      };
+    }catch(e){host.textContent="Chargement impossible : "+e.message;}
+    finally{load.disabled=sel.disabled=per.disabled=false;}
+  };
+  if(studentId&&initial)load.click();
+}
+/* Synthèse locale, prudente : une récurrence est comptée par discipline, pas par mot. */
+function ppColThemeCounts(events){
+  const items=[...ppColRows(events).values()].map(x=>ppImportNormalize(x.contenu));
+  const rules=[
+    ["sérieux",/\b(?:TRAVAIL SERIEUX|ELEVE SERIEU[XSE]|SERIEUX ET REGULIER|TRAVAIL EST SERIEUX|ELEVE AGREABLE ET APPLIQUEE)\b/,/\b(?:MANQUE|PLUS DE|PAS ASSEZ|PEU DE|DOIT|GAGNER EN)\b.*\bSERIEUX\b/],
+    ["régularité",/\b(?:TRAVAIL SERIEUX ET REGULIER|TRAVAIL REGULIER|TRAVAIL EST REGULIER|REGULARITE DU TRAVAIL)\b/,/\b(?:IRREGULIER|MANQUE DE REGULARITE|PLUS DE REGULARITE)\b/],
+    ["participation",/\b(?:BONNE PARTICIPATION|PARTICIPATION SATISFAISANTE|PARTICIPATION REGULIERE|RESULTATS ET PARTICIPATION|PARTICIPATION ACTIVE|EXCELLENTE PARTICIPATION)\b/,/\b(?:PARTICIPATION INSUFFISANTE|PARTICIPATION TROP|MANQUE DE PARTICIPATION|DOIT PARTICIPER)\b/],
+    ["investissement",/\b(?:BON INVESTISSEMENT|TRES BON INVESTISSEMENT|ELEVE INVESTI[E]?|INVESTISSEMENT D)\b/,/\b(?:MANQUE|PLUS DE|DOIT|PEU D)\b.*\bINVESTISSEMENT\b/]
+  ];
+  const good=rules.map(([name,yes,no])=>({name,n:items.filter(t=>yes.test(t)&&!no.test(t)).length})).filter(x=>x.n>=2).sort((a,b)=>b.n-a.n);
+  const warnings=[
+    ["limiter les bavardages",/\b(?:BAVARDAGES|BAVARDE|BAVARD)\b/,/\b(?:MOINS DE BAVARDAGES|PLUS DE BAVARDAGES|NE BAVARDE PLUS|PAS DE BAVARDAGES)\b/],
+    ["gagner en régularité dans le travail",/\b(?:TRAVAIL IRREGULIER|MANQUE DE REGULARITE|PLUS DE REGULARITE|GAGNER EN REGULARITE)\b/,null],
+    ["renforcer le travail personnel",/\b(?:TRAVAIL PERSONNEL INSUFFISANT|MANQUE DE TRAVAIL|TRAVAIL NON FAIT|PLUS DE TRAVAIL PERSONNEL)\b/,null],
+    ["participer davantage",/\b(?:PARTICIPATION INSUFFISANTE|MANQUE DE PARTICIPATION|PARTICIPER DAVANTAGE)\b/,null],
+    ["améliorer la concentration",/\b(?:MANQUE DE CONCENTRATION|PLUS DE CONCENTRATION|DOIT SE CONCENTRER)\b/,null]
+  ].map(([name,yes,no])=>({name,n:items.filter(t=>yes.test(t)&&(!no||!no.test(t))).length})).filter(x=>x.n>=1).sort((a,b)=>b.n-a.n);
+  return {good,warnings,coverage:items.length};
+}
+function ppColGenerate(grades,events,competences=[]){
+  const avg=ppWeightedAverage(grades),n=ppVieCounts(events),themes=ppColThemeCounts(events),c=ppCompCounts(competences);
+  const result=avg===null?"Résultats chiffrés à compléter.":avg>=18?"Excellent trimestre.":avg>=16?"Très bon trimestre.":avg>=12?"Bon trimestre dans l’ensemble.":avg>=10?"Trimestre correct, à consolider.":avg>=5?"Trimestre fragile.":"Résultats très insuffisants.";
+  const mastery=c.total?"La maîtrise des compétences est satisfaisante ou très bonne pour "+String(c.success).replace(".",",")+" % des niveaux renseignés.":"";
+  const join=x=>x.length===2?x.join(" et "):x.length>2?x.slice(0,-1).join(", ")+" et "+x.at(-1):x[0]||"";
+  const positive=themes.good.length?"L’équipe souligne "+join(themes.good.slice(0,2).map(x=>({"sérieux":"le sérieux","régularité":"la régularité","participation":"la participation","investissement":"l’investissement"})[x.name]))+".":n.positive>0?"Des appréciations positives sont à valoriser.":"";
+  const negatives=n.observation+n.exclusion+n.other;
+  const repeatedBavardages=events.filter(x=>ppVieIsImported(x)&&ppVieKind(x)!=="positive"&&/\bBAVARDAGES\b/.test(ppImportNormalize(x.titre))).length>=2;
+  const advice=themes.warnings[0]?.name||(repeatedBavardages?"limiter les bavardages":negatives>=2?"veiller au respect des règles de vie scolaire":avg!==null&&avg>=16?"poursuivre sur cette dynamique":avg!==null&&avg<12?"consolider les acquis par un travail régulier":"maintenir les efforts et la régularité");
+  const local=events.some(x=>!ppVieIsImported(x)&&!ppColIsImported(x)&&String(x.type)==="vigilance");
+  const sentences=[result,mastery,positive,"Il faudra "+advice+"."];
+  if(local&&!positive)sentences[2]="Les points de vigilance du suivi PP restent à prendre en compte.";
+  const text=sentences.filter(Boolean).join(" ");
+  return text.length<=400?text:[result,mastery,"Il faudra "+advice+"."].filter(Boolean).join(" ");
+}
+async function ppColCouncilGenerate(studentId=null){
+  if(ppCouncilSaving)return;
+  const host=document.getElementById("ppCouncilBody"),period=document.getElementById("ppCouncilPeriod")?.value;
+  if(!host||!["T1","T2","T3"].includes(period))return;
+  const fields=[...host.querySelectorAll(".pp-council-app")].filter(el=>studentId?String(el.dataset.id)===String(studentId):!el.value.trim());
+  if(!fields.length){alert("Aucune appréciation vide à générer.");return;}
+  if(studentId&&fields[0].value.trim()&&!confirm("Remplacer le texte de cette appréciation par une nouvelle proposition ?"))return;
+  if(!studentId&&!confirm("Générer "+fields.length+" appréciations vides ? Les textes déjà rédigés seront conservés."))return;
+  const initial=new Map(fields.map(el=>[el,el.value]));
+  try{
+    const [marks,events,comp]=await Promise.all([ppCouncilAcademicRead(period,ppClass),ppLoadTable(PP_TABLES.events,null,ppClass),ppCompRead(period).catch(()=>[])]);
+    if(!host.isConnected||document.getElementById("ppCouncilPeriod")?.value!==period)return;
+    let count=0;
+    for(const el of fields){
+      if(!el.isConnected||el.value!==initial.get(el))continue;
+      const id=String(el.dataset.id),g=marks.filter(x=>String(x.eleve_id)===id),ev=events.filter(x=>String(x.eleve_id)===id&&ppEventInSelectedPeriod(x,period.toLowerCase())),c=comp.filter(x=>String(x.eleve_id)===id).flatMap(x=>x.competences||[]);
+      if(!g.length&&!ev.length&&!c.length)continue;
+      el.value=ppColGenerate(g,ev,c);count++;
+    }
+    ppCouncilDrawStatus();alert(count+" proposition(s) générée(s). Relis-les avant d’enregistrer. Les remarques libres et les cas particuliers doivent être vérifiés par le PP.");
+  }catch(e){alert("Génération impossible : "+e.message);}
+}
+
 function ppModal(html){const d=document.createElement("div");d.className="pp-modal";d.innerHTML=`<div class="pp-modal-card">${html}</div>`;d.addEventListener("click",e=>{if(e.target===d)d.remove()});document.body.appendChild(d);return d}
 function ppCloseModal(){document.querySelectorAll(".pp-modal").forEach(x=>x.remove())}
 function ppSelectOptions(list,selected=""){return list.map(x=>`<option value="${esc(x[0])}" ${String(x[0])===String(selected)?"selected":""}>${esc(x[1])}</option>`).join("")}
@@ -8328,7 +8483,7 @@ async function ppRenderStudent(tab="synthese"){
       if(gradePeriod)grades=await ppLoadGrades(studentId,gradePeriod);
       if(request!==ppStudentRenderRequest||!target.isConnected||studentId!==String(ppStudentId))return;
       const manualAvg=gradePeriod?ppWeightedAverage(grades):null;
-      const generated=gradePeriod?ppGenerateAppreciation(grades,student,visibleEvents):"";
+      const generated=gradePeriod?ppColGenerate(grades,visibleEvents):"";
       const nextStudent=ppNextStudent(studentId);
       const gradeSection=gradePeriod?
         '<section class="pp-section"><div class="entry-head"><div><h3>📊 Résultats du '+esc(ppPeriodText(currentPeriod).toLowerCase())+'</h3>'+
@@ -8341,7 +8496,7 @@ async function ppRenderStudent(tab="synthese"){
           '<span class="small-note">Dernier élève de la classe — utilise « Enregistrer les moyennes ».</span>')+'</div>'+
         '<div class="pp-appreciation" style="margin-top:14px"><strong>💬 Proposition d’appréciation générale</strong>'+
         '<textarea id="ppGeneratedAppreciation" rows="4" style="width:100%;margin-top:8px">'+esc(generated)+'</textarea>'+
-        '<div class="row" style="margin-top:8px"><button type="button" onclick="ppGenerateAndFillAppreciation()">✨ Régénérer à partir des résultats et du comportement</button></div>'+
+        '<div class="row" style="margin-top:8px"><button type="button" onclick="ppGenerateAndFillAppreciation()">✨ Générer la synthèse PP</button></div>'+
         '<p class="small-note">Proposition modifiable avant le conseil de classe.</p></div></section>':
         '<section class="pp-section"><h3>📊 Résultats scolaires</h3><p class="small-note">'+
         'Sélectionne le trimestre 1, 2 ou 3 en haut de la fiche pour consulter ou saisir les moyennes. En vue annuelle, aucune moyenne du T1 n’est affichée comme moyenne de l’année.</p></section>';
@@ -8352,9 +8507,9 @@ async function ppRenderStudent(tab="synthese"){
         '<div class="pp-stat"><div class="n">'+activeAm+'</div><div class="l">Aménagement(s) actif(s)</div></div>'+
         '<div class="pp-stat"><div class="n">'+vigilanceEvents.length+'</div><div class="l">Points de vigilance</div></div></div>'+
         '<section class="pp-section"><h3>⚠️ Points de vigilance</h3>'+vigilanceHtml+'</section>'+
-        gradeSection+(gradePeriod?'<div id="ppStudentComp"><p class="small-note">Chargement des compétences…</p></div>':"")+ppVieSummary(visibleEvents,true)+
+        gradeSection+(gradePeriod?'<div id="ppStudentComp"><p class="small-note">Chargement des compétences…</p></div>':"")+ppVieSummary(visibleEvents,true)+(gradePeriod?ppColSection(visibleEvents):"")+
         '<div class="pp-two"><section class="pp-section"><h3>📝 Derniers suivis ('+esc(ppPeriodText(currentPeriod))+')</h3>'+
-        (visibleEvents.filter(x=>!ppVieIsImported(x)).slice(0,5).map(ppEventHtml).join("")||'<div class="pp-empty">Aucun suivi enregistré pour cette période.</div>')+
+        (visibleEvents.filter(x=>!ppVieIsImported(x)&&!ppColIsImported(x)).slice(0,5).map(ppEventHtml).join("")||'<div class="pp-empty">Aucun suivi enregistré pour cette période.</div>')+
         '</section><section class="pp-section"><h3>📋 Actions ouvertes (toutes périodes)</h3>'+
         (openActions.slice(0,5).map(ppActionHtml).join("")||'<div class="pp-empty">Aucune action en cours.</div>')+
         '</section></div><section class="pp-section"><h3>🧩 Aménagements actifs</h3>'+
@@ -8415,7 +8570,7 @@ function ppGenerateAppreciation(grades,student,events=[]){
     result+=`. Moyenne générale pondérée : ${ppFormatGrade(avg)}/20.`;
   }
   const remarques=events
-    .filter(x=>!ppVieIsImported(x)&&["observation","vigilance","équipe","autre"].includes(String(x.type)))
+    .filter(x=>!ppVieIsImported(x)&&!ppColIsImported(x)&&["observation","vigilance","équipe","autre"].includes(String(x.type)))
     .filter(x=>String(x.contenu||"").trim())
     .sort((a,b)=>String(b.date||"").localeCompare(String(a.date||"")));
   if(remarques.length){
@@ -8547,9 +8702,9 @@ async function ppGenerateAndFillAppreciation(){
     const grades=ppCollectGrades();
     const events=(await ppLoadTable(PP_TABLES.events,student.id)).filter(x=>ppEventInSelectedPeriod(x));
     const selectedPeriod=ppPeriod,studentId=String(student.id);
-    let extra="";
-    try{extra=ppCompAppreciation((await ppCompRead(selectedPeriod.toUpperCase(),studentId)).flatMap(r=>r.competences||[]));}catch(e){}
-    const txt=ppGenerateAppreciation(grades,student,events)+extra;
+    let comp=[];
+    try{comp=(await ppCompRead(selectedPeriod.toUpperCase(),studentId)).flatMap(r=>r.competences||[]);}catch(e){}
+    const txt=ppColGenerate(grades,events,comp);
     const el=document.getElementById("ppGeneratedAppreciation");
     if(el&&String(ppStudentId)===studentId&&ppPeriod===selectedPeriod)el.value=txt;
   }catch(e){alert("Génération impossible : "+e.message)}
@@ -8829,7 +8984,7 @@ async function openPPCouncil(){
       '<section class="pp-section">'+
       '<div class="entry-head"><div><h3>Préparation du conseil — '+esc(period)+'</h3>'+
       '<p class="small-note">Seules les fiches modifiées sont enregistrées. Aucune appréciation existante n’est remplacée automatiquement.</p></div>'+
-      '<button class="primary" type="button" id="ppCouncilSave" onclick="ppSaveCouncil()" disabled>💾 Enregistrer les modifications</button></div>'+
+      '<button type="button" onclick="ppColCouncilGenerate()">✨ Générer les appréciations vides</button><button class="primary" type="button" id="ppCouncilSave" onclick="ppSaveCouncil()" disabled>💾 Enregistrer les modifications</button></div>'+
       '<div id="ppCouncilSummary"></div>'+
       '<div class="row" style="gap:10px;flex-wrap:wrap;margin:10px 0">'+
       '<label style="flex:1;min-width:190px">Rechercher un élève'+
@@ -8860,7 +9015,7 @@ async function openPPCouncil(){
           [["tres_bonne","Très bonne maîtrise"],["satisfaisante","Maîtrise satisfaisante"],["fragile","Maîtrise fragile"],["insuffisante","Maîtrise insuffisante"]]
             .map(([key,title])=>'<option value="'+key+'"'+(ppCouncilMasteryFromText(old.appreciation)===key?' selected':'')+'>'+title+'</option>').join("")+
           '</select></label>'+
-          '<button type="button" onclick="ppCouncilInsertMastery('+jsArg(st.id)+')">Insérer la phrase</button></div>'+
+          '<button type="button" onclick="ppCouncilInsertMastery('+jsArg(st.id)+')">Insérer la phrase</button><button type="button" onclick="ppColCouncilGenerate('+jsArg(st.id)+')">✨ Générer</button></div>'+
           '<div class="small-note">Formulation choisie par le PP, sans déduction automatique de la moyenne.</div></td>'+
           '<td><textarea class="pp-council-dec" data-id="'+esc(st.id)+'" rows="4" style="width:100%" oninput="ppCouncilDrawStatus()">'+esc(old.decisions||"")+'</textarea></td></tr>';
       }).join("")+'</tbody></table></div></section>';
