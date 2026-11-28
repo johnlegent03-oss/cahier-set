@@ -7740,7 +7740,7 @@ async function renderPPDashboard(){
     const overdue=actions.filter(x=>x.statut!=="termine"&&x.echeance&&x.echeance<=ppToday()).length;
     const statsBy=new Map(ids.map(id=>[id,{events:0,contacts:0,amenagements:0,actions:0,overdue:0}]));
     ev.forEach(x=>{const z=statsBy.get(String(x.eleve_id));if(z)z.events++});co.forEach(x=>{const z=statsBy.get(String(x.eleve_id));if(z)z.contacts++});am.forEach(x=>{const z=statsBy.get(String(x.eleve_id));if(z)z.amenagements++});ac.forEach(x=>{const z=statsBy.get(String(x.eleve_id));if(z&&x.statut!=="termine"){z.actions++;if(x.echeance&&x.echeance<=ppToday())z.overdue++}});
-    target.innerHTML=`<div class="pp-grid"><div class="pp-stat"><div class="n">${students.length}</div><div class="l">Élèves suivis</div></div><div class="pp-stat"><div class="n">${am.length}</div><div class="l">Aménagements actifs</div></div><div class="pp-stat"><div class="n">${co.length}</div><div class="l">Contacts (${ppPeriod==="year"?"année":ppPeriod.toUpperCase()})</div></div><div class="pp-stat"><div class="n">${overdue}</div><div class="l">Actions à relancer</div></div></div>${ppPriorities}<section class="pp-section"><div class="entry-head"><div><h3>👥 Élèves</h3><p class="small-note">Clique sur un élève pour ouvrir sa fiche PP.</p></div><div class="row"><button type="button" onclick="ppOpenGradeImport()">📥 Importer ÉcoleDirecte (CSV)</button><button type="button" onclick="ppOpenCompImport()">📊 Importer les compétences (Excel)</button><button type="button" onclick="ppOpenVieImport()">📋 Importer la vie scolaire (CSV)</button><button type="button" onclick="ppOpenColImport()">💬 Appréciations des collègues</button><button type="button" onclick="openPPCouncil()">📅 Conseil de classe</button><button type="button" data-ppq-launch="1" onclick="ppLaunchConsultation()">🗳 Consultation des élèves</button><button type="button" onclick="ppNewStudentEvent()">＋ Ajouter un suivi</button></div></div><div class="pp-student-list">${students.map(s=>`<div class="pp-student" onclick="openPPStudent('${esc(s.id)}')"><div><strong>${esc(ppName(s))}</strong><div class="small-note">${esc(s.classe||"")}</div></div><div class="pp-badges">${ppStatusBadges(s,statsBy.get(String(s.id))||{})}</div></div>`).join("")||'<div class="pp-empty">Aucun élève dans cette sélection.</div>'}</div></section>`;
+    target.innerHTML=`<div class="pp-grid"><div class="pp-stat"><div class="n">${students.length}</div><div class="l">Élèves suivis</div></div><div class="pp-stat"><div class="n">${am.length}</div><div class="l">Aménagements actifs</div></div><div class="pp-stat"><div class="n">${co.length}</div><div class="l">Contacts (${ppPeriod==="year"?"année":ppPeriod.toUpperCase()})</div></div><div class="pp-stat"><div class="n">${overdue}</div><div class="l">Actions à relancer</div></div></div>${ppPriorities}<section class="pp-section"><div class="entry-head"><div><h3>👥 Élèves</h3><p class="small-note">Clique sur un élève pour ouvrir sa fiche PP.</p></div><div class="row"><button type="button" onclick="ppOpenGradeImport()">📥 Importer ÉcoleDirecte (CSV)</button><button type="button" onclick="ppOpenCompImport()">📊 Importer les compétences (Excel)</button><button type="button" onclick="ppOpenVieImport()">📋 Importer la vie scolaire (CSV)</button><button type="button" onclick="ppOpenColImport()">💬 Appréciations des collègues</button><button type="button" onclick="ppOpenColBatch()">📚 Importer les PDF des collègues en lot</button><button type="button" onclick="openPPCouncil()">📅 Conseil de classe</button><button type="button" data-ppq-launch="1" onclick="ppLaunchConsultation()">🗳 Consultation des élèves</button><button type="button" onclick="ppNewStudentEvent()">＋ Ajouter un suivi</button></div></div><div class="pp-student-list">${students.map(s=>`<div class="pp-student" onclick="openPPStudent('${esc(s.id)}')"><div><strong>${esc(ppName(s))}</strong><div class="small-note">${esc(s.classe||"")}</div></div><div class="pp-badges">${ppStatusBadges(s,statsBy.get(String(s.id))||{})}</div></div>`).join("")||'<div class="pp-empty">Aucun élève dans cette sélection.</div>'}</div></section>`;
   }catch(e){target.innerHTML=`<section class="hero error"><h3>⚠️ Suivi PP indisponible</h3><p>${esc(e.message)}</p><p class="small-note">Vérifie que les tables PP ont bien été créées dans Supabase.</p></section>`}
 }
 
@@ -8240,6 +8240,129 @@ function ppColParseCSV(text){
   if(!result.size)throw Error("Aucune appréciation renseignée.");
   return result;
 }
+
+/* Import groupé de bulletins individuels PDF ÉcoleDirecte. */
+function ppColPDFExtract(pages){
+  const result=new Map(),seen=new Set();let current="",hasClass=false;
+  for(const page of pages){
+    const lines=[];
+    for(const item of [...page].sort((a,b)=>a.y-b.y||a.x-b.x)){
+      if(!item.text.trim())continue;
+      let row=lines.find(l=>Math.abs(l.y-item.y)<=2.3);
+      if(!row){row={y:item.y,items:[]};lines.push(row);}
+      row.items.push(item);
+    }
+    lines.sort((a,b)=>a.y-b.y);
+    let inTable=false;current="";
+    for(const row of lines){
+      const items=row.items.sort((a,b)=>a.x-b.x);
+      const full=items.map(x=>x.text).join(" ");
+      const normalized=ppImportNormalize(full);
+      const cls=normalized.match(/\bCONSEIL DE CLASSE DE ([6543])\s*(?:EME|E)\s*(\d+)\b/);
+      if(cls){hasClass=true;if(cls[1]+"e"+cls[2]!==ppClass)throw Error("Le PDF correspond à une autre classe.");}
+      if(/\bDISCIPLINE\b/.test(normalized)&&/\bRANG\b/.test(normalized)&&/\bAPPRECIATION\b/.test(normalized)){inTable=true;continue;}
+      if(!inTable)continue;
+      const left=items.filter(x=>x.x>=115&&x.x<259).map(x=>x.text).join(" ").trim();
+      const key=ppImportNormalize(left);
+      if(/^(?:MOYENNE GENERALE|MOYENNES CALCULEES|APPRECIATION DU PROFESSEUR PRINCIPAL)\b/.test(key)){inTable=false;current="";continue;}
+      const subject=ppImportDiscipline(left);
+      if(subject&&ppColSubjects().includes(subject)){
+        if(seen.has(subject))throw Error("Discipline en double : "+subject+". Vérifie que le fichier contient un seul bulletin.");
+        seen.add(subject);current=subject;result.set(subject,[]);
+      }else if(/^(?:ECRIT|ORAL)\b/.test(key))current="";
+      if(!current)continue;
+      const text=items.filter(x=>x.x>=451&&x.x<658).map(x=>x.text).join(" ").replace(/[\uE000-\uF8FF]/g,"").trim();
+      if(text)result.get(current).push(text);
+    }
+  }
+  if(!hasClass||seen.size!==ppColSubjects().length)throw Error("Structure du bulletin non reconnue ("+seen.size+" disciplines). Utilise l’import individuel si la mise en page diffère.");
+  return new Map([...result].map(([d,parts])=>[d,parts.join(" ").replace(/\s+/g," ").trim()]).filter(x=>x[1]));
+}
+async function ppColReadPDF(file,lib){
+  if(file.size>8*1024*1024)throw Error("PDF de plus de 8 Mo.");
+  const doc=await lib.getDocument({data:new Uint8Array(await file.arrayBuffer()),isEvalSupported:false,enableXfa:false,useSystemFonts:false}).promise;
+  try{
+    if(doc.numPages>8)throw Error("Plus de 8 pages : un seul élève par PDF est attendu.");
+    const pages=[];
+    for(let i=1;i<=doc.numPages;i++){
+      const page=await doc.getPage(i),vp=page.getViewport({scale:1});
+      if(vp.width<=vp.height)throw Error("Le modèle attendu est un PDF paysage.");
+      const content=await page.getTextContent();
+      const items=content.items.filter(x=>typeof x.str==="string").map(x=>{
+        const xy=vp.convertToViewportPoint(x.transform[4],x.transform[5]);
+        return {x:xy[0]*842/vp.width,y:xy[1]*596/vp.height,text:x.str};
+      });
+      pages.push(items);
+    }
+    return ppColPDFExtract(pages);
+  }finally{await doc.destroy();}
+}
+function ppColFileMatch(file,students){
+  const name=" "+ppImportNormalize(file.name.replace(/\.pdf$/i,""))+" ";
+  const matches=students.filter(st=>[st.nom+" "+st.prenom,st.prenom+" "+st.nom].some(v=>name.includes(" "+ppImportNormalize(v)+" ")));
+  return matches.length===1?String(matches[0].id):"";
+}
+function ppOpenColBatch(){
+  const students=ppClassStudents();if(!students.length)return;
+  const modal=ppModal('<h2>Importer les PDF ÉcoleDirecte en lot</h2><p>Classe : '+esc(ppClass)+'</p><p class="small-note">Sélectionne plusieurs PDF individuels. Vérifie l’élève associé à chaque fichier et les textes extraits. Le trimestre doit être confirmé : il n’est pas indiqué dans ce modèle de PDF.</p><div class="editbox"><label>Trimestre</label><select id="ppColBatchPeriod">'+ppSelectOptions([["","Choisir"],["t1","Trimestre 1"],["t2","Trimestre 2"],["t3","Trimestre 3"]],ppPeriod==="year"?"":ppPeriod)+'</select><label>PDF individuels</label><input id="ppColBatchFiles" type="file" accept=".pdf,application/pdf" multiple></div><div class="row"><button id="ppColBatchRead" type="button">Analyser les PDF</button><button id="ppColBatchClose" type="button">Fermer</button></div><div id="ppColBatchOut" role="status"></div>');
+  const $=id=>modal.querySelector("#"+id),period=$("ppColBatchPeriod"),files=$("ppColBatchFiles"),read=$("ppColBatchRead"),close=$("ppColBatchClose"),out=$("ppColBatchOut");
+  const invalidate=()=>out.replaceChildren();period.onchange=files.onchange=invalidate;close.onclick=()=>modal.remove();
+  read.onclick=async()=>{
+    const selected=period.value,list=[...files.files];
+    if(!selected||!list.length||list.length>50){out.textContent="Choisis un trimestre et 1 à 50 PDF.";return;}
+    period.disabled=files.disabled=read.disabled=true;
+    out.textContent="Chargement du lecteur PDF…";
+    try{
+      const base="https://cdn.jsdelivr.net/npm/pdfjs-dist@6.5.438/build/";
+      const lib=await import(base+"pdf.mjs");
+      lib.GlobalWorkerOptions.workerSrc=base+"pdf.worker.mjs";
+      const parsed=[];
+      for(let i=0;i<list.length;i++){
+        if(!modal.isConnected)return;
+        const file=list[i];out.textContent="Analyse du PDF "+(i+1)+" / "+list.length+"…";
+        try{parsed.push({file,values:await ppColReadPDF(file,lib)});}
+        catch(e){parsed.push({file,error:e.message});}
+      }
+      if(!modal.isConnected)return;
+      out.innerHTML='<h3>Vérification des correspondances — '+esc(ppPeriodText(selected))+'</h3><p class="small-note">Les fichiers non associés, illisibles ou sans appréciation ne seront pas enregistrés. Les appréciations existantes différentes seront conservées : utilise l’éditeur individuel pour les remplacer.</p>'+
+        parsed.map((entry,i)=>'<div class="pp-item"><strong>'+esc(entry.file.name)+'</strong>'+
+        (entry.error?'<p>Non importable : '+esc(entry.error)+'</p>':!entry.values.size?'<p>Aucune appréciation renseignée.</p>':
+          '<label>Élève correspondant — '+entry.values.size+' appréciation(s)</label><select class="pp-col-batch-student" data-index="'+i+'">'+ppSelectOptions([["","Ne pas importer / choisir l’élève"],...students.map(st=>[String(st.id),ppName(st)])],ppColFileMatch(entry.file,students))+'</select>'+
+          '<details><summary>Vérifier / corriger les appréciations extraites</summary>'+[...entry.values].map(([d,text])=>'<label style="display:block">'+esc(d)+'<textarea class="pp-col-batch-text" data-index="'+i+'" data-discipline="'+esc(d)+'" rows="3" maxlength="3000" style="width:100%">'+esc(text)+'</textarea></label>').join("")+'</details>')+'</div>').join("")+
+        '<label style="display:block;margin-top:12px"><input type="checkbox" id="ppColBatchConfirm"> J’ai vérifié les élèves associés, les textes et le trimestre.</label><button type="button" class="primary" id="ppColBatchSave">Enregistrer les appréciations associées</button><p id="ppColBatchStatus" role="status"></p>';
+      const save=$("ppColBatchSave"),msg=$("ppColBatchStatus");
+      save.onclick=async()=>{
+        const selections=[...out.querySelectorAll(".pp-col-batch-student")].filter(el=>el.value);
+        if(!$("ppColBatchConfirm").checked||!selections.length){msg.textContent="Vérifie les associations et coche la confirmation.";return;}
+        if(new Set(selections.map(el=>el.value)).size!==selections.length){msg.textContent="Deux PDF sont associés au même élève. Corrige avant l’enregistrement.";return;}
+        const entries=selections.map(el=>({student:students.find(st=>String(st.id)===el.value),values:[...out.querySelectorAll(".pp-col-batch-text")].filter(t=>t.dataset.index===el.dataset.index&&t.value.trim()).map(t=>({discipline:t.dataset.discipline,value:t.value.trim()}))}));
+        if(entries.some(e=>!e.student||e.values.some(v=>v.value.length>3000))){msg.textContent="Association ou longueur de texte invalide.";return;}
+        const controls=[...modal.querySelectorAll("button,input,select,textarea")],enabled=controls.filter(x=>!x.disabled);
+        enabled.forEach(x=>x.disabled=true);
+        const blocker=e=>e.stopImmediatePropagation();modal.addEventListener("click",blocker,true);
+        let added=0,identical=0,conflicts=0,failed=[];
+        try{
+          for(const e of entries){
+            try{
+              const all=(await ppLoadTable(PP_TABLES.events,e.student.id)).filter(x=>ppEventInSelectedPeriod(x,selected)&&ppColIsImported(x)),old=ppColRows(all);
+              if(all.length!==old.size)throw Error("Doublons déjà présents.");
+              const rows=[];
+              for(const v of e.values){
+                if(old.has(v.discipline)){if(String(old.get(v.discipline).contenu||"").trim()===v.value)identical++;else conflicts++;continue;}
+                rows.push({eleve_id:String(e.student.id),classe:e.student.classe,date:ppPeriodEnd(selected),type:"observation",titre:PP_COL_PREFIX+v.discipline,contenu:v.value,created_by:user?.id||null});
+              }
+              if(rows.length){const {data,error}=await sb.from(PP_TABLES.events).insert(rows).select("id");if(error||data?.length!==rows.length)throw Error(error?.message||"Enregistrement non confirmé.");added+=rows.length;}
+            }catch(err){failed.push(ppName(e.student)+" : "+err.message);}
+            msg.textContent=added+" appréciation(s) enregistrée(s)…";
+          }
+          msg.innerHTML=esc(added+" nouvelles appréciations · "+identical+" identiques · "+conflicts+" textes existants différents conservés.")+(failed.length?'<ul>'+failed.map(x=>'<li>'+esc(x)+'</li>').join("")+'</ul>':"");
+        }finally{modal.removeEventListener("click",blocker,true);enabled.forEach(x=>x.disabled=false);}
+      };
+    }catch(e){out.textContent="Lecteur PDF indisponible : "+e.message+". L’import CSV et la saisie individuelle restent utilisables.";}
+    finally{period.disabled=files.disabled=read.disabled=false;}
+  };
+}
+
 function ppOpenColImport(){
   const students=ppClassStudents();if(!students.length)return;
   const initial=ppPeriod==="year"?"":ppPeriod,studentId=document.getElementById("ppStudentBody")?String(ppStudentId):"";
