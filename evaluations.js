@@ -6337,7 +6337,7 @@ window.addEventListener('beforeunload',e=>{if(correctionSession && (window.__sav
 /* Correction rapide : actions bornées à une question, profils locaux sans données élèves. */
 function quickChecks(card){return [...card.querySelectorAll('.correction-check')]}
 function quickManual(card){return quickChecks(card).filter(depManual).map(ch=>ch.dataset.key)}
-function quickReady(){return !!correctionSession&&!window.__savingCorrection&&localDraftCanValidate()}
+function quickReady(){return !!correctionSession&&!correctionSession.questionRun?.busy&&!window.__savingCorrection&&localDraftCanValidate()}
 function quickSet(card,keys,remember=true){
  const list=quickChecks(card),selected=new Set(keys);
  if(remember)card._quickUndo=quickManual(card);
@@ -6445,7 +6445,7 @@ async function questionRunStart(){
   if(!input)return;const indices=[...new Set(input.split(',').map(x=>Number(x.trim())))];if(indices.some(n=>!Number.isInteger(n)||n<1||n>eligible.length)){alert('Sélection invalide.');return}rows=eligible.filter((r,i)=>indices.includes(i+1))
  }
  const run={evalId:board.ev.id,classe:board.classe,students:sortStudents(rows.map(r=>r.student)),index:0,question:null,questions:[],signature:JSON.stringify(criteriaFromLegacy(board.ev))};
- try{questionRunProgress(run);await questionRunOpen(run,0)}catch(e){alert('Parcours impossible : '+e.message)}
+ board.openBusy=true;try{questionRunProgress(run);await questionRunOpen(run,0)}catch(e){alert('Parcours impossible : '+e.message)}finally{board.openBusy=false}
 }
 async function questionRunOpen(run,index){
  const student=run.students[index];if(!student)return;
@@ -6477,12 +6477,13 @@ function questionRunAttach(run,ev){
  correctionSession.questionRun=run;
  const panel=document.createElement('div');panel.id='questionRunPanel';panel.className='criteria-box';panel.innerHTML='<strong>Correction par question</strong><p class="question-run-position"></p><p class="question-run-progress small-note" role="status"></p><label>Question à traiter</label><select aria-label="Question à traiter"></select><div class="row" style="margin-top:8px;gap:8px;flex-wrap:wrap"><button type="button" class="question-run-prev">← Élève précédent</button><button type="button" class="primary question-run-next">Conserver la question et continuer</button><button type="button" class="question-run-exit">Quitter le parcours</button></div><p class="small-note">Les questions intermédiaires restent en brouillon sur cet appareil. Seule une copie complète est validée dans la base. Une question laissée vide doit aussi être confirmée.</p>';
  document.getElementById('correctionCriteria').before(panel);
- const select=panel.querySelector('select');cards.forEach((card,i)=>select.add(new Option('Question '+(i+1)+' — '+(card.querySelector('summary span')?.textContent||''),card.dataset.quickQuestion)));
+ const select=panel.querySelector('select');cards.forEach((card,i)=>select.add(new Option(card.querySelector('summary span')?.textContent||'Question '+(i+1),card.dataset.quickQuestion)));
  select.onchange=()=>{if(run.busy||window.__savingCorrection){select.value=run.question;return}run.question=select.value;questionRunView(run)};
  panel.querySelector('.question-run-next').onclick=()=>questionRunAdvance(run);
  panel.querySelector('.question-run-prev').onclick=async()=>{if(run.busy||window.__savingCorrection||run.index===0)return;run.busy=true;try{await questionRunOpen(run,run.index-1)}catch(e){alert(e.message)}finally{run.busy=false;questionRunRefresh()}};
  panel.querySelector('.question-run-exit').onclick=()=>openCorrection(run.evalId,run.classe);
- document.getElementById('correctionSaveControls').style.display='none';
+ const controls=document.getElementById('correctionSaveControls');controls.style.display='none';if(controls.nextElementSibling?.matches('p.small-note'))controls.nextElementSibling.style.display='none';
+ document.getElementById('correctionCriteria').dataset.quickCompact='0';
  document.getElementById('masteryPreview').style.display='none';
  document.querySelector('.quick-mode')?.style.setProperty('display','none');
  const live=document.getElementById('livePercent');if(live)live.style.display='none';
