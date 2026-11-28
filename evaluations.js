@@ -5463,7 +5463,7 @@ function depRules(ev){
 }
 function depResolve(manual,rules){const effective={...manual};let changed=true;while(changed){changed=false;for(const r of rules)if(!effective[r.key]&&r.sources.filter(k=>effective[k]).length>=r.minimum){effective[r.key]=true;changed=true}}return effective}
 function depManual(ch){return ch.dataset.auto==='1'?ch.dataset.manual==='1':!!ch.checked}
-function depToggle(ch,id){ch.dataset.auto='0';ch.dataset.manual=ch.checked?'1':'0';refreshCorrectionScore(id)}
+function depToggle(ch,id){const card=ch.closest('#correctionCriteria > .eval-card');if(card)card._quickUndo=null;ch.dataset.auto='0';ch.dataset.manual=ch.checked?'1':'0';refreshCorrectionScore(id)}
 function depApply(ev,checks){
  const manual={};for(const ch of checks)if(depManual(ch))manual[ch.dataset.key]=true;
  const effective=depResolve(manual,depRules(ev));
@@ -6305,7 +6305,7 @@ function correctionAllowLeave(){
   return true;
 }
 function correctionSetBusy(busy){
-  document.querySelectorAll('.correction-check,#correctionSaveControls button').forEach(el=>{
+  document.querySelectorAll('.correction-check,#correctionSaveControls button,.quick-actions button,.quick-actions select,.quick-mode').forEach(el=>{
     if(busy){el.dataset.correctionWasDisabled=el.disabled?'1':'0';el.disabled=true;}
     else{el.disabled=el.dataset.correctionWasDisabled==='1';delete el.dataset.correctionWasDisabled;}
   });
@@ -6333,6 +6333,86 @@ async function correctionOpenNext(ctx){
 document.addEventListener('input',e=>{if(e.target.matches('.correction-check'))correctionRefreshStatus();});
 document.addEventListener('change',e=>{if(e.target.matches('.correction-check'))correctionRefreshStatus();});
 window.addEventListener('beforeunload',e=>{if(correctionSession && (window.__savingCorrection||correctionDirty())){e.preventDefault();e.returnValue='';}});
+
+/* Correction rapide : actions bornées à une question, profils locaux sans données élèves. */
+function quickChecks(card){return [...card.querySelectorAll('.correction-check')]}
+function quickManual(card){return quickChecks(card).filter(depManual).map(ch=>ch.dataset.key)}
+function quickReady(){return !!correctionSession&&!window.__savingCorrection&&localDraftCanValidate()}
+function quickSet(card,keys,remember=true){
+ const list=quickChecks(card),selected=new Set(keys);
+ if(remember)card._quickUndo=quickManual(card);
+ for(const ch of list){ch.dataset.auto='0';ch.checked=selected.has(ch.dataset.key);ch.dataset.manual=ch.checked?'1':'0'}
+ refreshCorrectionScore(currentCorrectionEvaluation.id);correctionRefreshStatus();localDraftSchedule()
+}
+function quickFullKeys(keys,rules){
+ const manual=Object.fromEntries(keys.map(k=>[k,true]));
+ for(const rule of rules){if(!manual[rule.key])continue;delete manual[rule.key];const effective=depResolve(manual,rules);if(!keys.every(k=>effective[k]))manual[rule.key]=true}
+ return Object.keys(manual)
+}
+function quickProfileKey(card){return 'eval.quick.profiles.v1:'+String(user?.id||'')+':'+String(currentCorrectionEvaluation.id)+':'+card.dataset.quickQuestion}
+function quickProfileSignature(card){
+ const keys=quickChecks(card).map(ch=>ch.dataset.key),set=new Set(keys);
+ return JSON.stringify({indicators:criteriaFromLegacy(currentCorrectionEvaluation).flatMap(c=>(c.indicateurs||[]).map((it,i)=>({key:c.id+'_'+i,nom:it.nom,points:Number(it.points||0),dependency:it.dependency||null}))).filter(it=>set.has(it.key)),rules:depRules(currentCorrectionEvaluation).filter(r=>set.has(r.key))})
+}
+function quickProfiles(card){
+ try{const p=JSON.parse(localStorage.getItem(quickProfileKey(card))||'null');if(p?.signature===quickProfileSignature(card)&&Array.isArray(p.items)){const allowed=new Set(quickChecks(card).map(ch=>ch.dataset.key));return p.items.filter(x=>typeof x?.name==='string'&&Array.isArray(x.keys)&&x.keys.every(k=>allowed.has(k)))}return []}catch(e){return []}
+}
+function quickProfilesWrite(card,items){
+ try{localStorage.setItem(quickProfileKey(card),JSON.stringify({signature:quickProfileSignature(card),items}));return true}catch(e){alert('Impossible de sauvegarder les profils dans ce navigateur : '+e.message);return false}
+}
+function quickProfileOptions(card){
+ const select=card.querySelector('.quick-profile-select');if(!select)return;
+ select.replaceChildren(new Option('Choisir un profil…',''));
+ quickProfiles(card).forEach((p,i)=>select.add(new Option(p.name,String(i))));
+ const has=select.options.length>1;select.disabled=!has;card.querySelector('.quick-profile-apply').disabled=!has;card.querySelector('.quick-profile-delete').disabled=!has
+}
+function quickMode(root,compact,collapse=true){
+ root.dataset.quickCompact=compact?'1':'0';
+ if(collapse)root.querySelectorAll('.quick-details').forEach(d=>d.open=!compact);
+ const btn=root.previousElementSibling?.querySelector('.quick-mode');if(btn){btn.textContent=compact?'Afficher en mode détaillé':'Afficher en mode condensé';btn.setAttribute('aria-pressed',String(compact))}
+ try{localStorage.setItem('eval.quick.compact.v1:'+String(user?.id||''),compact?'1':'0')}catch(e){}
+}
+function quickAttach(ev,comps){
+ const root=document.getElementById('correctionCriteria');if(!root)return;
+ const toolbar=document.createElement('div');toolbar.className='row';toolbar.style.margin='12px 0';root.before(toolbar);
+ const button=(parent,label,action,cls='')=>{const b=document.createElement('button');b.type='button';b.textContent=label;if(cls)b.className=cls;b.addEventListener('click',action);parent.append(b);return b};
+ const mode=button(toolbar,'Afficher en mode condensé',()=>quickMode(root,root.dataset.quickCompact!=='1'),'quick-mode');
+ const hint=document.createElement('span');hint.className='small-note';hint.textContent='Correction rapide par question · les profils sont conservés dans ce navigateur.';toolbar.append(hint);
+ const cards=[...root.children];
+ cards.forEach((card,i)=>{
+  card.dataset.quickQuestion=String(comps[i]?.id||i);
+  const head=card.querySelector('h3'),title=head?.textContent||'Question '+(i+1);
+  const actions=document.createElement('div');actions.className='row quick-actions';actions.style.cssText='gap:6px;flex-wrap:wrap;margin:8px 0';
+  const details=document.createElement('details');details.className='quick-details';details.open=true;
+  const summary=document.createElement('summary');summary.style.cssText='cursor:pointer;font-weight:700;display:list-item;padding:6px 0';
+  const label=document.createElement('span');label.textContent=title;summary.append(label);
+  const score=document.createElement('span');score.className='quick-score';score.style.cssText='display:inline-block;margin-left:12px;font-weight:700';summary.append(score);details.append(summary);
+  if(head)head.remove();while(card.firstChild)details.append(card.firstChild);
+  card.append(actions,details);
+  const rules=depRules(ev),keys=()=>quickChecks(card).map(ch=>ch.dataset.key);
+  button(actions,'✓ Tout valider',()=>{if(!quickReady())return;quickSet(card,quickFullKeys(keys(),rules));if(root.dataset.quickCompact==='1')details.open=false});
+  button(actions,'Tout décocher',()=>{if(!quickReady())return;quickSet(card,[]);if(root.dataset.quickCompact==='1')details.open=false});
+  button(actions,'Annuler la dernière action',()=>{if(!quickReady()||!card._quickUndo)return;const old=card._quickUndo;card._quickUndo=null;quickSet(card,old,false);details.open=true});
+  const profileRow=document.createElement('div');profileRow.className='row quick-actions';profileRow.style.cssText='gap:6px;flex-wrap:wrap;margin:6px 0';
+  actions.after(profileRow);
+  const select=document.createElement('select');select.className='quick-profile-select';select.setAttribute('aria-label','Profil de correction pour '+title);profileRow.append(select);
+  button(profileRow,'Appliquer',()=>{if(!quickReady()||select.value==='')return;const p=quickProfiles(card)[Number(select.value)];if(!p)return;quickSet(card,p.keys);details.open=true},'quick-profile-apply');
+  button(profileRow,'Enregistrer comme profil',()=>{if(!quickReady())return;const name=prompt('Nom du profil de correction (sans nom d’élève) :');if(!name?.trim())return;const clean=name.trim().slice(0,100),items=quickProfiles(card),idx=items.findIndex(x=>x.name===clean);if(idx>=0&&!confirm('Remplacer ce profil ?'))return;const p={name:clean,keys:quickManual(card)};if(idx>=0)items[idx]=p;else items.push(p);if(quickProfilesWrite(card,items)){quickProfileOptions(card);select.value=String(items.indexOf(p))}});
+  button(profileRow,'Supprimer le profil',()=>{if(!quickReady()||select.value==='')return;const items=quickProfiles(card),i=Number(select.value);if(!items[i]||!confirm('Supprimer le profil « '+items[i].name+' » ?'))return;items.splice(i,1);if(quickProfilesWrite(card,items))quickProfileOptions(card)},'quick-profile-delete');
+  quickProfileOptions(card);
+ });
+ let compact=false;try{compact=localStorage.getItem('eval.quick.compact.v1:'+String(user?.id||''))==='1'}catch(e){}
+ quickMode(root,compact);
+}
+function quickRefresh(){
+ const root=document.getElementById('correctionCriteria');if(!root)return;
+ for(const card of root.children){const label=card.querySelector('.quick-score');if(!label)continue;const checks=quickChecks(card),total=checks.reduce((s,c)=>s+Number(c.dataset.points||0),0),got=checks.reduce((s,c)=>s+(c.checked?Number(c.dataset.points||0):0),0),count=checks.filter(c=>c.checked).length;
+ label.textContent=got.toLocaleString('fr-FR')+' / '+total.toLocaleString('fr-FR')+' pt · '+count+'/'+checks.length;
+ label.style.color=checks.length&&count===checks.length?'#15803d':'';
+ const undo=card.querySelector('.quick-actions button:nth-child(3)');if(undo&&!window.__savingCorrection)undo.disabled=!card._quickUndo
+ }
+}
+
 async function renderCorrectionEditor(evalId,correctionId,corr,groupIds=[]){
   if(!correctionAllowLeave())return;
   currentCorrectionGroupIds=groupIds||[];
@@ -6388,6 +6468,7 @@ const savedValidated=result.criteriaStats||{};
     </div>
     <p class="small-note">« Enregistrer » sauvegarde la correction puis revient automatiquement à la liste des copies de cette évaluation. En cas d’échec, la copie reste à l’écran. « Enregistrer et suivant » ouvre l'élève suivant de la classe, dans l'ordre alphabétique, y compris si sa correction existe déjà.</p>
   </section>`;
+  quickAttach(ev,comps);
   refreshCorrectionScore(ev.id);
   correctionBegin(evalId,correctionId,corr,correctionClass,groupIds);
   void loterieAttach(ev,corr,correctionClass,groupIds);
@@ -6511,6 +6592,7 @@ function refreshCorrectionScore(evalId){
   const ev=currentCorrectionEvaluation;
   if(!ev)return;
   const c=computeCorrection(ev),total=Number(ev.total||0),pct=total?Math.round(c.score/total*100):0;
+  quickRefresh();
   const score=document.getElementById("liveScore");if(score)score.textContent=`${c.score} / ${total}`;
   const p=document.getElementById("livePercent");if(p)p.textContent=`${pct}% du barème`;
   const crits=criteriaFromLegacy(ev), groups={};
