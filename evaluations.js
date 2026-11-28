@@ -7740,7 +7740,7 @@ async function renderPPDashboard(){
     const overdue=actions.filter(x=>x.statut!=="termine"&&x.echeance&&x.echeance<=ppToday()).length;
     const statsBy=new Map(ids.map(id=>[id,{events:0,contacts:0,amenagements:0,actions:0,overdue:0}]));
     ev.forEach(x=>{const z=statsBy.get(String(x.eleve_id));if(z)z.events++});co.forEach(x=>{const z=statsBy.get(String(x.eleve_id));if(z)z.contacts++});am.forEach(x=>{const z=statsBy.get(String(x.eleve_id));if(z)z.amenagements++});ac.forEach(x=>{const z=statsBy.get(String(x.eleve_id));if(z&&x.statut!=="termine"){z.actions++;if(x.echeance&&x.echeance<=ppToday())z.overdue++}});
-    target.innerHTML=`<div class="pp-grid"><div class="pp-stat"><div class="n">${students.length}</div><div class="l">Élèves suivis</div></div><div class="pp-stat"><div class="n">${am.length}</div><div class="l">Aménagements actifs</div></div><div class="pp-stat"><div class="n">${co.length}</div><div class="l">Contacts (${ppPeriod==="year"?"année":ppPeriod.toUpperCase()})</div></div><div class="pp-stat"><div class="n">${overdue}</div><div class="l">Actions à relancer</div></div></div>${ppPriorities}<section class="pp-section"><div class="entry-head"><div><h3>👥 Élèves</h3><p class="small-note">Clique sur un élève pour ouvrir sa fiche PP.</p></div><div class="row"><button type="button" onclick="ppOpenGradeImport()">📥 Importer ÉcoleDirecte (CSV)</button><button type="button" onclick="openPPCouncil()">📅 Conseil de classe</button><button type="button" data-ppq-launch="1" onclick="ppLaunchConsultation()">🗳 Consultation des élèves</button><button type="button" onclick="ppNewStudentEvent()">＋ Ajouter un suivi</button></div></div><div class="pp-student-list">${students.map(s=>`<div class="pp-student" onclick="openPPStudent('${esc(s.id)}')"><div><strong>${esc(ppName(s))}</strong><div class="small-note">${esc(s.classe||"")}</div></div><div class="pp-badges">${ppStatusBadges(s,statsBy.get(String(s.id))||{})}</div></div>`).join("")||'<div class="pp-empty">Aucun élève dans cette sélection.</div>'}</div></section>`;
+    target.innerHTML=`<div class="pp-grid"><div class="pp-stat"><div class="n">${students.length}</div><div class="l">Élèves suivis</div></div><div class="pp-stat"><div class="n">${am.length}</div><div class="l">Aménagements actifs</div></div><div class="pp-stat"><div class="n">${co.length}</div><div class="l">Contacts (${ppPeriod==="year"?"année":ppPeriod.toUpperCase()})</div></div><div class="pp-stat"><div class="n">${overdue}</div><div class="l">Actions à relancer</div></div></div>${ppPriorities}<section class="pp-section"><div class="entry-head"><div><h3>👥 Élèves</h3><p class="small-note">Clique sur un élève pour ouvrir sa fiche PP.</p></div><div class="row"><button type="button" onclick="ppOpenGradeImport()">📥 Importer ÉcoleDirecte (CSV)</button><button type="button" onclick="ppOpenCompImport()">📊 Importer les compétences (Excel)</button><button type="button" onclick="openPPCouncil()">📅 Conseil de classe</button><button type="button" data-ppq-launch="1" onclick="ppLaunchConsultation()">🗳 Consultation des élèves</button><button type="button" onclick="ppNewStudentEvent()">＋ Ajouter un suivi</button></div></div><div class="pp-student-list">${students.map(s=>`<div class="pp-student" onclick="openPPStudent('${esc(s.id)}')"><div><strong>${esc(ppName(s))}</strong><div class="small-note">${esc(s.classe||"")}</div></div><div class="pp-badges">${ppStatusBadges(s,statsBy.get(String(s.id))||{})}</div></div>`).join("")||'<div class="pp-empty">Aucun élève dans cette sélection.</div>'}</div></section>`;
   }catch(e){target.innerHTML=`<section class="hero error"><h3>⚠️ Suivi PP indisponible</h3><p>${esc(e.message)}</p><p class="small-note">Vérifie que les tables PP ont bien été créées dans Supabase.</p></section>`}
 }
 
@@ -7895,6 +7895,210 @@ function ppOpenGradeImport(){
   };
 }
 
+
+/* Compétences PP : lecture XLSX locale, conservation des synthèses et des évaluations. */
+const PP_COMP_LEVELS=[
+  ["MI","Maîtrise insuffisante","#ef4444"],
+  ["MF","Maîtrise fragile","#ffc000"],
+  ["MS","Maîtrise satisfaisante","#0070c0"],
+  ["TBM","Très bonne maîtrise","#00b050"]
+];
+function ppCompYear(){const now=new Date(),y=now.getFullYear()-(now.getMonth()<8?1:0);return y+"/"+(y+1);}
+function ppCompColor(el){
+  if(!el)return "";
+  const rgb=el.getAttribute("rgb");
+  if(rgb)return rgb.slice(-6).toUpperCase();
+  return el.getAttribute("indexed")==="2"?"FF0000":"";
+}
+function ppCompLevel(color){
+  return ({"FF0000":"MI","FFC000":"MF","FFFF00":"MF","FFA500":"MF","0070C0":"MS","00B050":"TBM"})[color]||null;
+}
+function ppCompNodes(node,tag){return [...node.getElementsByTagNameNS("*",tag)];}
+function ppCompXML(xml){
+  const d=new DOMParser().parseFromString(xml,"application/xml");
+  if(d.getElementsByTagName("parsererror").length)throw Error("XML Excel invalide.");
+  return d;
+}
+async function ppCompZip(file){
+  const bytes=new Uint8Array(await file.arrayBuffer()),v=new DataView(bytes.buffer);
+  if(bytes.length<22)throw Error("Fichier Excel invalide.");
+  let end=-1;
+  for(let i=bytes.length-22;i>=Math.max(0,bytes.length-65557);i--){
+    if(v.getUint32(i,true)===0x06054b50&&i+22+v.getUint16(i+20,true)===bytes.length){end=i;break;}
+  }
+  if(end<0)throw Error("Archive Excel illisible.");
+  const n=v.getUint16(end+10,true);let p=v.getUint32(end+16,true);
+  const wanted=new Set(["xl/styles.xml","xl/sharedStrings.xml","xl/worksheets/sheet1.xml"]);
+  const result={};
+  for(let i=0;i<n;i++){
+    if(p+46>bytes.length||v.getUint32(p,true)!==0x02014b50)throw Error("Archive Excel invalide.");
+    const method=v.getUint16(p+10,true),compressed=v.getUint32(p+20,true),size=v.getUint32(p+24,true);
+    const nameLen=v.getUint16(p+28,true),extra=v.getUint16(p+30,true),comment=v.getUint16(p+32,true),off=v.getUint32(p+42,true);
+    const name=new TextDecoder().decode(bytes.slice(p+46,p+46+nameLen));p+=46+nameLen+extra+comment;
+    if(!wanted.has(name))continue;
+    if(size>20*1024*1024||off+30>bytes.length||v.getUint32(off,true)!==0x04034b50)throw Error("Fichier Excel trop volumineux ou corrompu.");
+    const start=off+30+v.getUint16(off+26,true)+v.getUint16(off+28,true);
+    if(start+compressed>bytes.length)throw Error("Archive Excel tronquée.");
+    let data=bytes.slice(start,start+compressed);
+    if(method===8){
+      if(typeof DecompressionStream==="undefined")throw Error("Navigateur incompatible : utilise Firefox ou Chrome récent.");
+      const reader=new Blob([data]).stream().pipeThrough(new DecompressionStream("deflate-raw")).getReader();
+      const chunks=[];let total=0;
+      while(true){const x=await reader.read();if(x.done)break;total+=x.value.length;if(total>size||total>20*1024*1024){await reader.cancel();throw Error("Archive Excel trop volumineuse.");}chunks.push(x.value);}
+      data=new Uint8Array(total);let at=0;for(const chunk of chunks){data.set(chunk,at);at+=chunk.length;}
+    }else if(method!==0)throw Error("Compression Excel non prise en charge.");
+    if(data.length!==size)throw Error("Archive Excel incomplète.");
+    result[name]=new TextDecoder().decode(data);
+  }
+  if(!result["xl/styles.xml"]||!result["xl/worksheets/sheet1.xml"])throw Error("Feuille de compétences Excel introuvable.");
+  return result;
+}
+function ppCompExtract(files,students,period,year,classe){
+  const styles=ppCompXML(files["xl/styles.xml"]),sheet=ppCompXML(files["xl/worksheets/sheet1.xml"]);
+  const strings=files["xl/sharedStrings.xml"]?ppCompNodes(ppCompXML(files["xl/sharedStrings.xml"]),"si").map(x=>ppCompNodes(x,"t").map(t=>t.textContent).join("")):[];
+  const fonts=ppCompNodes(styles,"fonts")[0],fills=ppCompNodes(styles,"fills")[0],xfs=ppCompNodes(styles,"cellXfs")[0];
+  if(!fonts||!fills||!xfs)throw Error("Styles Excel manquants.");
+  const fontColors=[...fonts.children].map(f=>ppCompColor(ppCompNodes(f,"color")[0]));
+  const fillColors=[...fills.children].map(f=>ppCompColor(ppCompNodes(f,"fgColor")[0]));
+  const formats=[...xfs.children].map(x=>({font:fontColors[Number(x.getAttribute("fontId"))],fill:fillColors[Number(x.getAttribute("fillId"))]}));
+  const rows=ppCompNodes(sheet,"row").map(row=>{
+    const cells=new Map();for(const c of ppCompNodes(row,"c")){
+      const col=(c.getAttribute("r")||"").replace(/\d/g,""),t=c.getAttribute("t"),v=ppCompNodes(c,"v")[0]?.textContent||"";
+      const value=t==="s"?strings[Number(v)]||"":t==="inlineStr"?ppCompNodes(c,"t").map(x=>x.textContent).join(""):v;
+      cells.set(col,{value:String(value).trim(),style:formats[Number(c.getAttribute("s")||0)]||{}});
+    }return cells;
+  });
+  const h=rows.findIndex(row=>[...row.values()].some(c=>ppImportNormalize(c.value)==="NON EVALUE")&&[...row.values()].some(c=>ppImportNormalize(c.value)==="NON ATTEINTS"));
+  if(h<0)throw Error("En-tête de récapitulatif de compétences ÉcoleDirecte introuvable.");
+  const header=rows[h],meta=header.get("A")?.value||"",norm=ppImportNormalize(meta);
+  const cm=norm.match(/\b([6543])\s*(?:EME|E)\s*(\d+)\b/),pm=norm.match(/\b([123])\s*(?:ER|E|EME)?\s*TRIMESTRE\b/)||norm.match(/\bTRIMESTRE\s*([123])\b/);
+  if(!cm||cm[1]+"e"+cm[2]!==classe||!pm||"T"+pm[1]!==period||!meta.includes(year))throw Error("Classe, trimestre ou année scolaire du fichier ne correspond pas à la sélection.");
+  const names=new Map();
+  for(const st of students)for(const key of new Set([ppImportNormalize(st.nom+" "+st.prenom),ppImportNormalize(st.prenom+" "+st.nom)])){
+    if(!names.has(key))names.set(key,[]);names.get(key).push(st);
+  }
+  const entries=[],issues=[],seen=new Set();
+  for(const [col,c] of header){
+    if(col==="A")continue;
+    if(!c.value)break;
+    if(ppImportNormalize(c.value)==="NON EVALUE")break;
+    const candidates=names.get(ppImportNormalize(c.value))||[];
+    if(candidates.length!==1){issues.push("Colonne "+col+" : élève non reconnu ou ambigu.");continue;}
+    const student=candidates[0],id=String(student.id);
+    if(seen.has(id))throw Error("Élève présent deux fois dans le fichier.");
+    seen.add(id);entries.push({student,col,competences:[]});
+  }
+  if(!entries.length)throw Error("Aucun élève reconnu.");
+  let discipline="",group="",current=new Map(),count=0;
+  const decode=(cell)=>{
+    if(!cell||!cell.value)return null;
+    if(cell.value!=="●")return null;
+    const level=ppCompLevel(cell.style.font);
+    if(!level)throw Error("Couleur de pastille inconnue : "+(cell.style.font||"sans couleur")+".");
+    return level;
+  };
+  for(const row of rows.slice(h+1)){
+    const a=row.get("A");if(!a?.value)continue;
+    const fill=a.style.fill;
+    if(fill==="B7CAD8"){discipline=a.value;group="";current=new Map();continue;}
+    if(fill==="D8EAD7"){group=a.value;current=new Map();continue;}
+    if(fill==="EDEDED"&&discipline){
+      count++;current=new Map();
+      for(const entry of entries){
+        const item={enseignement:discipline,domaine:group,competence:a.value,niveau:decode(row.get(entry.col)),evaluations:[]};
+        entry.competences.push(item);current.set(entry.col,item);
+      }
+    }else if(!fill&&current.size){
+      for(const entry of entries){const level=decode(row.get(entry.col));if(level)current.get(entry.col).evaluations.push({titre:a.value,niveau:level});}
+    }
+  }
+  if(!count||!entries.some(e=>e.competences.some(c=>c.niveau)))throw Error("Aucune synthèse de compétence reconnue.");
+  return {entries,issues,count};
+}
+function ppCompCounts(items){
+  const counts=[0,0,0,0];let missing=0;
+  for(const item of items||[]){const i=PP_COMP_LEVELS.findIndex(x=>x[0]===item.niveau);if(i>=0)counts[i]++;else missing++;}
+  const total=counts.reduce((a,b)=>a+b,0);
+  return {counts,total,missing,success:total?Math.round(1000*(counts[2]+counts[3])/total)/10:null};
+}
+function ppCompBar(items){
+  const {counts,total,missing,success}=ppCompCounts(items);
+  if(!total)return '<span class="small-note">Non évalué</span>';
+  return '<div style="display:flex;height:16px;overflow:hidden;border-radius:5px;background:#ddd">'+counts.map((v,i)=>v?'<span title="'+esc(PP_COMP_LEVELS[i][1]+": "+v)+'" style="background:'+PP_COMP_LEVELS[i][2]+';width:'+(100*v/total)+'%"></span>':"").join("")+'</div>'+
+    '<div class="small-note">'+esc(String(success).replace(".",","))+' % MS + TBM · '+total+' niveau(x) renseigné(s)'+(missing?' · '+missing+' non évalué(s)':'')+' · '+counts.map((v,i)=>PP_COMP_LEVELS[i][0]+': '+v).join(' / ')+'</div>';
+}
+function ppCompSection(items,detail=false){
+  if(!items?.length)return '<section class="pp-section"><h3>Maîtrise des compétences</h3><p class="small-note">Aucun résultat importé pour ce trimestre.</p></section>';
+  const groups=new Map();
+  for(const c of items){if(!groups.has(c.enseignement))groups.set(c.enseignement,[]);groups.get(c.enseignement).push(c);}
+  const legend=PP_COMP_LEVELS.map(x=>'<span style="display:inline-block;margin-right:12px"><strong style="color:'+x[2]+'">●</strong> '+esc(x[1])+' ('+x[0]+')</span>').join("");
+  return '<section class="pp-section"><h3>Maîtrise des compétences — ÉcoleDirecte</h3><p class="small-note">'+legend+'</p><h4>Ensemble des compétences renseignées</h4>'+ppCompBar(items)+
+    [...groups].map(([name,values])=>'<div style="margin-top:14px"><strong>'+esc(name)+'</strong>'+ppCompBar(values)+(detail?'<details><summary>Détail des compétences et évaluations</summary>'+values.map(c=>'<div class="pp-item"><span class="small-note">'+esc(c.domaine||"")+'</span><div>'+esc(c.competence)+' — '+(PP_COMP_LEVELS.find(x=>x[0]===c.niveau)?'<strong style="color:'+PP_COMP_LEVELS.find(x=>x[0]===c.niveau)[2]+'">● '+esc(c.niveau)+'</strong>':'Non évalué')+'</div>'+((c.evaluations||[]).length?'<div class="small-note">'+c.evaluations.map(e=>esc(e.titre)+' : '+esc(e.niveau)).join(' · ')+'</div>':'')+'</div>').join("")+'</details>':'')+'</div>').join("")+
+    '<p class="small-note">Les pourcentages utilisent uniquement les niveaux de synthèse renseignés ; les évaluations détaillées ne sont pas recomptées.</p></section>';
+}
+async function ppCompRead(period,studentId=null){
+  if(!user?.id)return [];
+  let q=sb.from("PP_Competences").select("eleve_id,competences").eq("owner_id",user.id).eq("classe",ppClass).eq("annee",ppCompYear()).eq("periode",period);
+  if(studentId)q=q.eq("eleve_id",String(studentId));
+  const {data,error}=await q;
+  if(error)throw Error(error.message);
+  const ids=new Set(ppClassStudents().map(st=>String(st.id)));
+  return (data||[]).filter(row=>ids.has(String(row.eleve_id)));
+}
+function ppCompAppreciation(items){
+  const c=ppCompCounts(items);
+  return c.total?" Maîtrise des compétences : "+String(c.success).replace(".",",")+" % des niveaux renseignés sont satisfaisants ou très bons.":"";
+}
+async function ppCompRenderInto(host,period,studentId=null){
+  if(!host)return;
+  try{
+    const records=await ppCompRead(period,studentId);
+    if(!host.isConnected)return;
+    const items=records.flatMap(x=>x.competences||[]);
+    host.innerHTML=ppCompSection(items,!!studentId);
+    if(!studentId&&records.length)host.insertAdjacentHTML("afterbegin",'<p class="small-note">'+records.length+' / '+ppClassStudents().length+' élèves importés.</p>');
+    if(studentId&&String(ppStudentId)===String(studentId)&&ppPeriod.toUpperCase()===period){
+      const el=document.getElementById("ppGeneratedAppreciation");
+      if(el&&el.value===el.defaultValue){el.value+=ppCompAppreciation(items);}
+    }
+  }catch(e){if(host.isConnected)host.innerHTML='<section class="pp-section"><h3>Maîtrise des compétences</h3><p class="small-note">Stockage indisponible. Vérifie la création de PP_Competences et la connexion MFA.</p></section>';}
+}
+function ppOpenCompImport(){
+  const students=ppClassStudents(),classe=ppClass,year=ppCompYear();
+  const modal=ppModal('<h2>📊 Importer les compétences ÉcoleDirecte</h2><p>Classe : '+esc(classe)+' · Année : '+esc(year)+'</p><div class="editbox"><label>Trimestre</label><select id="ppCompPeriod">'+ppSelectOptions([["","Choisir"],["T1","Trimestre 1"],["T2","Trimestre 2"],["T3","Trimestre 3"]],ppPeriod==="year"?"":ppPeriod.toUpperCase())+'</select><label>Récapitulatif Excel (.xlsx)</label><input id="ppCompFile" type="file" accept=".xlsx"><p class="small-note">Lecture locale : les couleurs des pastilles sont utilisées, sans conversion CSV.</p></div><div class="row"><button id="ppCompPreview" type="button">Vérifier le fichier</button><button id="ppCompClose" type="button">Fermer</button></div><div id="ppCompResult"></div>');
+  const $=id=>modal.querySelector("#"+id),period=$("ppCompPeriod"),file=$("ppCompFile"),preview=$("ppCompPreview"),close=$("ppCompClose"),out=$("ppCompResult");
+  const invalidate=()=>out.replaceChildren();period.onchange=invalidate;file.onchange=invalidate;close.onclick=()=>modal.remove();
+  preview.onclick=async()=>{
+    invalidate();const selected=period.value,source=file.files?.[0];
+    if(!selected||!source||!source.name.toLowerCase().endsWith(".xlsx")||source.size>5*1024*1024){out.textContent="Choisis le trimestre et un fichier XLSX de moins de 5 Mo.";return;}
+    preview.disabled=period.disabled=file.disabled=true;
+    try{
+      const result=ppCompExtract(await ppCompZip(source),students,selected,year,classe);
+      if(!modal.isConnected)return;
+      const items=result.entries.flatMap(e=>e.competences);
+      out.innerHTML='<h3>Prévisualisation</h3><p>'+result.entries.length+' / '+students.length+' élèves reconnus · '+result.count+' lignes de synthèse.</p>'+
+        (result.issues.length?'<ul>'+result.issues.map(x=>'<li>'+esc(x)+'</li>').join("")+'</ul>':'')+
+        '<details><summary>Élèves et niveaux renseignés</summary>'+result.entries.map(e=>'<div>'+esc(ppName(e.student))+' : '+ppCompCounts(e.competences).total+'</div>').join("")+'</details>'+
+        ppCompSection(items)+'<p class="small-note">Cet import remplace les compétences du trimestre uniquement pour les élèves reconnus. Il ne modifie aucune moyenne.</p><button id="ppCompCommit" class="primary" type="button">Importer les compétences</button>';
+      const commit=$("ppCompCommit");
+      commit.onclick=async()=>{
+        if(!user?.id||!confirm("Importer les compétences de "+result.entries.length+" élèves pour "+selected+" ?"))return;
+        const controls=[period,file,preview,close,commit];controls.forEach(x=>x.disabled=true);
+        const blocker=e=>e.stopImmediatePropagation();modal.addEventListener("click",blocker,true);
+        try{
+          const rows=result.entries.map(e=>({owner_id:user.id,eleve_id:String(e.student.id),classe,annee:year,periode:selected,competences:e.competences,updated_at:new Date().toISOString()}));
+          const {data,error}=await sb.from("PP_Competences").upsert(rows,{onConflict:"owner_id,eleve_id,classe,annee,periode"}).select("eleve_id");
+          if(error)throw Error(error.message);
+          if(data?.length!==rows.length)throw Error("Nombre de lignes enregistrées non confirmé.");
+          out.innerHTML='<p><strong>'+rows.length+' fiches de compétences enregistrées.</strong> Les moyennes restent inchangées.</p>';
+        }catch(e){out.insertAdjacentHTML("beforeend",'<p role="alert">Import non confirmé : '+esc(e.message)+'. Vérifie que le script SQL PP_Competences a été exécuté et que la connexion MFA est active.</p>');}
+        finally{modal.removeEventListener("click",blocker,true);controls.forEach(x=>x.disabled=false);}
+      };
+    }catch(e){out.textContent="Import impossible : "+e.message;}
+    finally{preview.disabled=period.disabled=file.disabled=false;}
+  };
+}
+
 function ppModal(html){const d=document.createElement("div");d.className="pp-modal";d.innerHTML=`<div class="pp-modal-card">${html}</div>`;d.addEventListener("click",e=>{if(e.target===d)d.remove()});document.body.appendChild(d);return d}
 function ppCloseModal(){document.querySelectorAll(".pp-modal").forEach(x=>x.remove())}
 function ppSelectOptions(list,selected=""){return list.map(x=>`<option value="${esc(x[0])}" ${String(x[0])===String(selected)?"selected":""}>${esc(x[1])}</option>`).join("")}
@@ -8036,7 +8240,7 @@ async function ppRenderStudent(tab="synthese"){
         '<div class="pp-stat"><div class="n">'+activeAm+'</div><div class="l">Aménagement(s) actif(s)</div></div>'+
         '<div class="pp-stat"><div class="n">'+vigilanceEvents.length+'</div><div class="l">Points de vigilance</div></div></div>'+
         '<section class="pp-section"><h3>⚠️ Points de vigilance</h3>'+vigilanceHtml+'</section>'+
-        gradeSection+
+        gradeSection+(gradePeriod?'<div id="ppStudentComp"><p class="small-note">Chargement des compétences…</p></div>':"")+
         '<div class="pp-two"><section class="pp-section"><h3>📝 Derniers suivis ('+esc(ppPeriodText(currentPeriod))+')</h3>'+
         (visibleEvents.slice(0,5).map(ppEventHtml).join("")||'<div class="pp-empty">Aucun suivi enregistré pour cette période.</div>')+
         '</section><section class="pp-section"><h3>📋 Actions ouvertes (toutes périodes)</h3>'+
@@ -8044,6 +8248,7 @@ async function ppRenderStudent(tab="synthese"){
         '</section></div><section class="pp-section"><h3>🧩 Aménagements actifs</h3>'+
         (amenagements.filter(x=>x.actif!==false).map(ppAmenagementHtml).join("")||'<div class="pp-empty">Aucun aménagement actif.</div>')+'</section>';
       ppGradeFormSnapshot=ppCurrentGradeFormSnapshot();
+      if(gradePeriod)void ppCompRenderInto(target.querySelector("#ppStudentComp"),gradePeriod,studentId);
     }else if(tab==="events"){
       target.innerHTML=ppListSection("📝 Suivi et observations — "+ppPeriodText(currentPeriod),visibleEvents,"event");
     }else if(tab==="contacts"){
@@ -8229,9 +8434,12 @@ async function ppGenerateAndFillAppreciation(){
     // Tenir compte des moyennes en cours de saisie, sans imposer une sauvegarde.
     const grades=ppCollectGrades();
     const events=(await ppLoadTable(PP_TABLES.events,student.id)).filter(x=>ppEventInSelectedPeriod(x));
-    const txt=ppGenerateAppreciation(grades,student,events);
+    const selectedPeriod=ppPeriod,studentId=String(student.id);
+    let extra="";
+    try{extra=ppCompAppreciation((await ppCompRead(selectedPeriod.toUpperCase(),studentId)).flatMap(r=>r.competences||[]));}catch(e){}
+    const txt=ppGenerateAppreciation(grades,student,events)+extra;
     const el=document.getElementById("ppGeneratedAppreciation");
-    if(el)el.value=txt;
+    if(el&&String(ppStudentId)===studentId&&ppPeriod===selectedPeriod)el.value=txt;
   }catch(e){alert("Génération impossible : "+e.message)}
 }
 function ppEventHtml(x){return `<div class="pp-item"><div class="meta">${esc(x.date||"")} · ${esc(x.type||"Observation")}</div><strong>${esc(x.titre||"Suivi")}</strong><div>${esc(x.contenu||"")}</div></div>`}
@@ -8353,7 +8561,8 @@ async function ppCouncilRefreshAcademic(){
   try{
     const marks=await ppCouncilAcademicRead(period,ppClass);
     if(token!==ppCouncilLoadRequest||!host.isConnected||document.getElementById("ppCouncilPeriod")?.value!==period)return;
-    host.innerHTML=ppCouncilAcademicHtml(ppCouncilAcademicData(ppClassStudents(),marks),period);
+    host.innerHTML=ppCouncilAcademicHtml(ppCouncilAcademicData(ppClassStudents(),marks),period)+'<div id="ppCouncilCompetences"><p class="small-note">Chargement des compétences…</p></div>';
+    void ppCompRenderInto(host.querySelector("#ppCouncilCompetences"),period);
   }catch(e){
     if(token===ppCouncilLoadRequest&&host.isConnected)
       host.innerHTML='<section class="pp-section"><p role="alert">Bilan des résultats indisponible : '+esc(e.message)+'</p>'+
