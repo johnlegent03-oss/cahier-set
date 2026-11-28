@@ -5079,21 +5079,61 @@ function localDraftBegin(mode,context,root){
 }
 function localDraftBeginEditor(id){localDraftBegin('editor',{evaluationId:id||null},document.getElementById('evTitre')?.closest('section'));}
 function localDraftBeginCorrection(){if(correctionSession)localDraftBegin('correction',correctionSession,document.getElementById('correctionSaveControls')?.closest('section'));}
+
+/* Comparaison des grilles par identité et libellé, pas par sérialisation brute.
+   Les changements de points ne changent pas la signification des cases. */
+function correctionSchemaItems(schema){
+ const criteria=JSON.parse(schema);if(!Array.isArray(criteria))throw Error('Ancienne grille illisible.');
+ return criteria.flatMap((c,i)=>(c.indicateurs||[]).map((it,j)=>({key:String(c.id)+'_'+j,question:String(c.questionId||c.questionNumero||'q'+(i+1)),criterion:String(c.nom||''),name:String(it.nom||'').trim(),uid:String(it.uid||''),dependency:it.dependency||null})))
+}
+function correctionSchemaMap(oldSchema,newSchema){
+ const old=correctionSchemaItems(oldSchema),current=correctionSchemaItems(newSchema),used=new Set(),map=new Map();
+ for(const item of old){
+  const matches=current.filter(x=>!used.has(x.key)&&x.question===item.question&&x.criterion===item.criterion&&x.name===item.name);
+  const target=matches.find(x=>item.uid&&x.uid===item.uid)||matches.find(x=>x.key===item.key)||(matches.length===1?matches[0]:null);
+  if(target){map.set(item.key,target.key);used.add(target.key)}
+ }
+ return {old,current,map}
+}
+function correctionSchemaChecks(payload,oldSchema,newSchema,base){
+ const {old,current,map}=correctionSchemaMap(oldSchema,newSchema);
+ if(!Array.isArray(payload?.checks)||payload.checks.length!==old.length||payload.checks.some(x=>!Array.isArray(x)||typeof x[1]!=='boolean')||new Set(payload.checks.map(x=>x[0])).size!==old.length||old.some(x=>!payload.checks.some(v=>v[0]===x.key)))throw Error('Le contenu du brouillon ne correspond pas à son ancienne grille.');
+ const values=new Map(base?.checks||[]),source=new Map(payload.checks);
+ for(const [a,b] of map)values.set(b,source.get(a));
+ return {checks:current.map(x=>[x.key,!!values.get(x.key)]),matched:map.size,removed:old.length-map.size,added:current.length-map.size}
+}
+function correctionDraftMigration(s,record){
+ const base=JSON.parse(s.base),oldBase=JSON.parse(record.base);
+ const draft=correctionSchemaChecks(record.payload,record.schema,s.schema,base);
+ const previous=correctionSchemaChecks(oldBase,record.schema,s.schema,base);
+ const sameBase=JSON.stringify(previous.checks)===JSON.stringify(base.checks);
+ return {draft,sameBase}
+}
+function correctionArchiveDraft(s,raw){
+ const key='svt.correctionArchive.v1:'+encodeURIComponent(s.key)+':'+Date.now();
+ localStorage.setItem(key,raw);if(localStorage.getItem(key)!==raw)throw Error('Impossible de conserver une copie de sécurité du brouillon.');
+}
+function correctionApplyDraftChecks(s,payload){
+ const checks=new Map(payload.checks);
+ s.root.querySelectorAll('.correction-check').forEach(ch=>{ch.checked=!!checks.get(ch.dataset.key);ch.dataset.auto='0';ch.dataset.manual=ch.checked?'1':'0'});
+}
+
 function localDraftResume(){
   const s=localDraftSession;if(!s||!s.record)return;
   try{
     const found=localDraftRead(s);if(found.raw!==s.expected){localDraftPending(found,'Le brouillon a changé dans un autre onglet. Vérifie puis clique de nouveau sur Reprendre.');return;}
-    const record=found.record,payload=record.payload;
+    const record=found.record;let payload=record.payload;let migration=null;
     if(s.mode==='correction'){
-      if(record.schema!==s.schema)throw new Error('La grille a changé depuis ce brouillon. Reprise automatique impossible ; le brouillon est conservé.');
+      if(record.schema!==s.schema){migration=correctionDraftMigration(s,record);payload={checks:migration.draft.checks};}
       const current=[...s.root.querySelectorAll('.correction-check')];
       if(!Array.isArray(payload.checks)||payload.checks.length!==current.length||payload.checks.some((v,i)=>v[0]!==current[i].dataset.key||typeof v[1]!=='boolean'))throw new Error('Les indicateurs du brouillon ne correspondent plus à cette grille.');
     }else{
       if(!Array.isArray(payload.questions)||!Array.isArray(payload.classes)||payload.questions.some(q=>!Array.isArray(q.criteres)||q.criteres.some(c=>!Array.isArray(c.indicateurs))))throw new Error('La structure du brouillon est invalide.');
     }
-    if(!confirm('Reprendre ce brouillon et remplacer les données actuellement affichées ? Rien ne sera validé dans Supabase.'+(record.base!==s.base?' Attention : la version chargée diffère de celle qui avait servi de départ au brouillon.':'')))return;
+    if(!confirm('Reprendre ce brouillon et remplacer les données actuellement affichées ? Rien ne sera validé dans Supabase.'+(migration?' Grille modifiée : '+migration.draft.matched+' indicateurs récupérables, '+migration.draft.added+' nouveaux ou modifiés à vérifier, '+migration.draft.removed+' anciens non transférés. Une copie de sécurité sera conservée.':'')+((migration?!migration.sameBase:record.base!==s.base)?' Attention : la version chargée diffère de celle qui avait servi de départ au brouillon.':'')))return;
+    if(migration)correctionArchiveDraft(s,found.raw);
     if(s.mode==='correction'){
-      const values=new Map(payload.checks);s.root.querySelectorAll('.correction-check').forEach(el=>{el.checked=values.get(el.dataset.key);el.dataset.auto='0';el.dataset.manual=el.checked?'1':'0';});refreshCorrectionScore(correctionSession.evalId);correctionRefreshStatus();
+      correctionApplyDraftChecks(s,payload);refreshCorrectionScore(correctionSession.evalId);correctionRefreshStatus();
     }else{
       const area=document.getElementById('competenciesEditor');
       area.innerHTML=payload.questions.map((q,i)=>renderCompetencyEditor({...q,questionNumero:q.questionNumero??i+1},i)).join('');
@@ -6418,18 +6458,40 @@ function quickRefresh(){
 function questionRunKey(run){return 'svt.questionRun.v1:'+encodeURIComponent(String(SUPABASE_URL))+':'+encodeURIComponent(String(user?.id||''))+':'+encodeURIComponent(JSON.stringify([String(run.evalId),run.classe]))}
 function questionRunProgress(run){
  const raw=localStorage.getItem(questionRunKey(run));if(!raw)return {};
- const p=JSON.parse(raw);if(p.signature!==run.signature)throw Error('Le barème a changé. Les brouillons individuels restent conservés ; reprends-les en mode normal.');
- return p.students||{}
+ const p=JSON.parse(raw);if(p.signature===run.signature)return p.students||{};
+ // Conserver les confirmations uniquement lorsque les indicateurs et règles de la question restent identiques.
+ let migrated={};
+ try{
+  const {old,current,map}=correctionSchemaMap(p.signature,run.signature);
+  const oldByUid=new Map(old.filter(x=>x.uid).map(x=>[x.uid,x.key])),newByUid=new Map(current.filter(x=>x.uid).map(x=>[x.uid,x.key]));
+  const target=new Map(current.map(x=>[x.key,x]));
+  const rule=(it,ids,convert)=>it.dependency?JSON.stringify([it.dependency.minimum,(it.dependency.sources||[]).map(id=>convert(ids.get(id))||'!').sort()]):'';
+  const valid=new Map();
+  for(const q of new Set(current.map(x=>x.question))){
+   const a=old.filter(x=>x.question===q),b=current.filter(x=>x.question===q);
+   if(a.length===b.length&&a.every(x=>{const y=target.get(map.get(x.key));return y&&rule(x,oldByUid,k=>map.get(k))===rule(y,newByUid,k=>k)}))valid.set(q,b);
+  }
+  for(const [id,questions] of Object.entries(p.students||{}))for(const [q,value] of Object.entries(questions||{})){
+   if(!valid.has(q))continue;const parsed=JSON.parse(value);if(!Array.isArray(parsed))continue;
+   const values=new Map(parsed.map(([k,v])=>[map.get(k),v]));const b=valid.get(q);
+   if(b.every(x=>typeof values.get(x.key)==='boolean'))(migrated[id]||(migrated[id]={}))[q]=JSON.stringify(b.map(x=>[x.key,values.get(x.key)]));
+  }
+ }catch(e){console.warn('Confirmations anciennes non transférables',e);migrated={}}
+ const backup=questionRunKey(run)+':archive:'+Date.now();localStorage.setItem(backup,raw);if(localStorage.getItem(backup)!==raw)throw Error('Impossible de conserver la progression précédente.');
+ questionRunWrite(run,migrated);return migrated
 }
 function questionRunWrite(run,progress){const key=questionRunKey(run),value=JSON.stringify({signature:run.signature,students:progress});localStorage.setItem(key,value);if(localStorage.getItem(key)!==value)throw Error('Progression locale non confirmée.')}
 function questionRunCards(){return [...(document.getElementById('correctionCriteria')?.children||[])]}
 function questionRunSignature(card){return JSON.stringify(quickChecks(card).map(ch=>[ch.dataset.key,depManual(ch)]))}
 function questionRunDone(run,id,cards,progress){const p=progress[String(id)]||{};return cards.filter(c=>p[c.dataset.quickQuestion]===questionRunSignature(c)).map(c=>c.dataset.quickQuestion)}
 function questionRunRestore(){
- const s=localDraftSession;if(!s?.pending||!s.record||s.record.schema!==s.schema||s.record.base!==s.base)return;
- try{const found=localDraftRead(s),p=found.record?.payload;const checks=[...s.root.querySelectorAll('.correction-check')];
- if(found.raw!==s.expected||!Array.isArray(p?.checks)||p.checks.length!==checks.length||p.checks.some((x,i)=>x[0]!==checks[i].dataset.key||typeof x[1]!=='boolean'))return;
- checks.forEach((ch,i)=>{ch.checked=p.checks[i][1];ch.dataset.auto='0';ch.dataset.manual=ch.checked?'1':'0'});
+ const s=localDraftSession;if(!s?.pending||!s.record)return;
+ try{const found=localDraftRead(s);let p=found.record?.payload;const checks=[...s.root.querySelectorAll('.correction-check')];
+ if(found.raw!==s.expected)return;
+ if(found.record.schema!==s.schema){const m=correctionDraftMigration(s,found.record);if(!m.sameBase||m.draft.removed||m.draft.added){localDraftDisplay('Grille modifiée : clique sur Reprendre le brouillon pour vérifier et récupérer les indicateurs compatibles. Aucun brouillon n’a été supprimé.',true);return}correctionArchiveDraft(s,found.raw);p={checks:m.draft.checks};}
+ else if(found.record.base!==s.base)return;
+ if(!Array.isArray(p?.checks)||p.checks.length!==checks.length||p.checks.some((x,i)=>x[0]!==checks[i].dataset.key||typeof x[1]!=='boolean'))return;
+ correctionApplyDraftChecks(s,p);
  s.pending=false;s.record=null;s.last=null;localDraftActions();refreshCorrectionScore(correctionSession.evalId);correctionRefreshStatus();localDraftFlush()
  }catch(e){localDraftDisplay('Reprise automatique impossible : '+e.message,true)}
 }
@@ -6493,7 +6555,7 @@ async function questionRunStart(forceSelection=false){
   if(cursor?.signature===run.signature){
    const found=run.students.findIndex(st=>String(st.id)===String(cursor.studentId));
    if(found>=0){index=found;run.question=cursor.question}
-  }else if(!cursor&&Object.keys(progress).length){
+  }else if(Object.keys(progress).length){
    // Les anciennes sessions n'avaient pas de position mémorisée : retrouver
    // la première question non confirmée à partir des confirmations existantes.
    const groups=new Map();
