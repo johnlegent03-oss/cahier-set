@@ -7740,7 +7740,7 @@ async function renderPPDashboard(){
     const overdue=actions.filter(x=>x.statut!=="termine"&&x.echeance&&x.echeance<=ppToday()).length;
     const statsBy=new Map(ids.map(id=>[id,{events:0,contacts:0,amenagements:0,actions:0,overdue:0}]));
     ev.forEach(x=>{const z=statsBy.get(String(x.eleve_id));if(z)z.events++});co.forEach(x=>{const z=statsBy.get(String(x.eleve_id));if(z)z.contacts++});am.forEach(x=>{const z=statsBy.get(String(x.eleve_id));if(z)z.amenagements++});ac.forEach(x=>{const z=statsBy.get(String(x.eleve_id));if(z&&x.statut!=="termine"){z.actions++;if(x.echeance&&x.echeance<=ppToday())z.overdue++}});
-    target.innerHTML=`<div class="pp-grid"><div class="pp-stat"><div class="n">${students.length}</div><div class="l">Élèves suivis</div></div><div class="pp-stat"><div class="n">${am.length}</div><div class="l">Aménagements actifs</div></div><div class="pp-stat"><div class="n">${co.length}</div><div class="l">Contacts (${ppPeriod==="year"?"année":ppPeriod.toUpperCase()})</div></div><div class="pp-stat"><div class="n">${overdue}</div><div class="l">Actions à relancer</div></div></div>${ppPriorities}<section class="pp-section"><div class="entry-head"><div><h3>👥 Élèves</h3><p class="small-note">Clique sur un élève pour ouvrir sa fiche PP.</p></div><div class="row"><button type="button" onclick="ppOpenGradeImport()">📥 Importer ÉcoleDirecte (CSV)</button><button type="button" onclick="ppOpenCompImport()">📊 Importer les compétences (Excel)</button><button type="button" onclick="openPPCouncil()">📅 Conseil de classe</button><button type="button" data-ppq-launch="1" onclick="ppLaunchConsultation()">🗳 Consultation des élèves</button><button type="button" onclick="ppNewStudentEvent()">＋ Ajouter un suivi</button></div></div><div class="pp-student-list">${students.map(s=>`<div class="pp-student" onclick="openPPStudent('${esc(s.id)}')"><div><strong>${esc(ppName(s))}</strong><div class="small-note">${esc(s.classe||"")}</div></div><div class="pp-badges">${ppStatusBadges(s,statsBy.get(String(s.id))||{})}</div></div>`).join("")||'<div class="pp-empty">Aucun élève dans cette sélection.</div>'}</div></section>`;
+    target.innerHTML=`<div class="pp-grid"><div class="pp-stat"><div class="n">${students.length}</div><div class="l">Élèves suivis</div></div><div class="pp-stat"><div class="n">${am.length}</div><div class="l">Aménagements actifs</div></div><div class="pp-stat"><div class="n">${co.length}</div><div class="l">Contacts (${ppPeriod==="year"?"année":ppPeriod.toUpperCase()})</div></div><div class="pp-stat"><div class="n">${overdue}</div><div class="l">Actions à relancer</div></div></div>${ppPriorities}<section class="pp-section"><div class="entry-head"><div><h3>👥 Élèves</h3><p class="small-note">Clique sur un élève pour ouvrir sa fiche PP.</p></div><div class="row"><button type="button" onclick="ppOpenGradeImport()">📥 Importer ÉcoleDirecte (CSV)</button><button type="button" onclick="ppOpenCompImport()">📊 Importer les compétences (Excel)</button><button type="button" onclick="ppOpenVieImport()">📋 Importer la vie scolaire (CSV)</button><button type="button" onclick="openPPCouncil()">📅 Conseil de classe</button><button type="button" data-ppq-launch="1" onclick="ppLaunchConsultation()">🗳 Consultation des élèves</button><button type="button" onclick="ppNewStudentEvent()">＋ Ajouter un suivi</button></div></div><div class="pp-student-list">${students.map(s=>`<div class="pp-student" onclick="openPPStudent('${esc(s.id)}')"><div><strong>${esc(ppName(s))}</strong><div class="small-note">${esc(s.classe||"")}</div></div><div class="pp-badges">${ppStatusBadges(s,statsBy.get(String(s.id))||{})}</div></div>`).join("")||'<div class="pp-empty">Aucun élève dans cette sélection.</div>'}</div></section>`;
   }catch(e){target.innerHTML=`<section class="hero error"><h3>⚠️ Suivi PP indisponible</h3><p>${esc(e.message)}</p><p class="small-note">Vérifie que les tables PP ont bien été créées dans Supabase.</p></section>`}
 }
 
@@ -8099,6 +8099,118 @@ function ppOpenCompImport(){
   };
 }
 
+
+/* Vie scolaire ÉcoleDirecte : événements importés identifiés, sans modifier le suivi personnel. */
+const PP_VIE_PREFIX="[ÉcoleDirecte · Vie scolaire] ";
+function ppVieIsImported(row){return String(row?.titre||"").startsWith(PP_VIE_PREFIX);}
+function ppVieKind(row){
+  const title=String(row?.titre||"").slice(PP_VIE_PREFIX.length);
+  return title.startsWith("Appréciation positive")?"positive":title.startsWith("Exclusion de cours")?"exclusion":"observation";
+}
+function ppVieCounts(rows){
+  const counts={positive:0,observation:0,exclusion:0,other:0};
+  rows.filter(ppVieIsImported).forEach(row=>{
+    const k=ppVieKind(row);
+    if(k==="observation"&&!String(row.titre).slice(PP_VIE_PREFIX.length).startsWith("Observation"))counts.other++;
+    else counts[k]++;
+  });return counts;
+}
+function ppVieSummary(rows,detail=false){
+  const imported=rows.filter(ppVieIsImported),n=ppVieCounts(rows);
+  if(!imported.length)return '<section class="pp-section"><h3>Vie scolaire — ÉcoleDirecte</h3><p class="small-note">Aucune mention importée pour cette période.</p></section>';
+  const reasons=new Map();
+  for(const row of imported.filter(x=>ppVieKind(x)!=="positive")){
+    const reason=String(row.titre).split(" — ").slice(1).join(" — ")||"Motif non renseigné";
+    reasons.set(reason,(reasons.get(reason)||0)+1);
+  }
+  const stats=[["Observations",n.observation],["Exclusions de cours",n.exclusion],["Autres événements négatifs",n.other],["Appréciations positives",n.positive]];
+  return '<section class="pp-section"><h3>Vie scolaire — ÉcoleDirecte</h3><div class="pp-grid">'+stats.filter(x=>x[1]||x[0]!=="Autres événements négatifs").map(([label,value])=>'<div class="pp-stat"><div class="n">'+value+'</div><div class="l">'+esc(label)+'</div></div>').join("")+'</div>'+
+    (reasons.size?'<h4>Motifs négatifs</h4><div>'+[...reasons].sort((a,b)=>b[1]-a[1]).map(([reason,num])=>'<div class="pp-item">'+esc(reason)+' : '+num+'</div>').join("")+'</div>':'')+
+    (detail?'<details><summary>Historique des '+imported.length+' mentions</summary>'+imported.map(row=>'<div class="pp-item"><div class="small-note">'+esc(row.date||"")+'</div><strong>'+esc(String(row.titre).slice(PP_VIE_PREFIX.length))+'</strong><div style="white-space:pre-wrap">'+esc(row.contenu||"")+'</div></div>').join("")+'</details>':'')+
+    '<p class="small-note">Les mentions importées sont distinctes des remarques personnelles et des compteurs de mots aux parents.</p></section>';
+}
+function ppVieExtract(text,students,from,to){
+  const rows=ppImportParseCSV(text,";"),header=rows.shift()?.map(ppImportNormalize);
+  if(!header||header.slice(0,6).join("|")!=="ELEVE|DATE|TYPE|MOTIF|AUTEUR|COMMENTAIRE")throw Error("Format attendu : CSV Vie scolaire (Élève, Date, Type, Motif, Auteur, Commentaire, Déroulement).");
+  const names=new Map();
+  for(const st of students)for(const name of new Set([st.nom+" "+st.prenom,st.prenom+" "+st.nom])){
+    const k=ppImportNormalize(name);if(!names.has(k))names.set(k,[]);names.get(k).push(st);
+  }
+  const entries=[],issues=[],keys=new Set();let excluded=0;
+  for(let i=0;i<rows.length;i++){
+    const [name,date,type,reason,author,comment,details]=rows[i].map(x=>String(x||"").trim());
+    if(!rows[i].some(x=>String(x).trim()))continue;
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(date)||!Number.isFinite(Date.parse(date))||new Date(date).toISOString().slice(0,10)!==date){issues.push("Ligne "+(i+2)+" : date invalide.");continue;}
+    if(date<from||date>to){excluded++;continue;}
+    const candidates=names.get(ppImportNormalize(name))||[];
+    if(candidates.length!==1){issues.push("Ligne "+(i+2)+" : élève non reconnu ou ambigu.");continue;}
+    if(!/^(Observation(?: |$)|Appréciation positive$|Exclusion de cours$|Retenue(?: |$)|Sanction(?: |$)|Avertissement(?: |$)|Blâme(?: |$))/.test(type)){issues.push("Ligne "+(i+2)+" : type de mention non reconnu.");continue;}
+    const student=candidates[0];
+    const row={eleve_id:String(student.id),classe:student.classe,date,type:"observation",titre:PP_VIE_PREFIX+type+" — "+(reason||"Motif non renseigné"),contenu:[author?"Auteur : "+author:"",comment||"",details||""].filter(Boolean).join("\n")};
+    const key=ppVieKey(row);if(keys.has(key)){issues.push("Ligne "+(i+2)+" : doublon dans le fichier.");continue;}
+    keys.add(key);entries.push({student,row});
+  }
+  return {entries,issues,excluded};
+}
+function ppVieKey(row){return JSON.stringify([String(row.eleve_id),String(row.date).slice(0,10),String(row.titre||""),String(row.contenu||"")]);}
+function ppOpenVieImport(){
+  const students=ppClassStudents(),initial=ppPeriod==="year"?"t1":ppPeriod,classe=ppClass;
+  const modal=ppModal('<h2>📋 Importer la vie scolaire ÉcoleDirecte</h2><p>Classe : '+esc(classe)+'</p><p class="small-note">Sélectionne le CSV de vie scolaire extrait du PDF. Les données sont lues localement ; aucune mention n’est envoyée avant validation.</p><div class="editbox"><label>Trimestre</label><select id="ppViePeriod">'+ppSelectOptions([["t1","Trimestre 1"],["t2","Trimestre 2"],["t3","Trimestre 3"]],initial)+'</select><label>Date de début</label><input id="ppVieFrom" type="date" value="'+esc(ppPeriodStart(initial))+'"><label>Date de fin (incluse)</label><input id="ppVieTo" type="date" value="'+esc(ppPeriodEnd(initial))+'"><label>Fichier CSV</label><input id="ppVieFile" type="file" accept=".csv,text/csv"></div><div class="row"><button id="ppViePreview" type="button">Vérifier le fichier</button><button id="ppVieClose" type="button">Fermer</button></div><div id="ppVieResult"></div>');
+  const $=id=>modal.querySelector("#"+id),period=$("ppViePeriod"),from=$("ppVieFrom"),to=$("ppVieTo"),file=$("ppVieFile"),preview=$("ppViePreview"),close=$("ppVieClose"),out=$("ppVieResult");
+  const invalidate=()=>out.replaceChildren();file.onchange=from.onchange=to.onchange=invalidate;period.onchange=()=>{from.value=ppPeriodStart(period.value);to.value=ppPeriodEnd(period.value);invalidate();};close.onclick=()=>modal.remove();
+  preview.onclick=async()=>{
+    invalidate();const source=file.files?.[0],start=from.value,end=to.value,selected=period.value;
+    if(!source||source.size>5*1024*1024||!start||!end||start>end||start<ppPeriodStart(selected)||end>ppPeriodEnd(selected)){out.textContent="Choisis un CSV de moins de 5 Mo et des dates comprises dans le trimestre.";return;}
+    const controls=[period,from,to,file,preview];controls.forEach(x=>x.disabled=true);
+    try{
+      const result=ppVieExtract(await source.text(),students,start,end);
+      if(!modal.isConnected)return;
+      const old=await ppLoadTable(PP_TABLES.events,null,classe);
+      if(!modal.isConnected)return;
+      const existing=new Set(old.filter(ppVieIsImported).map(ppVieKey)),pending=result.entries.filter(e=>!existing.has(ppVieKey(e.row)));
+      const count=ppVieCounts(result.entries.map(e=>e.row));
+      out.innerHTML='<h3>Prévisualisation</h3><p>'+result.entries.length+' mentions reconnues · '+pending.length+' nouvelles · '+(result.entries.length-pending.length)+' déjà importées · '+result.excluded+' hors période.</p>'+
+        '<p>'+count.observation+' observations · '+count.exclusion+' exclusions · '+count.positive+' appréciations positives'+(count.other?' · '+count.other+' autres événements':'')+'</p>'+
+        (result.issues.length?'<details open><summary>Avertissements ('+result.issues.length+')</summary><ul>'+result.issues.map(x=>'<li>'+esc(x)+'</li>').join("")+'</ul></details>':'')+
+        '<details><summary>Détail par élève</summary>'+students.map(st=>{const list=result.entries.filter(x=>String(x.student.id)===String(st.id));const n=ppVieCounts(list.map(x=>x.row));return '<div class="pp-item">'+esc(ppName(st))+' : '+n.observation+' observation(s), '+n.exclusion+' exclusion(s), '+n.positive+' mention(s) positive(s)</div>';}).join("")+'</details>'+
+        (pending.length?'<button type="button" id="ppVieCommit" class="primary">Importer les '+pending.length+' nouvelles mentions</button>':'<p>Aucune nouvelle mention à enregistrer.</p>');
+      const commit=$("ppVieCommit");
+      if(commit)commit.onclick=async()=>{
+        if(!confirm("Confirmer l’import de "+pending.length+" mentions pour "+classe+", du "+start+" au "+end+" ?"))return;
+        const locked=[...controls,close,commit];locked.forEach(x=>x.disabled=true);const blocker=e=>e.stopImmediatePropagation();modal.addEventListener("click",blocker,true);
+        try{
+          const fresh=await ppLoadTable(PP_TABLES.events,null,classe),already=new Set(fresh.filter(ppVieIsImported).map(ppVieKey));
+          const toInsert=pending.filter(x=>!already.has(ppVieKey(x.row))).map(x=>({...x.row,created_by:user?.id||null}));
+          if(toInsert.length){
+            const {data,error}=await sb.from(PP_TABLES.events).insert(toInsert).select("id");
+            if(error)throw Error(error.message);
+            if(data?.length!==toInsert.length)throw Error("Nombre de mentions enregistrées non confirmé.");
+          }
+          out.innerHTML='<p><strong>'+toInsert.length+' nouvelles mentions enregistrées.</strong> Les mentions déjà présentes et les moyennes sont inchangées.</p>';
+          ppPeriod=selected;const sel=document.getElementById("ppPeriodSelect");if(sel)sel.value=selected;
+          if(document.getElementById("ppDashboard"))await renderPPDashboard();
+        }catch(e){out.insertAdjacentHTML("beforeend",'<p role="alert">Import non confirmé : '+esc(e.message)+'. Relance la vérification avant de réessayer.</p>');}
+        finally{modal.removeEventListener("click",blocker,true);locked.forEach(x=>x.disabled=false);}
+      };
+    }catch(e){out.textContent="Import impossible : "+e.message;}
+    finally{controls.forEach(x=>x.disabled=false);}
+  };
+}
+async function ppVieCouncilRender(host,period){
+  if(!host)return;
+  try{
+    const all=await ppLoadTable(PP_TABLES.events,null,ppClass);
+    if(!host.isConnected)return;
+    const ids=new Set(ppClassStudents().map(x=>String(x.id)));
+    host.innerHTML=ppVieSummary(all.filter(x=>ids.has(String(x.eleve_id))&&ppEventInSelectedPeriod(x,period.toLowerCase())));
+  }catch(e){if(host.isConnected)host.textContent="Bilan de vie scolaire indisponible : "+e.message;}
+}
+function ppVieAppreciation(rows){
+  const n=ppVieCounts(rows),negative=n.observation+n.exclusion+n.other;
+  if(!negative&&!n.positive)return "";
+  return " Vie scolaire : "+negative+" mention(s) négative(s)"+(n.exclusion?", dont "+n.exclusion+" exclusion(s) de cours":"")+", "+n.positive+" mention(s) positive(s).";
+}
+
 function ppModal(html){const d=document.createElement("div");d.className="pp-modal";d.innerHTML=`<div class="pp-modal-card">${html}</div>`;d.addEventListener("click",e=>{if(e.target===d)d.remove()});document.body.appendChild(d);return d}
 function ppCloseModal(){document.querySelectorAll(".pp-modal").forEach(x=>x.remove())}
 function ppSelectOptions(list,selected=""){return list.map(x=>`<option value="${esc(x[0])}" ${String(x[0])===String(selected)?"selected":""}>${esc(x[1])}</option>`).join("")}
@@ -8240,9 +8352,9 @@ async function ppRenderStudent(tab="synthese"){
         '<div class="pp-stat"><div class="n">'+activeAm+'</div><div class="l">Aménagement(s) actif(s)</div></div>'+
         '<div class="pp-stat"><div class="n">'+vigilanceEvents.length+'</div><div class="l">Points de vigilance</div></div></div>'+
         '<section class="pp-section"><h3>⚠️ Points de vigilance</h3>'+vigilanceHtml+'</section>'+
-        gradeSection+(gradePeriod?'<div id="ppStudentComp"><p class="small-note">Chargement des compétences…</p></div>':"")+
+        gradeSection+(gradePeriod?'<div id="ppStudentComp"><p class="small-note">Chargement des compétences…</p></div>':"")+ppVieSummary(visibleEvents,true)+
         '<div class="pp-two"><section class="pp-section"><h3>📝 Derniers suivis ('+esc(ppPeriodText(currentPeriod))+')</h3>'+
-        (visibleEvents.slice(0,5).map(ppEventHtml).join("")||'<div class="pp-empty">Aucun suivi enregistré pour cette période.</div>')+
+        (visibleEvents.filter(x=>!ppVieIsImported(x)).slice(0,5).map(ppEventHtml).join("")||'<div class="pp-empty">Aucun suivi enregistré pour cette période.</div>')+
         '</section><section class="pp-section"><h3>📋 Actions ouvertes (toutes périodes)</h3>'+
         (openActions.slice(0,5).map(ppActionHtml).join("")||'<div class="pp-empty">Aucune action en cours.</div>')+
         '</section></div><section class="pp-section"><h3>🧩 Aménagements actifs</h3>'+
@@ -8303,7 +8415,7 @@ function ppGenerateAppreciation(grades,student,events=[]){
     result+=`. Moyenne générale pondérée : ${ppFormatGrade(avg)}/20.`;
   }
   const remarques=events
-    .filter(x=>["observation","vigilance","équipe","autre"].includes(String(x.type)))
+    .filter(x=>!ppVieIsImported(x)&&["observation","vigilance","équipe","autre"].includes(String(x.type)))
     .filter(x=>String(x.contenu||"").trim())
     .sort((a,b)=>String(b.date||"").localeCompare(String(a.date||"")));
   if(remarques.length){
@@ -8315,7 +8427,7 @@ function ppGenerateAppreciation(grades,student,events=[]){
       result+=" "+textes.join(" ");
     }
   }
-  return result;
+  return result+ppVieAppreciation(events);
 }
 function ppGradesEditor(grades){
   const by=new Map(grades.map(x=>[String(x.discipline),x]));
@@ -8563,6 +8675,8 @@ async function ppCouncilRefreshAcademic(){
     if(token!==ppCouncilLoadRequest||!host.isConnected||document.getElementById("ppCouncilPeriod")?.value!==period)return;
     host.innerHTML=ppCouncilAcademicHtml(ppCouncilAcademicData(ppClassStudents(),marks),period)+'<div id="ppCouncilCompetences"><p class="small-note">Chargement des compétences…</p></div>';
     void ppCompRenderInto(host.querySelector("#ppCouncilCompetences"),period);
+    host.insertAdjacentHTML("beforeend",'<div id="ppCouncilVie"><p class="small-note">Chargement de la vie scolaire…</p></div>');
+    void ppVieCouncilRender(host.querySelector("#ppCouncilVie"),period);
   }catch(e){
     if(token===ppCouncilLoadRequest&&host.isConnected)
       host.innerHTML='<section class="pp-section"><p role="alert">Bilan des résultats indisponible : '+esc(e.message)+'</p>'+
