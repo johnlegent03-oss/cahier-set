@@ -7752,7 +7752,14 @@ async function ppNewStudentEvent(){
 }
 async function ppSaveQuickEvent(){const m=document.querySelector(".pp-modal"),sid=document.getElementById("ppf_student")?.value,s=ppStudentById(sid);if(!s)return;try{await ppInsert(PP_TABLES.events,{eleve_id:String(s.id),classe:s.classe,date:document.getElementById("ppf_date").value,type:document.getElementById("ppf_type").value,titre:document.getElementById("ppf_title").value.trim(),contenu:document.getElementById("ppf_content").value.trim()});m.remove();await renderPPDashboard();alert("Suivi enregistré ✓")}catch(e){alert("Enregistrement impossible : "+e.message)}}
 // Fiche PP : période explicite, sans confondre « Année » et les notes du T1.
-let ppStudentActiveTab="synthese",ppStudentRenderRequest=0,ppGradeFormSnapshot=null;
+let ppStudentActiveTab="synthese",ppStudentRenderRequest=0,ppGradeFormSnapshot=null,ppGradeSaving=false;
+function ppNextStudent(id){
+  const student=ppStudentById(id);
+  if(!student)return null;
+  const list=ppClassStudents().filter(s=>String(s.classe)===String(student.classe));
+  const index=list.findIndex(s=>String(s.id)===String(id));
+  return index>=0?list[index+1]||null:null;
+}
 function ppPeriodText(period){
   return ({year:"Année scolaire",t1:"Trimestre 1",t2:"Trimestre 2",t3:"Trimestre 3"})[period]||"Période";
 }
@@ -7854,11 +7861,16 @@ async function ppRenderStudent(tab="synthese"){
       if(request!==ppStudentRenderRequest||!target.isConnected||studentId!==String(ppStudentId))return;
       const manualAvg=gradePeriod?ppWeightedAverage(grades):null;
       const generated=gradePeriod?ppGenerateAppreciation(grades,student,visibleEvents):"";
+      const nextStudent=ppNextStudent(studentId);
       const gradeSection=gradePeriod?
         '<section class="pp-section"><div class="entry-head"><div><h3>📊 Résultats du '+esc(ppPeriodText(currentPeriod).toLowerCase())+'</h3>'+
         '<p class="small-note">Moyennes par discipline sur 20 ; les disciplines non renseignées ne comptent pas dans la moyenne générale.</p></div>'+
-        '<button class="primary" type="button" onclick="ppSaveGrades()">💾 Enregistrer les moyennes</button></div>'+
+        '<button class="primary" type="button" data-pp-grade-save onclick="ppSaveGrades()">💾 Enregistrer les moyennes</button></div>'+
         ppGradesEditor(grades)+
+        '<div class="row" style="margin-top:14px"><button class="primary" type="button" data-pp-grade-save onclick="ppSaveGrades(true)"'+
+        (nextStudent?'':' disabled')+'>💾 Enregistrer et passer à l’élève suivant →</button>'+
+        (nextStudent?'<span class="small-note">Suivant : '+esc(ppName(nextStudent))+'</span>':
+          '<span class="small-note">Dernier élève de la classe — utilise « Enregistrer les moyennes ».</span>')+'</div>'+
         '<div class="pp-appreciation" style="margin-top:14px"><strong>💬 Proposition d’appréciation générale</strong>'+
         '<textarea id="ppGeneratedAppreciation" rows="4" style="width:100%;margin-top:8px">'+esc(generated)+'</textarea>'+
         '<div class="row" style="margin-top:8px"><button type="button" onclick="ppGenerateAndFillAppreciation()">✨ Régénérer à partir des résultats et du comportement</button></div>'+
@@ -8017,26 +8029,45 @@ async function ppPersistGrades(student,period,grades){
     if(!data?.length)throw new Error("Suppression non confirmée pour « "+discipline+" ».");
   }
 }
-async function ppSaveGrades(){
-  const student=ppStudentById(ppStudentId);if(!student)return;
+async function ppSaveGrades(advance=false){
+  if(ppGradeSaving)return;
+  const student=ppStudentById(ppStudentId),body=document.getElementById("ppStudentBody");
+  if(!student||!body||!body.querySelector(".pp-grade"))return;
   if(ppPeriod==="year"){alert("Sélectionne un trimestre avant d’enregistrer des moyennes.");return;}
-  const period=ppPeriod.toUpperCase();
-  const button=document.querySelector('button[onclick="ppSaveGrades()"]');
-  if(button?.disabled)return;
+  const selectedPeriod=ppPeriod,period=selectedPeriod.toUpperCase();
+  const nextStudent=advance?ppNextStudent(student.id):null;
+  const stillCurrent=()=>body.isConnected&&document.getElementById("ppStudentBody")===body&&
+    String(ppStudentId)===String(student.id)&&ppPeriod===selectedPeriod&&ppStudentActiveTab==="synthese";
+  const controls=[...content.querySelectorAll("button,input,select,textarea")].filter(el=>!el.disabled);
+  let saved=false;
+  ppGradeSaving=true;
   try{
     const grades=ppCollectGrades();
+    controls.forEach(el=>el.disabled=true);
     const existing=await ppLoadGrades(student.id,period);
+    if(!stillCurrent())return;
     const known=new Set([...PP_DISCIPLINES.map(d=>d.nom),PP_SCIENCES.pc,PP_SCIENCES.svt]);
     if(!grades.length&&existing.some(row=>known.has(row.discipline))&&
       !confirm("Les moyennes de "+period+" sont toutes vides. Confirmer la suppression des notes renseignées ?"))return;
-    if(button)button.disabled=true;
     await ppPersistGrades(student,period,grades);
-    ppGradeFormSnapshot=ppCurrentGradeFormSnapshot();
-    await ppRenderStudent("synthese");
-    alert("Moyennes de "+period+" enregistrées ✓");
+    saved=true;
+    if(stillCurrent())ppGradeFormSnapshot=ppCurrentGradeFormSnapshot();
   }catch(e){
     alert("Enregistrement incomplet : "+e.message+". Vérifie les moyennes de cette période avant une nouvelle tentative.");
-  }finally{if(button?.isConnected)button.disabled=false;}
+  }finally{
+    controls.forEach(el=>{if(el.isConnected)el.disabled=false;});
+    ppGradeSaving=false;
+  }
+  if(!saved||!stillCurrent())return;
+  if(advance&&nextStudent){
+    await openPPStudent(nextStudent.id);
+    if(String(ppStudentId)===String(nextStudent.id)&&ppPeriod===selectedPeriod){
+      document.querySelector("#ppStudentBody .pp-grade")?.focus();
+    }
+  }else{
+    await ppRenderStudent("synthese");
+    alert("Moyennes de "+period+" enregistrées ✓");
+  }
 }
 async function ppGenerateAndFillAppreciation(){
   const student=ppStudentById(ppStudentId);
