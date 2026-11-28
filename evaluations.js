@@ -5067,7 +5067,7 @@ function localDraftBegin(mode,context,root){
   if(!owner){s.pending=true;localDraftDisplay('Connecte-toi pour activer les brouillons locaux associés à ton compte.',true);return;}
   try{
     const found=localDraftRead(s);s.expected=found.raw;
-    if(found.record&&JSON.stringify(found.record.payload)!==s.base)localDraftPending(found);
+    if(found.record&&(JSON.stringify(found.record.payload)!==s.base||(mode==='correction'&&found.record.schema!==s.schema)))localDraftPending(found);
     else if(found.record){localStorage.removeItem(s.key);s.expected=null;}
     if(!s.pending)localDraftDisplay('Protection locale active : les modifications seront conservées sur cet appareil, sans valider l’évaluation ou la copie.');
   }catch(e){s.pending=e instanceof SyntaxError||/Brouillon illisible/.test(e.message);localDraftDisplay('Brouillon local indisponible : '+e.message+' L’enregistrement habituel reste possible si aucun brouillon à reprendre n’est détecté.',true);localDraftActions();}
