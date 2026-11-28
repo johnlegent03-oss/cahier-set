@@ -7740,9 +7740,161 @@ async function renderPPDashboard(){
     const overdue=actions.filter(x=>x.statut!=="termine"&&x.echeance&&x.echeance<=ppToday()).length;
     const statsBy=new Map(ids.map(id=>[id,{events:0,contacts:0,amenagements:0,actions:0,overdue:0}]));
     ev.forEach(x=>{const z=statsBy.get(String(x.eleve_id));if(z)z.events++});co.forEach(x=>{const z=statsBy.get(String(x.eleve_id));if(z)z.contacts++});am.forEach(x=>{const z=statsBy.get(String(x.eleve_id));if(z)z.amenagements++});ac.forEach(x=>{const z=statsBy.get(String(x.eleve_id));if(z&&x.statut!=="termine"){z.actions++;if(x.echeance&&x.echeance<=ppToday())z.overdue++}});
-    target.innerHTML=`<div class="pp-grid"><div class="pp-stat"><div class="n">${students.length}</div><div class="l">Élèves suivis</div></div><div class="pp-stat"><div class="n">${am.length}</div><div class="l">Aménagements actifs</div></div><div class="pp-stat"><div class="n">${co.length}</div><div class="l">Contacts (${ppPeriod==="year"?"année":ppPeriod.toUpperCase()})</div></div><div class="pp-stat"><div class="n">${overdue}</div><div class="l">Actions à relancer</div></div></div>${ppPriorities}<section class="pp-section"><div class="entry-head"><div><h3>👥 Élèves</h3><p class="small-note">Clique sur un élève pour ouvrir sa fiche PP.</p></div><div class="row"><button type="button" onclick="openPPCouncil()">📅 Conseil de classe</button><button type="button" data-ppq-launch="1" onclick="ppLaunchConsultation()">🗳 Consultation des élèves</button><button type="button" onclick="ppNewStudentEvent()">＋ Ajouter un suivi</button></div></div><div class="pp-student-list">${students.map(s=>`<div class="pp-student" onclick="openPPStudent('${esc(s.id)}')"><div><strong>${esc(ppName(s))}</strong><div class="small-note">${esc(s.classe||"")}</div></div><div class="pp-badges">${ppStatusBadges(s,statsBy.get(String(s.id))||{})}</div></div>`).join("")||'<div class="pp-empty">Aucun élève dans cette sélection.</div>'}</div></section>`;
+    target.innerHTML=`<div class="pp-grid"><div class="pp-stat"><div class="n">${students.length}</div><div class="l">Élèves suivis</div></div><div class="pp-stat"><div class="n">${am.length}</div><div class="l">Aménagements actifs</div></div><div class="pp-stat"><div class="n">${co.length}</div><div class="l">Contacts (${ppPeriod==="year"?"année":ppPeriod.toUpperCase()})</div></div><div class="pp-stat"><div class="n">${overdue}</div><div class="l">Actions à relancer</div></div></div>${ppPriorities}<section class="pp-section"><div class="entry-head"><div><h3>👥 Élèves</h3><p class="small-note">Clique sur un élève pour ouvrir sa fiche PP.</p></div><div class="row"><button type="button" onclick="ppOpenGradeImport()">📥 Importer ÉcoleDirecte (CSV)</button><button type="button" onclick="openPPCouncil()">📅 Conseil de classe</button><button type="button" data-ppq-launch="1" onclick="ppLaunchConsultation()">🗳 Consultation des élèves</button><button type="button" onclick="ppNewStudentEvent()">＋ Ajouter un suivi</button></div></div><div class="pp-student-list">${students.map(s=>`<div class="pp-student" onclick="openPPStudent('${esc(s.id)}')"><div><strong>${esc(ppName(s))}</strong><div class="small-note">${esc(s.classe||"")}</div></div><div class="pp-badges">${ppStatusBadges(s,statsBy.get(String(s.id))||{})}</div></div>`).join("")||'<div class="pp-empty">Aucun élève dans cette sélection.</div>'}</div></section>`;
   }catch(e){target.innerHTML=`<section class="hero error"><h3>⚠️ Suivi PP indisponible</h3><p>${esc(e.message)}</p><p class="small-note">Vérifie que les tables PP ont bien été créées dans Supabase.</p></section>`}
 }
+
+/* Import local des récapitulatifs ÉcoleDirecte exportés en CSV. */
+function ppImportNormalize(value){
+  return String(value??"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toUpperCase().replace(/[^A-Z0-9]+/g," ").trim();
+}
+function ppImportDiscipline(value){
+  const key=ppImportNormalize(value);
+  if(/^FRANCAIS(?: |$)/.test(key))return "Français";
+  if(/^MATHEMATIQUES(?: |$)/.test(key))return "Mathématiques";
+  if(/^ANGLAIS(?: |$)/.test(key))return "Anglais";
+  if(/^HIST(?:OIRE)? GEO(?:GRAPHIE)?(?: |$)/.test(key))return "Histoire-Géographie";
+  if(/^ARTS PLASTIQUES(?: |$)/.test(key))return "Arts plastiques";
+  if(/^EDUCATION MUSICALE(?: |$)/.test(key))return "Éducation musicale";
+  if(/^(?:ED PHYSIQUE(?: |$)|EDUCATION PHYSIQUE(?: |$)|EPS$)/.test(key))return "EPS";
+  if(/^PHYSIQUE CHIMIE(?: |$)/.test(key))return "Physique-Chimie";
+  if(/^(?:SCIENCES? (?:DE LA )?VIE(?: |$)|SVT$)/.test(key))return "SVT";
+  return "";
+}
+function ppImportParseCSV(text,separator){
+  const rows=[];let row=[],field="",quoted=false;
+  text=String(text).replace(/^\uFEFF/,"");
+  for(let i=0;i<text.length;i++){
+    const ch=text[i];
+    if(quoted){
+      if(ch==='"'&&text[i+1]==='"'){field+='"';i++;}
+      else if(ch==='"')quoted=false;
+      else field+=ch;
+    }else if(ch==='"'&&field===""){quoted=true;}
+    else if(ch===separator){row.push(field);field="";}
+    else if(ch==="\r"||ch==="\n"){
+      if(ch==="\r"&&text[i+1]==="\n")i++;
+      row.push(field);rows.push(row);row=[];field="";
+    }else field+=ch;
+  }
+  if(quoted)throw new Error("Guillemets CSV non fermés.");
+  if(field!==""||row.length){row.push(field);rows.push(row);}
+  return rows;
+}
+function ppImportExtract(text,students,period){
+  const expected=[...PP_DISCIPLINES.map(d=>d.nom),PP_SCIENCES.pc,PP_SCIENCES.svt];
+  let best=null;
+  for(const separator of [";",",","\t"]){
+    const rows=ppImportParseCSV(text,separator);
+    rows.forEach((row,index)=>{
+      const columns=row.map((v,i)=>({discipline:ppImportDiscipline(v),i})).filter(c=>c.discipline);
+      const score=new Set(columns.map(c=>c.discipline)).size;
+      if(!best||score>best.score)best={rows,index,columns,score};
+    });
+  }
+  if(!best||best.score<5)throw new Error("En-têtes ÉcoleDirecte non reconnus. Exporte le récapitulatif complet en CSV, avec les titres des disciplines.");
+  const {rows,index,columns}=best,first=Math.min(...columns.map(c=>c.i));
+  const metadata=ppImportNormalize(rows.slice(0,index+1).flat().join(" "));
+  const classMatch=metadata.match(/\b([6543])\s*(?:EME|E)\s*(\d+)\b/);
+  if(classMatch&&classMatch[1]+"e"+classMatch[2]!==ppClass)throw new Error("La classe indiquée dans le fichier ne correspond pas à "+ppClass+".");
+  const periodMatch=metadata.match(/\b([123])\s*(?:ER|E|EME)?\s*TRIMESTRE\b/)||metadata.match(/\bTRIMESTRE\s*([123])\b/);
+  if(periodMatch&&"t"+periodMatch[1]!==period)throw new Error("Le trimestre du fichier ne correspond pas au trimestre sélectionné.");
+  const names=new Map();
+  for(const student of students){
+    for(const raw of new Set([student.nom+" "+student.prenom,student.prenom+" "+student.nom])){
+      const key=ppImportNormalize(raw);
+      if(!key)continue;
+      if(!names.has(key))names.set(key,[]);
+      if(!names.get(key).some(s=>String(s.id)===String(student.id)))names.get(key).push(student);
+    }
+  }
+  const entries=[],issues=[],seen=new Map();
+  const excluded=/^(?:SERVICE DE NOTATION|GROUPES|COEFFICIENTS|MOYENNE GENERALE|MOYENNE MINIMALE|MOYENNE MAXIMALE|MOYENNES|INFERIEUR A|SUPERIEUR A|ENTRE 8 ET 12|EDITE LE|MOYENNE ETABLISSEMENT|TOTAL|RANG)(?: |$)/;
+  const missing=/^(?:ABS(?:ENT|ENTE)?|DISP(?:ENSE|ENSEE)?|NN|NE|NON NOTE|NON NOTEE|N N|N E|NA)$/;
+  for(let n=index+1;n<rows.length;n++){
+    const row=rows[n],prefix=row.slice(0,first).map(v=>String(v??"").trim()).filter(Boolean);
+    if(prefix.some(v=>excluded.test(ppImportNormalize(v))))continue;
+    const subjectValues=columns.map(c=>String(row[c.i]??"").trim());
+    if(!subjectValues.some(v=>/^\d+(?:[,.]\d+)?$/.test(v)))continue;
+    const possible=new Set();
+    const candidates=[...prefix];
+    if(prefix.length>=2)candidates.push(prefix[0]+" "+prefix[1],prefix[1]+" "+prefix[0]);
+    for(const value of candidates)for(const st of names.get(ppImportNormalize(value))||[])possible.add(st);
+    const rowLabel="Ligne "+(n+1);
+    if(possible.size!==1){issues.push(rowLabel+" : "+(possible.size?"nom ambigu":"élève non reconnu ou nom absent")+".");continue;}
+    const student=[...possible][0],id=String(student.id),by=new Map();let invalid=false;
+    for(const c of columns){
+      const raw=String(row[c.i]??"").trim();
+      if(!raw||/^[—–-]+$/.test(raw)||missing.test(ppImportNormalize(raw)))continue;
+      const number=raw.replace(/\s/g,"").replace(",",".");
+      const val=/^\d+(?:\.\d+)?$/.test(number)?ppNumericGrade(number):null;
+      if(val===null){issues.push(rowLabel+" : moyenne non reconnue en "+c.discipline+".");invalid=true;continue;}
+      if(by.has(c.discipline)&&by.get(c.discipline)!==val){issues.push(rowLabel+" : deux moyennes différentes en "+c.discipline+".");invalid=true;}
+      by.set(c.discipline,val);
+    }
+    if(seen.has(id)){seen.get(id).invalid=true;issues.push(rowLabel+" : élève présent plusieurs fois.");invalid=true;}
+    const entry={student,grades:[...by].map(([discipline,moyenne])=>({discipline,moyenne})),invalid};
+    entries.push(entry);seen.set(id,entry);
+  }
+  return {entries:entries.filter(e=>!e.invalid&&e.grades.length),issues,expected,missingColumns:expected.filter(d=>!columns.some(c=>c.discipline===d)),periodVerified:!!periodMatch,classVerified:!!classMatch};
+}
+function ppOpenGradeImport(){
+  const students=ppClassStudents();
+  if(!students.length){alert("Aucun élève disponible.");return;}
+  const modal=ppModal('<h2>📥 Importer les résultats ÉcoleDirecte</h2><p class="small-note">Dans Numbers : Fichier → Exporter vers → CSV. Les noms et prénoms doivent être présents. Le fichier est lu localement dans le navigateur.</p><div class="editbox"><label>Classe : '+esc(ppClass)+'</label><label>Trimestre</label><select id="ppImportPeriod">'+ppSelectOptions([["","Choisir le trimestre"],["t1","Trimestre 1"],["t2","Trimestre 2"],["t3","Trimestre 3"]],ppPeriod==="year"?"":ppPeriod)+'</select><label>Récapitulatif CSV</label><input id="ppImportFile" type="file" accept=".csv,.tsv,text/csv,text/tab-separated-values"><p class="small-note">Les cellules vides ne supprimeront aucune moyenne existante. Seules les disciplines reconnues seront importées.</p></div><div class="row"><button id="ppImportPreview" type="button">Vérifier le fichier</button><button id="ppImportClose" type="button">Fermer</button></div><div id="ppImportResult"></div>');
+  const $=id=>modal.querySelector("#"+id),out=$("ppImportResult"),select=$("ppImportPeriod"),file=$("ppImportFile"),preview=$("ppImportPreview"),close=$("ppImportClose");
+  const invalidate=()=>{out.innerHTML="";};
+  select.addEventListener("change",invalidate);file.addEventListener("change",invalidate);
+  close.onclick=()=>modal.remove();
+  preview.onclick=async()=>{
+    invalidate();
+    const selected=select.value,source=file.files?.[0];
+    if(!selected||!source){out.textContent="Choisis un trimestre et un fichier CSV.";return;}
+    if(source.size>5*1024*1024){out.textContent="Fichier trop volumineux (maximum 5 Mo).";return;}
+    preview.disabled=true;select.disabled=true;file.disabled=true;
+    try{
+      const buffer=await source.arrayBuffer();
+      let txt=new TextDecoder("utf-8").decode(buffer);
+      if(txt.includes("\uFFFD"))txt=new TextDecoder("windows-1252").decode(buffer);
+      if(!modal.isConnected)return;
+      const result=ppImportExtract(txt,students,selected);
+      const count=result.entries.reduce((a,e)=>a+e.grades.length,0);
+      out.innerHTML='<h3>Prévisualisation — '+esc(ppPeriodText(selected))+'</h3><p><strong>'+result.entries.length+' / '+students.length+' élèves reconnus · '+count+' moyennes</strong></p>'+
+        (!result.classVerified||!result.periodVerified?'<p class="small-note">Classe ou trimestre non confirmé par les en-têtes : vérifie la sélection.</p>':'')+
+        (result.missingColumns.length?'<p class="small-note">Colonnes absentes : '+esc(result.missingColumns.join(", "))+'</p>':'')+
+        (result.issues.length?'<details open><summary>'+result.issues.length+' avertissement(s) — lignes exclues</summary><ul>'+result.issues.map(v=>'<li>'+esc(v)+'</li>').join("")+'</ul></details>':'')+
+        (result.entries.length?'<div style="overflow:auto;max-height:360px"><table><thead><tr><th>Élève</th>'+result.expected.map(d=>'<th>'+esc(d)+'</th>').join("")+'</tr></thead><tbody>'+
+          result.entries.map(e=>'<tr><td>'+esc(ppName(e.student))+'</td>'+result.expected.map(d=>{const g=e.grades.find(g=>g.discipline===d);return '<td>'+(g?esc(ppFormatGrade(g.moyenne)):"—")+'</td>';}).join("")+'</tr>').join("")+
+          '</tbody></table></div><p class="small-note">Les moyennes présentes dans ce tableau remplaceront les moyennes déjà enregistrées pour les mêmes matières. Les tirets ne modifieront rien.</p><button id="ppImportCommit" type="button" class="primary">Importer les '+count+' moyennes</button>':'<p>Aucune moyenne importable. Vérifie notamment les noms et prénoms.</p>');
+      const commit=$("ppImportCommit");
+      if(commit)commit.onclick=async()=>{
+        if(!confirm("Confirmer l’import de "+count+" moyennes pour "+result.entries.length+" élèves, "+ppPeriodText(selected)+" ? Les moyennes correspondantes seront mises à jour."))return;
+        const controls=[select,file,preview,close,commit];controls.forEach(el=>el.disabled=true);
+        const blocker=e=>e.stopImmediatePropagation();
+        modal.addEventListener("click",blocker,true);
+        let ok=0,failures=[];
+        try{
+          for(const entry of result.entries){
+            try{await ppPersistGrades(entry.student,selected.toUpperCase(),entry.grades,true);ok++;}
+            catch(e){failures.push(ppName(entry.student)+" : "+e.message);}
+            commit.textContent="Importation : "+(ok+failures.length)+" / "+result.entries.length;
+          }
+          out.innerHTML='<h3>Import terminé</h3><p>'+ok+' élève(s) enregistré(s) sur '+result.entries.length+'.</p>'+
+            (failures.length?'<p>Enregistrement incomplet pour les élèves suivants : certaines moyennes ont pu être enregistrées. Une nouvelle importation du même fichier est possible.</p><ul>'+failures.map(v=>'<li>'+esc(v)+'</li>').join("")+'</ul>':'<p>Les fiches élèves et le bilan du conseil utilisent maintenant les nouvelles moyennes.</p>');
+          ppPeriod=selected;
+          const dashboardPeriod=document.getElementById("ppPeriodSelect");
+          if(dashboardPeriod)dashboardPeriod.value=selected;
+          if(document.getElementById("ppDashboard"))await renderPPDashboard();
+        }finally{
+          modal.removeEventListener("click",blocker,true);
+          controls.forEach(el=>el.disabled=false);
+        }
+      };
+    }catch(e){out.textContent="Import impossible : "+e.message;}
+    finally{preview.disabled=false;select.disabled=false;file.disabled=false;}
+  };
+}
+
 function ppModal(html){const d=document.createElement("div");d.className="pp-modal";d.innerHTML=`<div class="pp-modal-card">${html}</div>`;d.addEventListener("click",e=>{if(e.target===d)d.remove()});document.body.appendChild(d);return d}
 function ppCloseModal(){document.querySelectorAll(".pp-modal").forEach(x=>x.remove())}
 function ppSelectOptions(list,selected=""){return list.map(x=>`<option value="${esc(x[0])}" ${String(x[0])===String(selected)?"selected":""}>${esc(x[1])}</option>`).join("")}
@@ -7988,7 +8140,7 @@ function ppUpdateScienceAverage(){
   out.textContent=(pc!==null&&svt!==null)?`${ppFormatGrade((pc+svt)/2)} /20`:"—";
 }
 // Enregistrer sans suppression préalable : conserver les anciennes lignes si l'ajout échoue.
-async function ppPersistGrades(student,period,grades){
+async function ppPersistGrades(student,period,grades,preserveMissing=false){
   const existing=await ppLoadGrades(student.id,period);
   const known=new Set([...PP_DISCIPLINES.map(d=>d.nom),PP_SCIENCES.pc,PP_SCIENCES.svt]);
   const current=new Map();
@@ -8018,6 +8170,7 @@ async function ppPersistGrades(student,period,grades){
     if(error)throw new Error(error.message);
     if(!data?.length)throw new Error("Modification non confirmée pour « "+discipline+" ».");
   }
+  if(preserveMissing)return;
   // 3. Supprimer uniquement les disciplines affichées puis volontairement vidées.
   // Les disciplines externes ou non proposées dans le formulaire sont préservées.
   for(const [discipline,old] of current){
